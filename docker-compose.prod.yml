@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - apps/backend/.env
     restart: unless-stopped
