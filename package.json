@@ -1,0 +1,36 @@
+{
+  "name": "mahavir-achakan-node-js",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mahavir Achakan â€” Fastify + Knex + MySQL backend.",
+  "workspaces": [
+    "apps/backend",
+    "packages/shared"
+  ],
+  "scripts": {
+    "check:no-ts": "node scripts/check-no-typescript.js",
+    "lint": "eslint \"apps/**/*.{js,jsx,cjs,mjs}\" \"packages/**/*.{js,jsx,cjs,mjs}\"",
+    "format": "prettier --write \"**/*.{js,jsx,cjs,mjs,json,css,md}\"",
+    "dev": "npm --workspace @wrs/backend run dev",
+    "start": "npm --workspace @wrs/backend run start",
+    "db:create": "npm --workspace @wrs/backend run db:create",
+    "db:setup": "npm --workspace @wrs/backend run db:setup",
+    "migrate": "npm --workspace @wrs/backend run migrate",
+    "migrate:status": "npm --workspace @wrs/backend run migrate:status",
+    "migrate:rollback": "npm --workspace @wrs/backend run migrate:rollback",
+    "seed": "npm --workspace @wrs/backend run seed"
+  },
+  "engines": {
+    "node": ">=18.18.0",
+    "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-jsx-a11y": "^6.8.0",
+    "eslint-plugin-react": "^7.34.1",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "prettier": "^3.2.5"
+  }
+}

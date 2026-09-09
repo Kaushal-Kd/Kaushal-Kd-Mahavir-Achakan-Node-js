@@ -1,0 +1,22 @@
+{
+  "name": "@wrs/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared constants, Zod schemas, and utilities for the Wedding Rent System (desktop, mobile, backend).",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./constants": "./src/constants/index.js",
+    "./schemas": "./src/schemas/index.js",
+    "./utils": "./src/utils/index.js",
+    "./utils/*": "./src/utils/*"
+  },
+  "scripts": {
+    "test": "node --test \"src/**/*.test.js\""
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  }
+}

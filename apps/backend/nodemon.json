@@ -1,0 +1,13 @@
+{
+  "watch": ["src", "../../packages/shared/src"],
+  "ext": "js,mjs,json",
+  "ignore": [
+    "node_modules/**",
+    "credentials/**",
+    "logs/**",
+    "uploads/**",
+    "**/*.test.js"
+  ],
+  "delay": "300",
+  "exec": "node src/server.js"
+}
