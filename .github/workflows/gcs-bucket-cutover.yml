@@ -71,4 +71,5 @@ jobs:
               -v "$APP_DIR/apps/backend/scripts/migrate-gcs-bucket.js:/app/apps/backend/scripts/migrate-gcs-bucket.js" \
               -v "$APP_DIR/apps/backend/credentials:/app/apps/backend/credentials" \
               backend node scripts/migrate-gcs-bucket.js --rewrite-db --backup
-            echo "cutover rewrite finished"
+            rm -f "$APP_DIR/apps/backend/credentials/wedding-rental-system-63762e16f79d.json"
+            echo "cutover rewrite finished; old key file removed from server"
