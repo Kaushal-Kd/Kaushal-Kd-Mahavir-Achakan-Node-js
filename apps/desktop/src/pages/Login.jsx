@@ -1,16 +1,24 @@
-import { APP_LOGO_LETTER, APP_NAME } from '@wrs/shared/constants';
-import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { APP_LOGO_LETTER, APP_NAME, APP_TAGLINE } from '@wrs/shared/constants';
+import { CalendarCheck, Lock, Package, Store } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 
 import Button from '../components/ui/Button.jsx';
+import Checkbox from '../components/ui/Checkbox.jsx';
 import Input from '../components/ui/Input.jsx';
+import PasswordInput from '../components/ui/PasswordInput.jsx';
 import { api, unwrap } from '../lib/api.js';
 import { queryClient } from '../lib/queryClient.js';
 import { getReadableDeviceName, getStableDeviceId } from '../lib/deviceIdentity.js';
 import { useAuthStore } from '../stores/authStore.js';
 import { useShopStore } from '../stores/shopStore.js';
 import { toast } from '../stores/uiStore.js';
+
+const HIGHLIGHTS = [
+  { icon: CalendarCheck, label: 'Bookings and fittings in one calendar' },
+  { icon: Package, label: 'Live inventory across every garment' },
+  { icon: Store, label: 'Multi-shop staff, one sign-in' },
+];
 
 const Login = () => {
   const rememberedIdentity = useAuthStore((s) => s.rememberedIdentity);
@@ -25,7 +33,6 @@ const Login = () => {
   const [identity, setIdentity] = useState(rememberedIdentity || '');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(!!rememberedIdentity);
-  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(accessDeniedMessage);
 
@@ -73,88 +80,111 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 sm:p-6">
-      <div className="w-full max-w-md">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 rounded-lg bg-brand text-white flex items-center justify-center font-bold text-lg mb-3">
+    <div className="min-h-screen bg-surface lg:flex lg:h-screen lg:overflow-hidden">
+      <aside className="hidden border-r border-gray-200 bg-surface lg:flex lg:w-[44%] lg:shrink-0 lg:flex-col lg:justify-between lg:px-12 lg:py-12 xl:px-16">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-brand text-lg font-bold text-white">
             {APP_LOGO_LETTER}
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">{APP_NAME}</h1>
-          <p className="text-sm text-gray-500 mt-1">Sign in to your shop account</p>
+          <div>
+            <div className="text-base font-semibold leading-tight text-gray-900">{APP_NAME}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
+              {APP_TAGLINE}
+            </div>
+          </div>
         </div>
 
-        <form onSubmit={onSubmit} className="card p-6 space-y-4">
-          <Input
-            label="Phone number"
-            type="text"
-            inputMode="tel"
-            autoComplete="username"
-            required
-            value={identity}
-            onChange={(e) => setIdentity(e.target.value)}
-            placeholder="10-digit phone number"
-            hint="Existing accounts may use email during the transition."
-          />
+        <div className="max-w-md">
+          <div className="mb-5 h-1 w-10 rounded-sm bg-brand" />
+          <h2 className="text-3xl font-semibold leading-tight tracking-tight text-brand xl:text-[2.35rem]">
+            Run every shop from one place
+          </h2>
+          <p className="mt-4 text-sm leading-relaxed text-gray-600">
+            Bookings, stock, and staff — designed for wedding wear rental and retail.
+          </p>
+          <ul className="mt-10 space-y-5">
+            {HIGHLIGHTS.map(({ icon: Icon, label }) => (
+              <li key={label} className="flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand-light text-brand">
+                  <Icon size={18} aria-hidden="true" />
+                </span>
+                <span className="text-sm font-medium text-gray-800">{label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
 
+        <p className="text-xs text-gray-400">Authorized shop staff only</p>
+      </aside>
+
+      <div className="flex min-h-screen flex-1 flex-col bg-gray-50">
+        <header className="flex items-center gap-3 border-b border-gray-200 bg-surface px-5 py-4 lg:hidden">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-brand text-sm font-bold text-white">
+            {APP_LOGO_LETTER}
+          </div>
           <div>
-            <label className="label" htmlFor="login-password">Password</label>
-            <div className="relative">
-              <input
+            <div className="text-sm font-semibold text-gray-900">{APP_NAME}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
+              {APP_TAGLINE}
+            </div>
+          </div>
+        </header>
+
+        <main className="flex flex-1 items-center justify-center px-5 py-10 sm:px-8">
+          <div className="w-full max-w-[420px] rounded-lg border border-gray-200 bg-surface p-6 shadow-card sm:p-8">
+            <div className="mb-3 h-1 w-10 rounded-sm bg-brand" />
+            <h1 className="text-2xl font-semibold text-gray-900">Welcome back</h1>
+            <p className="mt-1 text-sm text-gray-500">Sign in to {APP_NAME}</p>
+
+            <form onSubmit={onSubmit} className="mt-8 space-y-5">
+              {err ? (
+                <div
+                  role="alert"
+                  className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                >
+                  {err}
+                </div>
+              ) : null}
+
+              <Input
+                label="Phone number"
+                type="text"
+                inputMode="tel"
+                autoComplete="username"
+                required
+                value={identity}
+                onChange={(e) => setIdentity(e.target.value)}
+                placeholder="10-digit phone number"
+                hint="Existing accounts may still use email."
+              />
+
+              <PasswordInput
                 id="login-password"
-                type={showPw ? 'text' : 'password'}
+                label="Password"
                 autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
-                className="input pr-10"
               />
-              <button
-                type="button"
-                onClick={() => setShowPw((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-brand"
-                aria-label="Toggle password visibility"
-              >
-                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
+
+              <Checkbox checked={remember} onChange={setRemember} label="Remember me" />
+
+              <Button type="submit" size="lg" className="w-full" loading={loading}>
+                Sign in
+              </Button>
+
+              <p className="text-center text-xs text-gray-500">
+                Need a password reset? Ask your administrator.
+              </p>
+            </form>
+
+            <p className="mt-8 flex items-center justify-center gap-1.5 text-xs text-gray-400">
+              <Lock size={12} aria-hidden="true" />
+              Your session is protected on this device.
+            </p>
           </div>
-
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={(e) => setRemember(e.target.checked)}
-                className="rounded border-gray-300 text-brand focus:ring-brand"
-              />
-              Remember me
-            </label>
-            <button type="button" className="text-sm text-brand hover:underline">
-              Forgot password?
-            </button>
-          </div>
-
-          {err ? (
-            <div className="rounded-md border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
-              {err}
-            </div>
-          ) : null}
-
-          <Button type="submit" className="w-full" loading={loading}>
-            Sign In
-          </Button>
-
-          <div className="text-center text-xs text-gray-500">
-            <Lock size={12} className="inline mr-1" />
-            Secured with JWT + device binding
-          </div>
-        </form>
-
-        <p className="text-center text-xs text-gray-500 mt-4">
-          <Mail size={12} className="inline mr-1" />
-          Contact your administrator if you need access
-        </p>
+        </main>
       </div>
     </div>
   );

@@ -86,6 +86,7 @@ const Input = forwardRef(function Input(
         ref={ref}
         id={inputId}
         type={type}
+        required={required}
         min={isNumber ? numberMin : undefined}
         className={clsx(
           'input',
