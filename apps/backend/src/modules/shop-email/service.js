@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { APP_NAME } from '@wrs/shared';
 import { z } from 'zod';
 
 import { env } from '../../config/env.js';
@@ -142,7 +143,7 @@ export function createShopEmailService({
     try {
       await deliver(settings, {
         to: recipient,
-        subject: 'Wedding Rent System password change OTP',
+        subject: `${APP_NAME} password change OTP`,
         text: [
           `Hello ${name || 'Admin'},`,
           '',
@@ -186,7 +187,7 @@ export function createShopEmailService({
     try {
       await deliver(settings, {
         to: recipient.email,
-        subject: 'Wedding Rent System email setup test',
+        subject: `${APP_NAME} email setup test`,
         text: `Email settings test for ${shop.shop_name}.\nThis is not a password OTP and does not change any account or booking.`,
       });
       await database('shop_email_settings')

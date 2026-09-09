@@ -2,7 +2,7 @@
   "name": "@wrs/mobile",
   "version": "0.1.0",
   "private": true,
-  "description": "Wedding Rent System \u2014 Mobile companion app (React Native). Phase 2.",
+  "description": "Achakan — Mobile companion app (React Native). Phase 2.",
   "scripts": {
     "start": "echo \"Phase 2 \u2014 see apps/mobile/README.md\" && exit 0"
   }

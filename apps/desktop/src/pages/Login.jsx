@@ -1,3 +1,4 @@
+import { APP_LOGO_LETTER, APP_NAME } from '@wrs/shared/constants';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
@@ -76,9 +77,9 @@ const Login = () => {
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-6">
           <div className="w-12 h-12 rounded-lg bg-brand text-white flex items-center justify-center font-bold text-lg mb-3">
-            W
+            {APP_LOGO_LETTER}
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">Wedding Rent System</h1>
+          <h1 className="text-xl font-semibold text-gray-900">{APP_NAME}</h1>
           <p className="text-sm text-gray-500 mt-1">Sign in to your shop account</p>
         </div>
 

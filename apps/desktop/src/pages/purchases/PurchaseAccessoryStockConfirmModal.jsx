@@ -57,7 +57,7 @@ const PurchaseAccessoryStockConfirmModal = ({
     }
   >
     <p className="text-sm text-gray-700 mb-3">
-      नीचे accessories की CRM stock quantity दी गई है। क्या purchase quantity को stock में add करना है?
+      नीचे accessories की stock quantity दी गई है। क्या purchase quantity को stock में add करना है?
       (Product lines हमेशा stock में update होंगी।)
     </p>
     {loading && summary.length === 0 ? (

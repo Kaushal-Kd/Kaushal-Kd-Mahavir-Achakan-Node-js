@@ -3,6 +3,7 @@ const path = require('node:path');
 
 const { app, BrowserWindow, shell, Menu, ipcMain, session } = require('electron');
 
+const APP_NAME = 'Achakan';
 const isDev = !app.isPackaged;
 const startUrl =
   process.env.ELECTRON_START_URL ||
@@ -12,6 +13,7 @@ let mainWindow = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    title: APP_NAME,
     width: 1440,
     height: 900,
     minWidth: 360,
@@ -51,6 +53,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    app.setName(APP_NAME);
     Menu.setApplicationMenu(null);
 
     // Auto-grant camera / microphone for barcode scanning so users aren't

@@ -1,6 +1,6 @@
-# Wedding Clothes Rental / Sale / Inventory ERP
+# Achakan
 
-Enterprise-grade Wedding Clothes ERP ecosystem — Desktop + Mobile + Cloud + Offline Sync + Multi-Branch.
+Wedding wear rental, sale, and inventory ERP — Desktop + Mobile + Cloud + Offline Sync + Multi-Branch.
 
 Built for sherwani stores, bridal shops, wedding fashion houses, franchises, and multi-branch rental/sale chains.
 

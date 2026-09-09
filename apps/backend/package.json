@@ -2,7 +2,7 @@
   "name": "@wrs/backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Fastify + Knex + MySQL backend for the Wedding Rent System.",
+  "description": "Fastify + Knex + MySQL backend for Achakan.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

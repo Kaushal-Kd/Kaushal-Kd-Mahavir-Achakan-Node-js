@@ -1,3 +1,4 @@
+import { APP_NAME } from '@wrs/shared/constants';
 import { ShieldOff, WifiOff } from 'lucide-react';
 import PropTypes from 'prop-types';
 
@@ -14,8 +15,8 @@ const IpAccessOfflineGate = ({ online = false, validating = false, onRetry }) =>
         {online
           ? validating
             ? 'Checking whether your current IP address is authorized…'
-            : 'The CRM could not verify your IP address. It will retry automatically, or you can retry now.'
-          : 'This account is protected by IP whitelisting. Connect to the internet so the CRM can verify your current IP address.'}
+            : `${APP_NAME} could not verify your IP address. It will retry automatically, or you can retry now.`
+          : `This account is protected by IP whitelisting. Connect to the internet so ${APP_NAME} can verify your current IP address.`}
       </p>
       {validating ? (
         <div className="mt-4 flex items-center justify-center gap-2 text-sm text-brand">

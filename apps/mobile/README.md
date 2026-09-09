@@ -1,6 +1,6 @@
 # @wrs/mobile
 
-React Native companion app for the Wedding Rent System (requirements §41 &
+React Native companion app for Achakan (requirements §41 &
 §88). **Not built in Phase 1** — this package is a placeholder so the
 monorepo layout matches the final topology and the shared package
 (`@wrs/shared`) can be consumed on day one of Phase 2.

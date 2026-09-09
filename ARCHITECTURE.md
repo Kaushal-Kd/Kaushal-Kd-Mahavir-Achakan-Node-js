@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains **how** the Wedding Rent System is assembled and
+This document explains **how** Achakan is assembled and
 **why** each boundary exists. It is the primary reference for adding new
 modules so everything stays consistent.
 

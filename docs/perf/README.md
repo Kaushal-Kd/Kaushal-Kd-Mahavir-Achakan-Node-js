@@ -1,6 +1,6 @@
 # Performance audit reports
 
-Automated backend API benchmarks and frontend page-load simulations for the Wedding Rent System.
+Automated backend API benchmarks and frontend page-load simulations for Achakan.
 
 ## Prerequisites
 

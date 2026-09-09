@@ -22,7 +22,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 
-import { MODULES } from '@wrs/shared/constants';
+import { APP_LOGO_LETTER, APP_NAME, APP_TAGLINE, MODULES } from '@wrs/shared/constants';
 
 import {
   MASTER_DEFAULT_TAB,
@@ -296,11 +296,11 @@ const Sidebar = () => {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
           <div className="w-8 h-8 rounded-md bg-brand text-white flex items-center justify-center font-bold shrink-0">
-            W
+            {APP_LOGO_LETTER}
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-bold text-gray-900 leading-tight truncate">Wedding Rent</div>
-            <div className="text-[11px] font-bold text-gray-500 leading-tight">ERP System</div>
+            <div className="text-sm font-bold text-gray-900 leading-tight truncate">{APP_NAME}</div>
+            <div className="text-[11px] font-bold text-gray-500 leading-tight">{APP_TAGLINE}</div>
           </div>
           </div>
           {isMobileNav ? (

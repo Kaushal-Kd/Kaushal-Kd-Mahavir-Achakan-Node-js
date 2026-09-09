@@ -2,7 +2,7 @@
   "name": "wedding-rent-system",
   "version": "0.1.0",
   "private": true,
-  "description": "Enterprise-grade Wedding Clothes Rental / Sale / Inventory ERP (Desktop + Mobile + Cloud + Offline Sync + Multi-Branch).",
+  "description": "Achakan — wedding wear rental, sale, and inventory ERP (Desktop + Mobile + Cloud + Offline Sync + Multi-Branch).",
   "workspaces": [
     "apps/*",
     "packages/*"

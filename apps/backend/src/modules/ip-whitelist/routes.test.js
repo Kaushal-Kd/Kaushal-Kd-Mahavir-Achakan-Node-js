@@ -55,7 +55,7 @@ test('IP denial uses the stable public error contract', () => {
   assert.equal(error.code, 'IP_ACCESS_DENIED');
   assert.equal(
     error.message,
-    'Access denied. Your current IP address is not authorized to access this CRM.'
+    'Access denied. Your current IP address is not authorized to access Achakan.'
   );
   assert.deepEqual(error.details, { current_ip: '203.0.113.10' });
 });

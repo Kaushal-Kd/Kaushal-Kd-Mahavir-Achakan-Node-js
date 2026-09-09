@@ -1,3 +1,4 @@
+import { APP_LOGO_LETTER, APP_NAME } from '@wrs/shared/constants';
 import { clsx } from 'clsx';
 import { PanelLeftOpen } from 'lucide-react';
 import PropTypes from 'prop-types';
@@ -16,8 +17,8 @@ const SidebarIconRail = ({ links, sections, onExpand, onSectionSelect }) => (
     className="relative flex w-16 shrink-0 flex-col border-r border-gray-200 bg-surface"
   >
     <div className="flex h-[69px] shrink-0 items-center justify-center border-b border-gray-200">
-      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand font-bold text-white" title="Wedding Rent">
-        W
+      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand font-bold text-white" title={APP_NAME}>
+        {APP_LOGO_LETTER}
       </div>
     </div>
     <nav aria-label="Main navigation" className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto py-3">

@@ -1,5 +1,5 @@
 /**
- * Tailwind config for the Wedding Rent System desktop app.
+ * Tailwind config for the Achakan desktop app.
  *
  * STRICT DESIGN SYSTEM (requirements §77):
  *   - Allowed brand colors: WHITE + #0C6EE1 ONLY.

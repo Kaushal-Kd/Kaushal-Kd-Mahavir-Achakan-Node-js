@@ -21,7 +21,7 @@ export const forbidden = (msg = 'Forbidden') => new AppError(403, msg, { code: '
 export const ipAccessDenied = (currentIp) =>
   new AppError(
     403,
-    'Access denied. Your current IP address is not authorized to access this CRM.',
+    'Access denied. Your current IP address is not authorized to access Achakan.',
     {
       code: 'IP_ACCESS_DENIED',
       details: { current_ip: currentIp || null },

@@ -1,3 +1,4 @@
+export * from './brand.js';
 export * from './roles.js';
 export * from './permissions.js';
 export * from './orderStatus.js';

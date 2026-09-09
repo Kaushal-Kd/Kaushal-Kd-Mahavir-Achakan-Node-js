@@ -139,7 +139,7 @@ const InstallationIpPolicies = () => {
 
   if (query.isLoading) {
     return (
-      <Tab title="IP Whitelisting" description="Control CRM access by network location.">
+      <Tab title="IP Whitelisting" description="Control access by network location.">
         <div className="card p-8 text-center text-sm text-gray-500">Loading IP policies…</div>
       </Tab>
     );
@@ -147,7 +147,7 @@ const InstallationIpPolicies = () => {
 
   if (query.isError) {
     return (
-      <Tab title="IP Whitelisting" description="Control CRM access by network location.">
+      <Tab title="IP Whitelisting" description="Control access by network location.">
         <div className="card p-6 text-center">
           <p className="text-sm text-red-600">
             {getApiErrorMessage(query.error, 'Could not load IP policies')}
@@ -195,7 +195,7 @@ const InstallationIpPolicies = () => {
             checked={globalEnabled}
             onChange={setGlobalEnabled}
             label="Enable global IP whitelisting"
-            description="Inherited users can access the CRM only from the ranges below."
+            description="Inherited users can sign in only from the ranges below."
           />
           <IpRangeEditor
             values={globalRanges}
