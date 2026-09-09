@@ -29,9 +29,13 @@ fi
 
 cd "$APP_DIR"
 
-git fetch --all --prune
+git fetch origin
 git checkout "$BRANCH"
-git pull --ff-only origin "$BRANCH"
+git reset --hard "origin/$BRANCH"
+git clean -fd \
+  -e docker-compose.override.yml \
+  -e apps/backend/.env \
+  -e apps/backend/credentials/
 
 if [ -f "$API_ENV_FILE" ]; then
   cp "$API_ENV_FILE" "$APP_DIR/apps/backend/.env"

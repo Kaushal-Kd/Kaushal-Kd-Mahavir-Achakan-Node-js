@@ -43,8 +43,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: ci
     if: github.ref == 'refs/heads/main'
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
+      - name: Require deploy host secret
+        run: |
+          if [ -z "${{ secrets.UBUNTU_HOST }}" ]; then
+            echo "UBUNTU_HOST secret is missing. Set it in repo Settings > Secrets."
+            exit 1
+          fi
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -52,6 +59,8 @@ jobs:
           username: ${{ secrets.UBUNTU_USER }}
           key: ${{ secrets.UBUNTU_SSH_KEY }}
           port: ${{ secrets.UBUNTU_PORT != '' && secrets.UBUNTU_PORT || '22' }}
+          command_timeout: 25m
+          script_stop: true
           script: |
             export APP_DIR="${{ secrets.UBUNTU_APP_DIR }}"
             export REPO_URL="${{ secrets.UBUNTU_REPO_URL }}"
@@ -59,4 +68,12 @@ jobs:
             export WEB_ENV_FILE="${{ secrets.UBUNTU_WEB_ENV_FILE }}"
             export COMPOSE_FILE="docker-compose.prod.yml"
             export BRANCH="main"
+            APP_DIR="${APP_DIR:-/opt/wedding_rent_system}"
+            cd "$APP_DIR"
+            git fetch origin
+            git reset --hard origin/main
+            git clean -fd \
+              -e docker-compose.override.yml \
+              -e apps/backend/.env \
+              -e apps/backend/credentials/
             bash "$APP_DIR/scripts/deploy-ubuntu.sh"
