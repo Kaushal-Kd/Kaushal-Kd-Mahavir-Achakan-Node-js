@@ -28,6 +28,7 @@ async function main() {
       'http://127.0.0.1:5173',
       'http://localhost:3000',
       'https://achakan.instabizweb.com',
+      'https://dashboard.achakan.com',
       'app://.',
       ...extraOrigins,
     ])

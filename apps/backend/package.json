@@ -21,6 +21,7 @@
     "seed": "node src/db/seed.js",
     "seed:demo-shop": "node scripts/seed-shop-demo-data.js",
     "gcs:cors": "node scripts/setGcsCors.js",
+    "gcs:migrate": "node scripts/migrate-gcs-bucket.js",
     "test": "node --test \"src/**/*.test.js\"",
     "test:mysql:transactions": "node scripts/test-transaction-integrity-mysql.js"
   },

@@ -1,0 +1,74 @@
+name: GCS bucket cutover
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: gcs-bucket-cutover
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write new GCS key
+        env:
+          GCS_NEW_KEY_JSON: ${{ secrets.GCS_NEW_KEY_JSON }}
+        run: |
+          test -n "$GCS_NEW_KEY_JSON"
+          mkdir -p apps/backend/credentials
+          printf '%s' "$GCS_NEW_KEY_JSON" > apps/backend/credentials/new-wedding-key.json
+          python3 -c "import json; json.load(open('apps/backend/credentials/new-wedding-key.json'))"
+
+      - name: Copy migrate script and key to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.UBUNTU_HOST }}
+          username: ${{ secrets.UBUNTU_USER }}
+          key: ${{ secrets.UBUNTU_SSH_KEY }}
+          port: ${{ secrets.UBUNTU_PORT != '' && secrets.UBUNTU_PORT || '22' }}
+          source: apps/backend/scripts/migrate-gcs-bucket.js,apps/backend/credentials/new-wedding-key.json
+          target: /opt/wedding_rent_system/
+
+      - name: Patch env, recreate backend, rewrite URLs
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.UBUNTU_HOST }}
+          username: ${{ secrets.UBUNTU_USER }}
+          key: ${{ secrets.UBUNTU_SSH_KEY }}
+          port: ${{ secrets.UBUNTU_PORT != '' && secrets.UBUNTU_PORT || '22' }}
+          command_timeout: 20m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            APP_DIR="${{ secrets.UBUNTU_APP_DIR }}"
+            API_ENV_FILE="${{ secrets.UBUNTU_API_ENV_FILE }}"
+            APP_DIR="${APP_DIR:-/opt/wedding_rent_system}"
+            API_ENV_FILE="${API_ENV_FILE:-$APP_DIR/.env.backend}"
+            echo "cutover app_dir=$APP_DIR"
+            test -f "$APP_DIR/apps/backend/credentials/new-wedding-key.json"
+            test -f "$APP_DIR/apps/backend/scripts/migrate-gcs-bucket.js"
+            patch_env() {
+              local f="$1"
+              test -f "$f"
+              sed -i \
+                -e 's|^GCS_PROJECT_ID=.*|GCS_PROJECT_ID=wedding-achakan|' \
+                -e 's|^GCS_BUCKET_NAME=.*|GCS_BUCKET_NAME=weddingachakan|' \
+                -e 's|^GCS_CDN_URL=.*|GCS_CDN_URL=https://storage.googleapis.com/weddingachakan|' \
+                -e 's|^GCS_KEY_FILE=.*|GCS_KEY_FILE=credentials/new-wedding-key.json|' \
+                "$f"
+              grep -E '^GCS_PROJECT_ID=|^GCS_BUCKET_NAME=|^GCS_CDN_URL=|^GCS_KEY_FILE=' "$f"
+            }
+            patch_env "$API_ENV_FILE"
+            cp "$API_ENV_FILE" "$APP_DIR/apps/backend/.env"
+            cd "$APP_DIR"
+            docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps backend
+            docker compose -f docker-compose.prod.yml run --rm --no-deps \
+              -v "$APP_DIR/apps/backend/scripts/migrate-gcs-bucket.js:/app/apps/backend/scripts/migrate-gcs-bucket.js" \
+              -v "$APP_DIR/apps/backend/credentials:/app/apps/backend/credentials" \
+              backend node scripts/migrate-gcs-bucket.js --rewrite-db --backup
+            echo "cutover rewrite finished"
