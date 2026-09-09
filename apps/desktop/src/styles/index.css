@@ -1,0 +1,265 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-surface text-gray-900 font-sans antialiased;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    font-weight: 500;
+    font-feature-settings:
+      'cv11' on,
+      'ss01' on,
+      'cv02' on,
+      'cv03' on,
+      'cv04' on;
+    letter-spacing: -0.005em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    @apply font-mono;
+  }
+
+  ::selection {
+    background-color: #0c6ee1;
+    color: #fff;
+  }
+
+  /* Keyboard focus ring (requirements §95.12) */
+  :focus-visible {
+    outline: 2px solid #0c6ee1;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Keep native spinner arrows visible for number inputs. */
+  input[type='number'] {
+    appearance: auto;
+    -moz-appearance: auto;
+  }
+
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-hover active:bg-brand-active;
+  }
+  .btn-secondary {
+    @apply btn bg-surface text-brand border border-brand hover:bg-brand-light;
+  }
+  .btn-ghost {
+    @apply btn text-gray-700 hover:bg-gray-100;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+
+  .input {
+    @apply block w-full rounded-md border border-gray-200 bg-surface px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:bg-gray-50;
+  }
+
+  .label {
+    @apply block text-xs font-medium text-gray-700 mb-1;
+  }
+
+  .card {
+    @apply rounded-lg border border-gray-200 bg-surface shadow-card;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-gray-200 bg-surface px-2 py-0.5 text-xs font-medium text-gray-700;
+  }
+  .chip-brand {
+    @apply inline-flex items-center gap-1 rounded-full border border-brand bg-surface px-2 py-0.5 text-xs font-medium text-brand;
+  }
+
+  .table-wrap {
+    @apply card overflow-hidden;
+  }
+  .table {
+    @apply w-full text-sm text-left text-gray-900;
+  }
+  .table thead th {
+    @apply sticky top-0 z-10 bg-gray-50 border-b border-gray-200 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-gray-600 whitespace-normal leading-tight align-bottom;
+  }
+  .table tbody td {
+    @apply border-b border-gray-100 px-3 py-2.5 align-middle whitespace-nowrap;
+  }
+  .table tbody tr:hover {
+    @apply bg-gray-50;
+  }
+  .table tbody tr.booking-gap-alert-row {
+    @apply bg-yellow-50;
+  }
+  .table tbody tr.booking-gap-alert-row:hover {
+    @apply bg-yellow-100;
+  }
+
+  /* Order checklist — desktop table only (mobile uses cards in OrderChecklistPanel) */
+  .order-checklist-table .table thead th {
+    @apply px-2 py-2 text-[11px] normal-case tracking-normal;
+  }
+  .order-checklist-table .table thead th.checklist-base-th {
+    @apply whitespace-nowrap;
+  }
+  .order-checklist-table .table thead th.checklist-stage-th {
+    @apply text-center leading-tight whitespace-normal break-words max-w-[5.5rem] px-1;
+  }
+  .order-checklist-table .table tbody td {
+    @apply px-2 py-2;
+  }
+  .order-checklist-table .table tbody td.checklist-item-cell {
+    @apply align-top whitespace-normal;
+  }
+  .order-checklist-table .table tbody tr.checklist-accessory-row td {
+    @apply py-1;
+  }
+  .order-checklist-table .table tbody td.checklist-notes-cell {
+    @apply align-middle whitespace-normal max-w-[9rem];
+  }
+  .order-checklist-table .table tbody td.checklist-salesman-cell {
+    @apply align-middle whitespace-normal max-w-[8rem];
+  }
+  .order-checklist-table .table tbody td.checklist-stage-cell {
+    @apply align-middle text-center;
+  }
+  .order-checklist-table .table tbody td.checklist-condition-cell {
+    @apply align-middle text-center whitespace-normal;
+  }
+  .order-checklist-table .table tbody tr.checklist-accessory-notes-row td {
+    @apply border-t border-brand/15;
+  }
+
+  /* Default floor for native number fields (use NumberInput / Input type="number" for clamping). */
+  input[type='number']:not([min]) {
+    min: 0;
+  }
+
+  .amount-input-no-spinner::-webkit-outer-spin-button,
+  .amount-input-no-spinner::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .amount-input-no-spinner {
+    -moz-appearance: textfield;
+  }
+
+  .sidebar-item {
+    @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-bold text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors;
+  }
+  .sidebar-item-active {
+    @apply bg-surface text-brand border-l-4 border-brand -ml-[1px];
+  }
+
+  .breadcrumb-sep::before {
+    content: '/';
+    @apply mx-1.5 text-gray-300;
+  }
+
+  .page-toolbar {
+    @apply flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between;
+  }
+
+  .layout-main {
+    @apply flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-6;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .scroll-area {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db #f3f4f6;
+  }
+
+  .scroll-area::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scroll-area::-webkit-scrollbar-track {
+    background: #f3f4f6;
+    border-radius: 4px;
+  }
+
+  .scroll-area::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 4px;
+  }
+
+  .scroll-area::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+  }
+
+  /* Image crop modal — brand selection frame, visible resize handles */
+  .image-crop-stage .ReactCrop__crop-selection {
+    border: 2px solid #0c6ee1;
+    box-shadow: 0 0 0 9999em rgba(0, 0, 0, 0.5);
+  }
+
+  .image-crop-stage .ReactCrop__drag-handle {
+    width: 12px;
+    height: 12px;
+    background-color: #0c6ee1;
+    border: 2px solid #fff;
+    border-radius: 2px;
+  }
+
+  /* Low-stock row: darker red tint with a gentle pulse animation */
+  .table tbody tr.acc-low-stock-row {
+    @apply bg-red-100;
+    animation: lowStockPulse 2.5s ease-in-out infinite;
+  }
+  .table tbody tr.acc-low-stock-row:hover {
+    @apply bg-red-200;
+  }
+  .table tbody tr.acc-low-stock-row td {
+    @apply text-red-900;
+  }
+}
+
+@keyframes lowStockPulse {
+  0%, 100% { background-color: #fee2e2; }
+  50% { background-color: #fca5a5; }
+}
+
+/* Dashboard low-stock accessory rows — same pulse animation */
+.dash-low-stock-row {
+  animation: lowStockPulse 2.5s ease-in-out infinite;
+}
+
+/* Dashboard low-stock header (icon + title) pulse */
+.dash-low-stock-header {
+  animation: lowStockHeaderPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes lowStockHeaderPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}

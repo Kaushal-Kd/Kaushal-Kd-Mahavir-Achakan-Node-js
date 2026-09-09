@@ -70,10 +70,7 @@ apps/desktop/public/uploads/
 
 *service-account*.json
 *-credentials.json
+apps/backend/credentials/
 *.pem
 *.p12
 .vercel
-
-apps/backend/credentials/
-*.json.key
-

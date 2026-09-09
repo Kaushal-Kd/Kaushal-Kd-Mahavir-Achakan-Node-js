@@ -1,0 +1,397 @@
+{
+  "generatedAt": "2026-06-20T05:09:43.127Z",
+  "apiBase": "http://127.0.0.1:4000",
+  "shopId": "4eb2642b-53b2-4f7d-b7a1-21031902d4d3",
+  "pages": [
+    {
+      "name": "Global shell (every route)",
+      "requestCount": 2,
+      "wallMs": 61,
+      "totalBytes": 5109,
+      "slowest": {
+        "name": "/api/configurations/app-settings",
+        "ms": 59
+      },
+      "requests": [
+        {
+          "path": "/api/drafts?kind=availability_cart",
+          "durationMs": 58.991300000000024,
+          "payloadBytes": 1832,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/app-settings",
+          "durationMs": 59.4208000000001,
+          "payloadBytes": 3277,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "requestCount": 9,
+      "wallMs": 148,
+      "totalBytes": 7362,
+      "slowest": {
+        "name": "/api/dashboard",
+        "ms": 148
+      },
+      "requests": [
+        {
+          "path": "/api/dashboard",
+          "durationMs": 148.35440000000006,
+          "payloadBytes": 664,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/app-settings",
+          "durationMs": 62.4944999999999,
+          "payloadBytes": 3277,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/drafts?kind=availability_cart",
+          "durationMs": 67.31730000000005,
+          "payloadBytes": 1832,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/reminders",
+          "durationMs": 64.97699999999998,
+          "payloadBytes": 21,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/custom-orders/trial-reminders",
+          "durationMs": 62.94939999999997,
+          "payloadBytes": 58,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/dashboard/revenue-series",
+          "durationMs": 64.77080000000001,
+          "payloadBytes": 980,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/dashboard/activity?limit=25",
+          "durationMs": 64.69590000000005,
+          "payloadBytes": 44,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/dashboard/calendar-bookings-trend?months=12",
+          "durationMs": 102.53890000000001,
+          "payloadBytes": 416,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/dashboard/calendar?month=2026-06",
+          "durationMs": 144.92880000000002,
+          "payloadBytes": 70,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "CreateOrder (create mode)",
+      "requestCount": 5,
+      "wallMs": 127,
+      "totalBytes": 18115,
+      "slowest": {
+        "name": "/api/users?per_page=200",
+        "ms": 126
+      },
+      "requests": [
+        {
+          "path": "/api/payment-accounts",
+          "durationMs": 79.5118,
+          "payloadBytes": 21,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/security-accounts",
+          "durationMs": 79.5630000000001,
+          "payloadBytes": 21,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/time-slots",
+          "durationMs": 124.55840000000012,
+          "payloadBytes": 9916,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/users?per_page=200",
+          "durationMs": 126.17620000000011,
+          "payloadBytes": 4880,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/app-settings",
+          "durationMs": 79.69620000000009,
+          "payloadBytes": 3277,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "BookingList",
+      "requestCount": 1,
+      "wallMs": 51,
+      "totalBytes": 79,
+      "slowest": {
+        "name": "/api/orders?per_page=25&lean=1&with_next_booking_alerts=1&sort=-created_at",
+        "ms": 51
+      },
+      "requests": [
+        {
+          "path": "/api/orders?per_page=25&lean=1&with_next_booking_alerts=1&sort=-created_at",
+          "durationMs": 51.343200000000024,
+          "payloadBytes": 79,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "DeliveryList",
+      "requestCount": 2,
+      "wallMs": 72,
+      "totalBytes": 3356,
+      "slowest": {
+        "name": "/api/configurations/app-settings",
+        "ms": 72
+      },
+      "requests": [
+        {
+          "path": "/api/orders?per_page=25&date_field=pickup_date&statuses=in_preparation,ready_for_delivery,delivered&sort=-pickup_date&lean=1",
+          "durationMs": 71.05759999999987,
+          "payloadBytes": 79,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/app-settings",
+          "durationMs": 71.52449999999999,
+          "payloadBytes": 3277,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "ReturnList",
+      "requestCount": 2,
+      "wallMs": 65,
+      "totalBytes": 3356,
+      "slowest": {
+        "name": "/api/configurations/app-settings",
+        "ms": 63
+      },
+      "requests": [
+        {
+          "path": "/api/orders?per_page=25&date_field=return_date&statuses=delivered,partially_returned&sort=-return_date&lean=1",
+          "durationMs": 62.868400000000065,
+          "payloadBytes": 79,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/app-settings",
+          "durationMs": 63.338199999999915,
+          "payloadBytes": 3277,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "ItemToCollectList",
+      "requestCount": 4,
+      "wallMs": 140,
+      "totalBytes": 9485,
+      "slowest": {
+        "name": "/api/users?per_page=200",
+        "ms": 139
+      },
+      "requests": [
+        {
+          "path": "/api/orders/items-to-collect?lines=1&per_page=20&skip_enrich=1&pickup_from=2026-06-20&pickup_to=2026-06-20",
+          "durationMs": 59.33339999999998,
+          "payloadBytes": 79,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/categories?type=product",
+          "durationMs": 137.7935,
+          "payloadBytes": 1249,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/users?per_page=200",
+          "durationMs": 138.60320000000002,
+          "payloadBytes": 4880,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/app-settings",
+          "durationMs": 59.546299999999974,
+          "payloadBytes": 3277,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "ItemToPrepareList",
+      "requestCount": 4,
+      "wallMs": 231,
+      "totalBytes": 9485,
+      "slowest": {
+        "name": "/api/users?per_page=200",
+        "ms": 230
+      },
+      "requests": [
+        {
+          "path": "/api/orders/items-to-prepare?lines=1&per_page=20&skip_enrich=1&pickup_from=2026-06-20&pickup_to=2026-06-20",
+          "durationMs": 67.17240000000015,
+          "payloadBytes": 79,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/categories?type=product",
+          "durationMs": 229.92869999999994,
+          "payloadBytes": 1249,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/users?per_page=200",
+          "durationMs": 230.32780000000002,
+          "payloadBytes": 4880,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/app-settings",
+          "durationMs": 67.38959999999997,
+          "payloadBytes": 3277,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "ProductList",
+      "requestCount": 5,
+      "wallMs": 142,
+      "totalBytes": 23391,
+      "slowest": {
+        "name": "/api/products?per_page=25",
+        "ms": 141
+      },
+      "requests": [
+        {
+          "path": "/api/products?per_page=25",
+          "durationMs": 141.46679999999992,
+          "payloadBytes": 20351,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/colors",
+          "durationMs": 52.47550000000001,
+          "payloadBytes": 1230,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/configurations/sizes",
+          "durationMs": 51.30390000000011,
+          "payloadBytes": 107,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/products/category-counts",
+          "durationMs": 73.31660000000011,
+          "payloadBytes": 454,
+          "status": 200,
+          "ok": true
+        },
+        {
+          "path": "/api/categories?type=product",
+          "durationMs": 105.08809999999994,
+          "payloadBytes": 1249,
+          "status": 200,
+          "ok": true
+        }
+      ]
+    }
+  ],
+  "uniquePaths": 23,
+  "duplicateHits": 11,
+  "duplicates": [
+    {
+      "path": "/api/configurations/app-settings",
+      "pages": [
+        "Global shell (every route)",
+        "Dashboard",
+        "CreateOrder (create mode)",
+        "DeliveryList",
+        "ReturnList",
+        "ItemToCollectList",
+        "ItemToPrepareList"
+      ]
+    },
+    {
+      "path": "/api/users?per_page=200",
+      "pages": [
+        "CreateOrder (create mode)",
+        "ItemToCollectList",
+        "ItemToPrepareList"
+      ]
+    },
+    {
+      "path": "/api/categories?type=product",
+      "pages": [
+        "ItemToCollectList",
+        "ItemToPrepareList",
+        "ProductList"
+      ]
+    },
+    {
+      "path": "/api/drafts?kind=availability_cart",
+      "pages": [
+        "Global shell (every route)",
+        "Dashboard"
+      ]
+    }
+  ],
+  "navigationScenario": {
+    "wallMs": 271,
+    "requestCount": 12,
+    "totalBytes": 10797
+  }
+}

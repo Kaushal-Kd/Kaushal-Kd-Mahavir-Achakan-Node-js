@@ -1,0 +1,17 @@
+npm run dev --workspace @wrs/backend
+npm run dev --workspace @wrs/desktop
+npm run dev:electron --workspace @wrs/desktop
+
+
+Super admin
+admin@wrs.local
+Admin@12345
+
+
+Get-NetTCPConnection -LocalPort 4000 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+
+$pid4000 = (netstat -ano | Select-String ":4000\s" | Select-String "LISTENING" | ForEach-Object { ($_ -split '\s+')[-1] } | Select-Object -First 1)
+if ($pid4000) { taskkill /PID $pid4000 /F } else { "Port 4000 is free" }
+
+netstat -ano | findstr ":4000" | findstr "LISTENING"
+
