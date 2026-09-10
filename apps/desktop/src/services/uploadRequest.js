@@ -2,6 +2,7 @@
 export function putWithProgress(url, body, contentType, {
   onProgress,
   signal,
+  extraHeaders = {},
   createRequest = () => new XMLHttpRequest(),
 } = {}) {
   return new Promise((resolve, reject) => {
@@ -25,6 +26,10 @@ export function putWithProgress(url, body, contentType, {
     };
     xhr.open('PUT', url, true);
     xhr.setRequestHeader('Content-Type', contentType);
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      if (value == null || value === '') continue;
+      xhr.setRequestHeader(key, String(value));
+    }
     if (onProgress) {
       xhr.upload.onprogress = (event) => {
         if (!settled && event.lengthComputable && event.total > 0) {

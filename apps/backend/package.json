@@ -22,6 +22,7 @@
     "seed:demo-shop": "node scripts/seed-shop-demo-data.js",
     "gcs:cors": "node scripts/setGcsCors.js",
     "gcs:migrate": "node scripts/migrate-gcs-bucket.js",
+    "gcs:thumbs": "node scripts/generate-gcs-thumbs.js",
     "test": "node --test \"src/**/*.test.js\"",
     "test:mysql:transactions": "node scripts/test-transaction-integrity-mysql.js"
   },
@@ -49,6 +50,7 @@
     "nodemailer": "^7.0.13",
     "pino-pretty": "^11.2.1",
     "qrcode": "^1.5.4",
+    "sharp": "^0.34.2",
     "uuid": "^9.0.1",
     "zod": "^3.23.8"
   },

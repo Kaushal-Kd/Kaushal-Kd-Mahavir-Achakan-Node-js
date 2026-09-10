@@ -1,3 +1,4 @@
+import { isSafeThumbObjectPath } from '@wrs/shared';
 import { z } from 'zod';
 
 import { env } from '../../config/env.js';
@@ -14,6 +15,7 @@ const signedUrlSchema = z.object({
   folder: z.string().trim().max(80).default('misc'),
   content_type: z.string().trim().min(3).max(120),
   size: z.coerce.number().int().nonnegative().optional(),
+  object_path: z.string().trim().min(1).max(400).optional(),
 });
 
 const signedReadSchema = z.object({
@@ -47,10 +49,14 @@ export default async function uploadsRoutes(fastify) {
         `File too large (${body.size} bytes, max ${env.GCS_UPLOAD_MAX_BYTES})`
       );
     }
+    if (body.object_path && !isSafeThumbObjectPath(body.object_path)) {
+      throw badRequest('object_path must be a .thumb.webp object');
+    }
     const data = await createSignedUploadUrl({
       folder: body.folder,
       contentType: body.content_type,
       shopId: request.shopId || null,
+      objectPath: body.object_path,
     });
     await request.audit('uploads', 'SIGN_WRITE', {
       new: { object_path: data.objectPath, folder: body.folder },

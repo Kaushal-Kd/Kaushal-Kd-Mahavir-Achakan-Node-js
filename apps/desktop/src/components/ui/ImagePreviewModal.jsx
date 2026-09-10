@@ -43,6 +43,7 @@ const ImagePreviewModal = () => {
         src={preview.src}
         alt={preview.alt || ''}
         className="relative z-10 max-h-[90vh] max-w-[min(90vw,1200px)] object-contain"
+        decoding="async"
       />
     </div>,
     document.body

@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 
+import { GCS_CACHE_CONTROL, isSafeThumbObjectPath, thumbObjectPathFromOriginal } from '@wrs/shared';
+
 import { env } from '../config/env.js';
 
 /**
@@ -107,12 +109,26 @@ export function buildObjectPath({ folder, shopId, mime }) {
   return `${safeFolder}/${safeShop}/${yyyy}/${mm}/${id}.${ext}`;
 }
 
+function assertClientThumbObjectPath(objectPath, { folder, shopId }) {
+  if (!isSafeThumbObjectPath(objectPath)) {
+    const err = new Error('object_path must be a .thumb.webp object');
+    err.statusCode = 400;
+    throw err;
+  }
+  const prefix = `${sanitizeFolder(folder)}/${sanitizeFolder(shopId || 'shared')}/`;
+  if (!objectPath.startsWith(prefix)) {
+    const err = new Error('object_path is outside the signed folder');
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 /**
  * Create a V4 signed URL the client can PUT directly to. Size and content-type
  * are enforced: a client that uses a different content-type will be rejected
  * by GCS.
  *
- * @param {{ folder?: string, shopId?: string, contentType: string, size?: number }} opts
+ * @param {{ folder?: string, shopId?: string, contentType: string, size?: number, objectPath?: string }} opts
  * @returns {Promise<{ objectPath: string, uploadUrl: string, publicUrl: string, expiresAt: string }>}
  */
 export async function createSignedUploadUrl(opts) {
@@ -131,7 +147,13 @@ export async function createSignedUploadUrl(opts) {
   }
 
   const bucket = await getBucket();
-  const objectPath = buildObjectPath({ folder, shopId, mime: contentType });
+  let objectPath;
+  if (opts.objectPath) {
+    assertClientThumbObjectPath(opts.objectPath, { folder, shopId });
+    objectPath = opts.objectPath;
+  } else {
+    objectPath = buildObjectPath({ folder, shopId, mime: contentType });
+  }
   const file = bucket.file(objectPath);
 
   const expiresInMs = 10 * 60 * 1000;
@@ -181,6 +203,10 @@ export async function createSignedReadUrl(objectPath, ttlSeconds) {
 export async function deleteObject(objectPath) {
   const bucket = await getBucket();
   await bucket.file(objectPath).delete({ ignoreNotFound: true });
+  const thumbPath = thumbObjectPathFromOriginal(objectPath);
+  if (thumbPath && thumbPath !== objectPath) {
+    await bucket.file(thumbPath).delete({ ignoreNotFound: true });
+  }
 }
 
 /** @param {string} objectPath */
@@ -199,9 +225,41 @@ export async function uploadObjectBuffer(objectPath, buffer, contentType) {
   const bucket = await getBucket();
   await bucket.file(objectPath).save(buffer, {
     resumable: false,
-    contentType,
-    metadata: { contentType },
+    metadata: {
+      contentType,
+      cacheControl: GCS_CACHE_CONTROL,
+    },
   });
+}
+
+/**
+ * Best-effort 480px WebP sibling. Missing sharp or a decode error is ignored
+ * so imports still succeed; SmartImage falls back to the original.
+ *
+ * @param {string} originalObjectPath
+ * @param {Buffer} buffer
+ * @returns {Promise<string|null>}
+ */
+export async function maybeUploadThumbFromBuffer(originalObjectPath, buffer) {
+  const thumbPath = thumbObjectPathFromOriginal(originalObjectPath);
+  if (!thumbPath || thumbPath === originalObjectPath || !Buffer.isBuffer(buffer)) return null;
+  let sharpMod;
+  try {
+    sharpMod = (await import('sharp')).default;
+  } catch {
+    return null;
+  }
+  try {
+    const thumbBuf = await sharpMod(buffer)
+      .rotate()
+      .resize(480, 480, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 72 })
+      .toBuffer();
+    await uploadObjectBuffer(thumbPath, thumbBuf, 'image/webp');
+    return thumbPath;
+  } catch {
+    return null;
+  }
 }
 
 export const gcsInfo = Object.freeze({

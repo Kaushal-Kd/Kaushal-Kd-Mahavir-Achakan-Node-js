@@ -37,6 +37,8 @@ import { downloadProductExportCsv } from '../../lib/productExport.js';
 import { invalidateCatalogDomain } from '../../lib/queryInvalidation.js';
 import { toast } from '../../stores/uiStore.js';
 import { catalogItemMobileCard } from '../../lib/listMobileCards.jsx';
+import { fetchAllPages, omitPagination } from '../../lib/reportPdfExport.js';
+import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { printBarcodeLabels, printBarcodeLabelsBulk } from '../../utils/printBarcode.js';
 
 const dash = (v) => (v == null || v === '' ? '—' : String(v));
@@ -108,6 +110,8 @@ const INVENTORY_STATUS_TONE = {
 const ProductList = () => {
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('all');
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(DEFAULT_TABLE_PER_PAGE);
   const [typeFilter, setTypeFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
@@ -174,7 +178,7 @@ const ProductList = () => {
   const { data, isLoading } = useQuery({
     queryKey: [
       'products',
-      'all-by-code',
+      'list',
       {
         search,
         categoryId,
@@ -183,30 +187,12 @@ const ProductList = () => {
         colorFilter,
         statusFilter,
         catalogActiveFilter,
+        page,
+        perPage,
       },
     ],
-    queryFn: async () => {
-      const perPage = 500;
-      let page = 1;
-      const rows = [];
-      let totalPages = 1;
-      do {
-        const res = await productsApi.list(buildListParams(page, perPage));
-        rows.push(...(res?.data || []));
-        totalPages = Number(res?.meta?.total_pages) || 1;
-        page += 1;
-      } while (page <= totalPages);
-      rows.sort((a, b) =>
-        String(b.code || '').localeCompare(String(a.code || ''), undefined, {
-          numeric: true,
-          sensitivity: 'base',
-        })
-      );
-      return {
-        data: rows,
-        meta: { total: rows.length, page: 1, total_pages: 1 },
-      };
-    },
+    queryFn: () => productsApi.list(buildListParams(page, perPage)),
+    keepPreviousData: true,
   });
 
   const { data: colorsRes } = useQuery({
@@ -239,6 +225,7 @@ const ProductList = () => {
     setColorFilter('');
     setStatusFilter('');
     setCatalogActiveFilter('active');
+    setPage(1);
   };
 
   const filterKey = useMemo(
@@ -272,6 +259,10 @@ const ProductList = () => {
     setSelection({});
     setSelectAllCandidates(null);
   }, [selectionResetKey]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterKey]);
 
   const allFilteredSelected = useMemo(() => {
     if (!selectAllCandidates || selectAllCandidates.filterKey !== filterKey) return false;
@@ -433,7 +424,10 @@ const ProductList = () => {
     [bulkActivateBusy, runBulkActivate]
   );
 
-  const fetchAllFilteredRows = useCallback(async () => data?.data || [], [data?.data]);
+  const fetchAllFilteredRows = useCallback(
+    () => fetchAllPages(productsApi.list, omitPagination(buildListParams(1))),
+    [buildListParams]
+  );
 
   const handleSelectAllFilteredChange = useCallback(
     async (e) => {
@@ -821,7 +815,10 @@ const ProductList = () => {
         <CategoryRail
           counts={catCounts}
           value={categoryId}
-          onChange={setCategoryId}
+          onChange={(id) => {
+            setCategoryId(id);
+            setPage(1);
+          }}
           loading={countsLoading}
           title="Categories"
           subtitle="Select a category to view products"
@@ -842,7 +839,10 @@ const ProductList = () => {
               autoCapitalize="off"
               spellCheck={false}
               aria-label="Search products by name, code, or design details"
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
             />
             <TableColumnPicker {...pickerProps} />
           </div>
@@ -850,20 +850,35 @@ const ProductList = () => {
           <CompactCatalogFilters
             typeValue={typeFilter}
             typeOptions={PRODUCT_TYPE_OPTS}
-            onTypeChange={setTypeFilter}
+            onTypeChange={(v) => {
+              setTypeFilter(v);
+              setPage(1);
+            }}
             sizeValue={sizeFilter}
             sizeOptions={sizeOptionsForUi}
-            onSizeChange={setSizeFilter}
+            onSizeChange={(v) => {
+              setSizeFilter(v);
+              setPage(1);
+            }}
             colorValue={colorFilter}
             colorOptions={colorOptionsForUi}
-            onColorChange={setColorFilter}
+            onColorChange={(v) => {
+              setColorFilter(v);
+              setPage(1);
+            }}
             catalogActiveValue={catalogActiveFilter}
             catalogActiveOptions={CATALOG_ACTIVE_OPTS}
-            onCatalogActiveChange={setCatalogActiveFilter}
+            onCatalogActiveChange={(v) => {
+              setCatalogActiveFilter(v);
+              setPage(1);
+            }}
             statusValue={statusFilter}
             statusOptions={PRODUCT_INVENTORY_OPTS}
             statusLabel="Inventory"
-            onStatusChange={setStatusFilter}
+            onStatusChange={(v) => {
+              setStatusFilter(v);
+              setPage(1);
+            }}
             onClear={clearCatalogFilters}
             disabledClear={catalogFiltersClear}
             endActions={
@@ -934,8 +949,20 @@ const ProductList = () => {
             emptyTitle="No products yet"
             emptyMessage="Start by adding your first product to the catalog."
             mobileCardRender={(row) => catalogItemMobileCard(row)}
+            visibleCount={data?.data?.length ?? 0}
             totalCount={data?.meta?.total ?? 0}
+            page={data?.meta?.page ?? page}
+            totalPages={data?.meta?.total_pages ?? 1}
             countLabel="products"
+            onPreviousPage={() => setPage((p) => Math.max(1, p - 1))}
+            onNextPage={() => setPage((p) => p + 1)}
+            disablePrevious={page <= 1}
+            disableNext={page >= (data?.meta?.total_pages ?? 1)}
+            perPage={perPage}
+            onPerPageChange={(n) => {
+              setPage(1);
+              setPerPage(n);
+            }}
           />
         </div>
       </div>

@@ -18,6 +18,9 @@ const OUTPUT_QUALITY = 0.88;
 /** Target ceiling after compression; larger photos normally finish around 500-700 KB. */
 export const TARGET_IMAGE_MAX_KB = 700;
 
+/** List/grid thumbs — ~15-40 KB WebP, enough for 2x catalogue cards. */
+export const THUMB_DIMENSION = 480;
+
 /**
  * Does this image actually use its alpha channel?
  *
@@ -106,5 +109,30 @@ export async function compressImageFile(file, options = {}) {
     return compressed;
   } catch {
     return file;
+  }
+}
+
+/**
+ * Small WebP sibling uploaded next to the full image so lists do not download
+ * the original 1920px file.
+ *
+ * @param {File|Blob} file
+ * @returns {Promise<File|Blob|null>}
+ */
+export async function compressImageThumb(file) {
+  if (!file?.type?.startsWith('image/')) return null;
+  if (SKIP_TYPES.has(file.type)) return null;
+  try {
+    const thumb = await imageCompression(file, {
+      maxWidthOrHeight: THUMB_DIMENSION,
+      initialQuality: 0.72,
+      maxSizeMB: 0.08,
+      fileType: 'image/webp',
+      useWebWorker: true,
+      preserveExif: false,
+    });
+    return thumb || null;
+  } catch {
+    return null;
   }
 }

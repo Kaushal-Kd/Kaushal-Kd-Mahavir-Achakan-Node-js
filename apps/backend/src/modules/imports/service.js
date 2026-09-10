@@ -11,6 +11,7 @@ import { v4 as uuid } from 'uuid';
 import knex from '../../db/knex.js';
 import {
   createSignedUploadUrl,
+  maybeUploadThumbFromBuffer,
   publicUrlForObjectPath,
   readObjectBuffer,
   uploadObjectBuffer,
@@ -591,6 +592,7 @@ async function uploadImageBuffer(buffer, { folder, contentType }) {
     contentType,
   });
   await uploadObjectBuffer(objectPath, buffer, contentType);
+  await maybeUploadThumbFromBuffer(objectPath, buffer);
   return { objectPath, publicUrl: publicUrlForObjectPath(objectPath) };
 }
 

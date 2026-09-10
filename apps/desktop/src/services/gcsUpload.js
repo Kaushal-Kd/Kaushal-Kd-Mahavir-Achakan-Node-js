@@ -1,5 +1,6 @@
+import { thumbObjectPathFromOriginal } from '@wrs/shared';
 import { api, unwrap } from '../lib/api.js';
-import { compressImageFile } from '../utils/compressImage.js';
+import { compressImageFile, compressImageThumb } from '../utils/compressImage.js';
 
 import { IMAGE_UPLOAD_MAX_KB } from './imagePickWithCrop.js';
 import { putWithProgress } from './uploadRequest.js';
@@ -13,6 +14,8 @@ import { putWithProgress } from './uploadRequest.js';
  *      is never touched by the payload.
  *   3) Store the returned `object_path` on the entity; render via `public_url`
  *      (or request `/api/uploads/read-url` for private buckets).
+ *   4) For images, also PUT a `.thumb.webp` sibling so lists load ~20 KB instead
+ *      of the full original.
  *
  * The request includes content-type and size so the backend can enforce
  * MIME allow-list and max-size limits before signing. GCS itself rejects
@@ -21,6 +24,44 @@ import { putWithProgress } from './uploadRequest.js';
 
 const FALLBACK_CONTENT_TYPE = 'application/octet-stream';
 const MAX_UPLOAD_BYTES = IMAGE_UPLOAD_MAX_KB * 1024;
+
+async function signAndPut(file, { folder, contentType, objectPath, onProgress, signal }) {
+  const signed = await api
+    .post('/uploads/signed-url', {
+      folder,
+      content_type: contentType,
+      size: file.size || 0,
+      ...(objectPath ? { object_path: objectPath } : {}),
+    }, { signal })
+    .then(unwrap);
+
+  const {
+    upload_url: uploadUrl,
+    object_path: signedPath,
+    public_url: publicUrl,
+    expires_at: expiresAt,
+  } = signed.data;
+
+  await putWithProgress(uploadUrl, file, contentType, {
+    onProgress,
+    signal,
+  });
+
+  return { objectPath: signedPath, publicUrl, expiresAt };
+}
+
+async function uploadThumbSibling({ folder, objectPath, sourceFile, signal }) {
+  const thumbPath = thumbObjectPathFromOriginal(objectPath);
+  if (!thumbPath || thumbPath === objectPath) return;
+  const thumb = await compressImageThumb(sourceFile);
+  if (!thumb || signal?.aborted) return;
+  await signAndPut(thumb, {
+    folder,
+    contentType: 'image/webp',
+    objectPath: thumbPath,
+    signal,
+  });
+}
 
 /**
  * @param {File|Blob} file
@@ -62,29 +103,30 @@ export async function uploadToGCS(file, options = {}) {
 
   const contentType = requestedContentType || uploadFile.type || FALLBACK_CONTENT_TYPE;
 
-  const signed = await api
-    .post('/uploads/signed-url', {
-      folder,
-      content_type: contentType,
-      size: uploadFile.size || 0,
-    }, { signal })
-    .then(unwrap);
-
-  const {
-    upload_url: uploadUrl,
-    object_path: objectPath,
-    public_url: publicUrl,
-    expires_at: expiresAt,
-  } = signed.data;
-
-  await putWithProgress(uploadUrl, uploadFile, contentType, {
+  const result = await signAndPut(uploadFile, {
+    folder,
+    contentType,
     onProgress: onProgress
-      ? (pct) => onProgress(Math.min(100, 15 + Math.round(pct * 0.85)))
+      ? (pct) => onProgress(Math.min(100, 15 + Math.round(pct * 0.8)))
       : undefined,
     signal,
   });
 
-  return { objectPath, publicUrl, expiresAt };
+  if (compress && file.type?.startsWith('image/') && !signal?.aborted) {
+    try {
+      await uploadThumbSibling({
+        folder,
+        objectPath: result.objectPath,
+        sourceFile: uploadFile,
+        signal,
+      });
+    } catch {
+      // List UI falls back to the original if the thumb is missing.
+    }
+  }
+
+  if (onProgress) onProgress(100);
+  return result;
 }
 
 /**
