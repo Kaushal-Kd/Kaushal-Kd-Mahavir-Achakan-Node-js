@@ -59,6 +59,9 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 docker compose -f "$COMPOSE_FILE" build --pull
+# A cancelled GitHub deploy can leave knex_migrations_lock set. Unlock first so
+# the next deploy is not stuck; only one production deploy should run at a time.
+docker compose -f "$COMPOSE_FILE" run --rm --no-deps backend npm run migrate:unlock --workspace @wrs/backend || true
 # Auth checks need the new tables before the updated backend starts accepting requests.
 docker compose -f "$COMPOSE_FILE" run --rm --no-deps backend npm run migrate --workspace @wrs/backend
 docker compose -f "$COMPOSE_FILE" up -d
