@@ -1,5 +1,6 @@
 import { accessoriesApi } from './api/accessories.js';
 import { deselectAccessoryRow } from './bookingAccessoryCart.js';
+import { mapWithConcurrency } from './mapWithConcurrency.js';
 import { formatAccessoryQtyExceededMessage, formatAccessorySpareMessage } from '@wrs/shared';
 
 /**
@@ -106,8 +107,9 @@ function isRentAccessoryCatalogRow(row) {
   return String(row.type || 'rent').toLowerCase() !== 'sell';
 }
 
-function shouldDeselectSelectedAccessory(acc, merged, { grandfatherPersisted }) {
+function shouldDeselectSelectedAccessory(acc, merged, { grandfatherPersisted, keepSelected }) {
   if (!acc?.selected) return false;
+  if (keepSelected) return false;
   if (grandfatherPersisted && acc.persisted_id) return false;
   const qty = Math.max(1, Number(merged.qty ?? acc.qty) || 1);
   const free = Math.max(0, Number(merged.free_qty ?? 0));
@@ -118,12 +120,12 @@ function shouldDeselectSelectedAccessory(acc, merged, { grandfatherPersisted }) 
  * Refresh free_qty / booked_qty / total_qty on rent accessory lines from the API.
  * @param {object[]} lines
  * @param {{ from: string, to: string, excludeOrderId?: string }} window
- * @param {{ grandfatherPersisted?: boolean }} [options]
+ * @param {{ grandfatherPersisted?: boolean, keepSelected?: boolean }} [options]
  * @returns {Promise<{ lines: object[], deselectedNames: string[] }>}
  */
 export async function refreshRentAccessoryLinesAvailability(lines, window, options = {}) {
   const { from, to, excludeOrderId } = window;
-  const { grandfatherPersisted = false } = options;
+  const { grandfatherPersisted = false, keepSelected = false } = options;
   if (!from || !to || !Array.isArray(lines) || lines.length === 0) {
     return { lines, deselectedNames: [] };
   }
@@ -142,8 +144,7 @@ export async function refreshRentAccessoryLinesAvailability(lines, window, optio
   if (accessoryIds.size === 0) return { lines, deselectedNames: [] };
 
   const availabilityById = new Map();
-  await Promise.all(
-    [...accessoryIds].map(async (accessoryId) => {
+  await mapWithConcurrency([...accessoryIds], 4, async (accessoryId) => {
       const result = await validateRentAccessoryQty({
         accessoryId,
         from,
@@ -152,6 +153,8 @@ export async function refreshRentAccessoryLinesAvailability(lines, window, optio
         excludeOrderId,
         label: 'Accessory',
       });
+      // Failed/missing availability must not stamp free_qty=0 and strip selected accessories.
+      if (!result?.data) return;
       const data = result.data || {};
       availabilityById.set(accessoryId, {
         total_qty: Number(data.total_qty ?? 0),
@@ -164,8 +167,7 @@ export async function refreshRentAccessoryLinesAvailability(lines, window, optio
         laundry_washing_qty: Number(data.laundry_washing_qty ?? 0),
         free_qty: Number(data.free_qty ?? result.freeQty ?? 0),
       });
-    })
-  );
+  });
 
   const deselectedNames = [];
 
@@ -183,7 +185,7 @@ export async function refreshRentAccessoryLinesAvailability(lines, window, optio
         const meta = availabilityById.get(String(acc.accessory_id || ''));
         if (!meta) return acc;
         const merged = { ...acc, ...meta };
-        if (shouldDeselectSelectedAccessory(acc, merged, { grandfatherPersisted })) {
+        if (shouldDeselectSelectedAccessory(acc, merged, { grandfatherPersisted, keepSelected })) {
           deselectedNames.push(String(acc.name_snapshot || 'Accessory').trim() || 'Accessory');
           return deselectAccessoryRow(merged);
         }

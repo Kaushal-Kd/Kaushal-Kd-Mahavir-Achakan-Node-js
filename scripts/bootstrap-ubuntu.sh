@@ -39,6 +39,10 @@ fi
 apt update
 apt install -y git curl ca-certificates nginx certbot python3-certbot-nginx gettext-base
 
+if [ -d /etc/mysql/mysql.conf.d ] && [ -f "$APP_DIR/infra/mysql/wrs-perf.cnf" ]; then
+  cp "$APP_DIR/infra/mysql/wrs-perf.cnf" /etc/mysql/mysql.conf.d/wrs-perf.cnf
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi

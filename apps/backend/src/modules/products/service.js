@@ -2197,7 +2197,7 @@ export async function listInventorySnapshot(shopId, params = {}) {
   );
 
   const page = Math.max(1, Number(params.page) || 1);
-  const perPage = Math.min(500, Math.max(1, Number(params.per_page) || 500));
+  const perPage = Math.min(100, Math.max(1, Number(params.per_page) || 50));
   const result = await paginate(listQb, {
     page,
     per_page: perPage,

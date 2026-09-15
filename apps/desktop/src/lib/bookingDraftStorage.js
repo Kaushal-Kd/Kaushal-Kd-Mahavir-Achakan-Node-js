@@ -2,6 +2,7 @@ const LIST_KEY = 'wrs.booking_drafts_v1';
 const ACTIVE_KEY = 'wrs.booking_active_draft_id';
 export const SNAPSHOT_VERSION = 1;
 export const MAX_BOOKING_DRAFTS = 25;
+const MAX_DATA_URL_CHARS = 4096;
 
 function safeParse(raw) {
   try {
@@ -11,6 +12,54 @@ function safeParse(raw) {
   }
 }
 
+function isQuotaError(err) {
+  return (
+    err?.name === 'QuotaExceededError' ||
+    err?.code === 22 ||
+    err?.code === 1014 ||
+    String(err?.message || '').toLowerCase().includes('quota')
+  );
+}
+
+function isBinaryLike(val) {
+  if (val == null || typeof val !== 'object') return false;
+  if (typeof File !== 'undefined' && val instanceof File) return true;
+  if (typeof Blob !== 'undefined' && val instanceof Blob) return true;
+  return false;
+}
+
+/**
+ * JSON-clone a draft value, dropping files/circulars/huge data URLs so localStorage
+ * writes do not throw and wipe a previously complete snapshot.
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+export function compactDraftValue(value) {
+  try {
+    return JSON.parse(
+      JSON.stringify(value, (key, val) => {
+        if (typeof val === 'function') return undefined;
+        if (isBinaryLike(val)) return null;
+        if (key === 'photos' || key === 'photo_files' || key === '__raw') return undefined;
+        if (typeof val === 'string' && val.startsWith('data:') && val.length > MAX_DATA_URL_CHARS) {
+          return '';
+        }
+        return val;
+      })
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function compactBookingDraftSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return snapshot;
+  const compact = compactDraftValue(snapshot);
+  if (!compact || typeof compact !== 'object') return null;
+  if (!Array.isArray(compact.lines)) compact.lines = [];
+  return { ...compact, v: SNAPSHOT_VERSION };
+}
+
 export function readDraftList() {
   if (typeof localStorage === 'undefined') return [];
   const parsed = safeParse(localStorage.getItem(LIST_KEY));
@@ -18,8 +67,33 @@ export function readDraftList() {
 }
 
 export function writeDraftList(list) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(LIST_KEY, JSON.stringify(list));
+  if (typeof localStorage === 'undefined') return false;
+  const rows = Array.isArray(list) ? list : [];
+  const persist = (next) => {
+    localStorage.setItem(LIST_KEY, JSON.stringify(next));
+  };
+  try {
+    persist(rows);
+    return true;
+  } catch (err) {
+    if (!isQuotaError(err)) return false;
+    const compacted = pruneDraftList(rows).map((row) => ({
+      ...row,
+      snapshot: compactBookingDraftSnapshot(row.snapshot) || { v: SNAPSHOT_VERSION, lines: [] },
+    }));
+    try {
+      persist(compacted);
+      return true;
+    } catch {
+      const halved = compacted.slice(0, Math.max(1, Math.ceil(compacted.length / 2)));
+      try {
+        persist(halved);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
 }
 
 export function getActiveDraftId() {
@@ -44,21 +118,23 @@ export function pruneDraftList(list) {
 
 export function upsertBookingDraft({ id, title, snapshot }) {
   const now = Date.now();
+  const compactSnap = compactBookingDraftSnapshot(snapshot);
+  if (!compactSnap) return null;
   const list = readDraftList();
   const idx = list.findIndex((d) => d.id === id);
   const row = {
     id,
     title: String(title || 'Untitled draft').slice(0, 120),
     updatedAt: now,
-    snapshot: { ...snapshot, v: SNAPSHOT_VERSION },
+    snapshot: compactSnap,
   };
   if (idx >= 0) {
     list[idx] = { ...list[idx], ...row };
   } else {
     list.unshift(row);
   }
-  writeDraftList(pruneDraftList(list));
-  return row;
+  const ok = writeDraftList(pruneDraftList(list));
+  return ok ? row : null;
 }
 
 export function removeBookingDraft(id) {

@@ -1,4 +1,5 @@
 import { productsApi } from './api/products.js';
+import { mapWithConcurrency } from './mapWithConcurrency.js';
 
 /**
  * @param {object} opts
@@ -196,8 +197,7 @@ export async function refreshRentLinesAvailability(lines, window) {
   const { from, to, excludeOrderId } = window;
   if (!from || !to || !Array.isArray(lines) || lines.length === 0) return lines;
 
-  const updated = await Promise.all(
-    lines.map(async (line) => {
+  const updated = await mapWithConcurrency(lines, 4, async (line) => {
       if (line.line_kind === 'standalone_accessory') return line;
       if (String(line.type || 'rent').toLowerCase() === 'sell') return line;
       if (!line.product_id) return line;
@@ -219,7 +219,6 @@ export async function refreshRentLinesAvailability(lines, window) {
         free_qty: result.ok ? result.freeQty : Number(data.free_qty ?? line.free_qty ?? 0),
         washing_qty: Number(data.washing_qty ?? line.washing_qty ?? 0),
       };
-    })
-  );
+  });
   return updated;
 }

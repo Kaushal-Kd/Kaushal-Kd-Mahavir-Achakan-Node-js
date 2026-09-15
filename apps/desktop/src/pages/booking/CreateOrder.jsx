@@ -60,6 +60,7 @@ import {
   timeSlotsToSelectOptions,
 } from '../../lib/timeSelectOptions.js';
 import {
+  compactDraftValue,
   draftLabelFromSnapshot,
   getActiveDraftId,
   isSnapshotTriviallyEmpty,
@@ -435,6 +436,8 @@ const CreateOrder = ({ mode, orderId }) => {
   const lastHandledStartNewDraftRef = useRef(null);
   const lastHandledManualSaveRef = useRef(null);
   const bookingDraftIdRef = useRef(null);
+  const flushBookingDraftToStorageRef = useRef(() => false);
+  const lockDraftFormDefaultsRef = useRef(false);
   const recommendedDropdownWrapRef = useRef(null);
   const recommendedAccessoryInitKeyRef = useRef('');
   const productCodeFieldRef = useRef(null);
@@ -1263,21 +1266,34 @@ const CreateOrder = ({ mode, orderId }) => {
   /** Prefer draft snapshot contact fields over stale API customer record on resume. */
   const applyCustomerFromApiWithSnapshot = useCallback((full, snap) => {
     if (!full) return;
-    setCustomer(full);
+    const snapPhone1 = String(snap?.contactNo1 ?? snap?.contact_no1 ?? '').trim();
+    const snapC2Name = String(snap?.contact2Name ?? snap?.contact2_name ?? '').trim();
+    const snapPhone2 = String(snap?.contactNo2 ?? snap?.contact_no2 ?? '').trim();
+    const snapAddr = String(snap?.address ?? '').trim();
+    const hasSameKey = Boolean(
+      snap &&
+        (Object.prototype.hasOwnProperty.call(snap, 'contactNo2SameAsPhone1') ||
+          Object.prototype.hasOwnProperty.call(snap, 'contact_no2_same_as_phone1'))
+    );
+    const snapSame = !!(snap?.contactNo2SameAsPhone1 ?? snap?.contact_no2_same_as_phone1);
+
+    setCustomer({
+      ...full,
+      phone1: snapPhone1 || full.phone1 || '',
+      phone2: snapPhone2 || full.phone2 || '',
+      phone2_name: snapC2Name || full.phone2_name || null,
+      address: snapAddr || full.address || '',
+    });
     const q = String(snap?.customerQuery ?? '').trim();
     setCustomerQuery(q || full.name || '');
     const hydrated = hydrateBookingCustomerFields(full, null);
-    const snapPhone1 = String(snap?.contactNo1 ?? snap?.contact_no1 ?? '').trim();
     setContactNo1(snapPhone1 ? normalizePhone(snapPhone1) : hydrated.contactNo1);
-    const snapC2Name = String(snap?.contact2Name ?? snap?.contact2_name ?? '').trim();
     setContact2Name(snapC2Name || hydrated.contact2Name);
-    const snapPhone2 = String(snap?.contactNo2 ?? snap?.contact_no2 ?? '').trim();
-    setContactNo2(snapPhone2 || hydrated.contactNo2);
-    const snapSame = !!(snap?.contactNo2SameAsPhone1 ?? snap?.contact_no2_same_as_phone1);
-    setContactNo2SameAsPhone1(snapSame || hydrated.contactNo2SameAsPhone1);
+    setContactNo2(snapPhone2 ? phoneInputDigits(snapPhone2) : hydrated.contactNo2);
+    setContactNo2SameAsPhone1(hasSameKey ? snapSame : hydrated.contactNo2SameAsPhone1);
     setEditingCustomerName(!String(full.name || '').trim());
     const snapWaSrc = snap?.whatsappSource ?? snap?.whatsapp_source;
-    if (snapWaSrc === 'phone2' || snapWaSrc === 'manual') {
+    if (snapWaSrc === 'phone1' || snapWaSrc === 'phone2' || snapWaSrc === 'manual') {
       setWhatsappSource(snapWaSrc);
     } else {
       setWhatsappSource(hydrated.whatsappSource);
@@ -1286,7 +1302,6 @@ const CreateOrder = ({ mode, orderId }) => {
     setWhatsappManual(
       snapWaManual ? phoneInputDigits(snapWaManual) : hydrated.whatsappManual
     );
-    const snapAddr = String(snap?.address ?? '').trim();
     setAddress(snapAddr || hydrated.address);
   }, []);
 
@@ -1326,19 +1341,20 @@ const CreateOrder = ({ mode, orderId }) => {
   ]);
 
   const buildBookingDraftSnapshot = useCallback(() => {
+    const clonedLines = compactDraftValue(lines || []);
     return {
       customer: customer
         ? {
             id: customer.id,
             name: customer.name,
-            phone1: customerPhone1,
-            phone2: customer.phone2,
+            phone1: customerPhone1 || contactNo1,
+            phone2: effectiveContactNo2 || customer.phone2,
             phone2_name: String(contact2Name || '').trim() || customer.phone2_name || null,
-            address: customer.address,
+            address: address || customer.address,
           }
         : null,
       customerQuery,
-      lines: JSON.parse(JSON.stringify(lines || [])),
+      lines: Array.isArray(clonedLines) ? clonedLines : [],
       bookingDateTime,
       pickupDate,
       returnDate,
@@ -1401,11 +1417,22 @@ const CreateOrder = ({ mode, orderId }) => {
     quickBillDraftIds,
     manualAccessoryDraft,
     customerPhone1,
-    contact2Name,
+    effectiveContactNo2,
   ]);
 
   const applyBookingDraftSnapshot = useCallback((snap) => {
     if (!snap || typeof snap !== 'object') return;
+    const hasRestoredContent =
+      (Array.isArray(snap.lines) && snap.lines.length > 0) ||
+      !!(snap.customer && String(snap.customer.id || '').trim()) ||
+      String(snap.contactNo1 || snap.contact_no1 || '').trim() ||
+      String(snap.contactNo2 || snap.contact_no2 || '').trim() ||
+      String(snap.contact2Name || snap.contact2_name || '').trim() ||
+      String(snap.address || '').trim();
+    if (hasRestoredContent) {
+      defaultTimesAppliedRef.current = true;
+      lockDraftFormDefaultsRef.current = true;
+    }
     const c = snap.customer;
     if (c && c.id) {
       setCustomer({
@@ -1424,10 +1451,10 @@ const CreateOrder = ({ mode, orderId }) => {
       setContact2Name('');
     }
     setCustomerQuery(String(snap.customerQuery ?? ''));
+    const rawLines = Array.isArray(snap.lines) ? snap.lines : [];
+    const clonedLines = compactDraftValue(rawLines);
     setLines(
-      normalizeBookingLinesFromDraft(
-        Array.isArray(snap.lines) ? JSON.parse(JSON.stringify(snap.lines)) : []
-      )
+      normalizeBookingLinesFromDraft(Array.isArray(clonedLines) ? clonedLines : rawLines)
     );
     if (snap.bookingDateTime || snap.booking_datetime) {
       setBookingDateTime(String(snap.bookingDateTime || snap.booking_datetime));
@@ -1546,10 +1573,13 @@ const CreateOrder = ({ mode, orderId }) => {
   );
 
   const flushBookingDraftToStorage = useCallback(() => {
-    if (skipDraftPersistRef.current) return false;
     const snap = buildBookingDraftSnapshot();
+    const liveLineCount = Array.isArray(linesRef.current) ? linesRef.current.length : 0;
+    const snapLineCount = Array.isArray(snap.lines) ? snap.lines.length : 0;
+    if (liveLineCount > 0 && snapLineCount === 0) return false;
     if (isSnapshotTriviallyEmpty(snap)) {
-      if (bookingDraftIdRef.current && !justStartedBlankDraftRef.current) {
+      if (skipDraftPersistRef.current || justStartedBlankDraftRef.current) return false;
+      if (bookingDraftIdRef.current) {
         removeBookingDraft(bookingDraftIdRef.current);
         setBookingDraftId(null);
         persistActiveDraftStorageKey(null);
@@ -1564,7 +1594,8 @@ const CreateOrder = ({ mode, orderId }) => {
       setBookingDraftId(id);
       persistActiveDraftStorageKey(id);
     }
-    upsertBookingDraft({ id, title: draftLabelFromSnapshot(snap), snapshot: snap });
+    const row = upsertBookingDraft({ id, title: draftLabelFromSnapshot(snap), snapshot: snap });
+    if (!row) return false;
     setLastDraftSavedAt(Date.now());
     return true;
   }, [buildBookingDraftSnapshot]);
@@ -1574,6 +1605,7 @@ const CreateOrder = ({ mode, orderId }) => {
     const newId = createLocalId();
     skipDraftPersistRef.current = true;
     justStartedBlankDraftRef.current = true;
+    lockDraftFormDefaultsRef.current = false;
     bookingDraftIdRef.current = newId;
     setBookingDraftId(newId);
     persistActiveDraftStorageKey(newId);
@@ -1613,7 +1645,8 @@ const CreateOrder = ({ mode, orderId }) => {
       }
       window.setTimeout(() => {
         skipDraftPersistRef.current = false;
-      }, 600);
+        flushBookingDraftToStorageRef.current();
+      }, 800);
       toast.success('Draft loaded');
     },
     [applyBookingDraftSnapshot, applyCustomerFromApiWithSnapshot, flushBookingDraftToStorage]
@@ -3820,7 +3853,8 @@ const CreateOrder = ({ mode, orderId }) => {
 
     window.setTimeout(() => {
       skipDraftPersistRef.current = false;
-    }, 600);
+      flushBookingDraftToStorageRef.current();
+    }, 800);
     draftHydrateDoneRef.current = true;
   }, [isEditMode, applyBookingDraftSnapshot, applyCustomerFromApiWithSnapshot]);
 
@@ -3977,6 +4011,7 @@ const CreateOrder = ({ mode, orderId }) => {
     if (!hasRentProduct && !hasRentAccessory) return;
 
     const timer = window.setTimeout(() => {
+      if (skipDraftPersistRef.current) return;
       const windowOpts = {
         from: pickupDate,
         to: returnDate,
@@ -4004,7 +4039,16 @@ const CreateOrder = ({ mode, orderId }) => {
       if (hasRentProduct) {
         chain = chain.then((current) => refreshRentLinesAvailability(current, windowOpts));
       }
-      chain.then((refreshed) => setLines(refreshed));
+      chain
+        .then((refreshed) => {
+          if (skipDraftPersistRef.current) return;
+          if (!Array.isArray(refreshed)) return;
+          if (refreshed.length === 0 && linesRef.current.length > 0) return;
+          setLines(refreshed);
+        })
+        .catch(() => {
+          /* keep current draft lines if availability refresh fails */
+        });
     }, 300);
 
     return () => window.clearTimeout(timer);
@@ -4025,6 +4069,10 @@ const CreateOrder = ({ mode, orderId }) => {
   useEffect(() => {
     if (isEditMode || defaultTimesAppliedRef.current) return;
     if (!timeSlotsQuery.isSuccess) return;
+    if (lockDraftFormDefaultsRef.current) {
+      defaultTimesAppliedRef.current = true;
+      return;
+    }
     defaultTimesAppliedRef.current = true;
     setPickupTime(defaultBookingTimes.delivery);
     setReturnTime(defaultBookingTimes.return);
@@ -4038,16 +4086,40 @@ const CreateOrder = ({ mode, orderId }) => {
   useEffect(() => {
     if (isEditMode || appSettings.isLoading) return;
     const { enabled, default_rate: defaultRate } = appSettings.gst;
-    setGstEnabled(enabled);
     setGstDefaultRate(defaultRate);
+    if (lockDraftFormDefaultsRef.current) return;
+    setGstEnabled(enabled);
     if (!enabled) setIgstBill(false);
   }, [isEditMode, appSettings.isLoading, appSettings.gst]);
+
+  useEffect(() => {
+    flushBookingDraftToStorageRef.current = flushBookingDraftToStorage;
+  }, [flushBookingDraftToStorage]);
+
+  useEffect(() => {
+    if (isEditMode) return undefined;
+    const persistNow = () => {
+      flushBookingDraftToStorageRef.current();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') persistNow();
+    };
+    window.addEventListener('pagehide', persistNow);
+    window.addEventListener('beforeunload', persistNow);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      persistNow();
+      window.removeEventListener('pagehide', persistNow);
+      window.removeEventListener('beforeunload', persistNow);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [isEditMode]);
 
   useEffect(() => {
     if (isEditMode) return;
     const t = setTimeout(() => {
       flushBookingDraftToStorage();
-    }, 900);
+    }, 250);
     return () => clearTimeout(t);
   }, [isEditMode, buildBookingDraftSnapshot, flushBookingDraftToStorage]);
 
