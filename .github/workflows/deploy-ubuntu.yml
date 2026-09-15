@@ -53,12 +53,45 @@ jobs:
           fi
 
       - name: Deploy over SSH
+        id: deploy_ssh
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.UBUNTU_HOST }}
           username: ${{ secrets.UBUNTU_USER }}
           key: ${{ secrets.UBUNTU_SSH_KEY }}
           port: ${{ secrets.UBUNTU_PORT != '' && secrets.UBUNTU_PORT || '22' }}
+          protocol: tcp
+          timeout: 2m
+          command_timeout: 25m
+          script_stop: true
+          script: |
+            export APP_DIR="${{ secrets.UBUNTU_APP_DIR }}"
+            export REPO_URL="${{ secrets.UBUNTU_REPO_URL }}"
+            export API_ENV_FILE="${{ secrets.UBUNTU_API_ENV_FILE }}"
+            export WEB_ENV_FILE="${{ secrets.UBUNTU_WEB_ENV_FILE }}"
+            export COMPOSE_FILE="docker-compose.prod.yml"
+            export BRANCH="main"
+            APP_DIR="${APP_DIR:-/opt/wedding_rent_system}"
+            cd "$APP_DIR"
+            git fetch origin
+            git reset --hard origin/main
+            git clean -fd \
+              -e docker-compose.override.yml \
+              -e apps/backend/.env \
+              -e apps/backend/credentials/
+            bash "$APP_DIR/scripts/deploy-ubuntu.sh"
+
+      - name: Retry deploy over SSH
+        if: steps.deploy_ssh.outcome == 'failure'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.UBUNTU_HOST }}
+          username: ${{ secrets.UBUNTU_USER }}
+          key: ${{ secrets.UBUNTU_SSH_KEY }}
+          port: ${{ secrets.UBUNTU_PORT != '' && secrets.UBUNTU_PORT || '22' }}
+          protocol: tcp
+          timeout: 2m
           command_timeout: 25m
           script_stop: true
           script: |
