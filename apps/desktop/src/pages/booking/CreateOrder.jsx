@@ -306,8 +306,6 @@ const CreateOrder = ({ mode, orderId }) => {
     'CHECK_AVAILABILITY_PREVIOUS_GAP_DAYS_BETWEEN_TWO_ORDERS',
     2
   );
-  const maxReturnDays = appSettings.getNumber('DELIVERY_TO_RETURN_DATE_MAX_DAYS', 10);
-  const maxFutureBookingDays = appSettings.getNumber('MAXIMUM_FUTURE_BOOKING_DURATION', 3);
   const allowProductAutocomplete = appSettings.isYes('ALLOW_AUTOCOMPLETE_FOR_CODE', 'Yes');
   const displaySalesman = appSettings.isYes('DISPLAY_SALESMAN_IN_CREATE_BOOKING', 'Yes');
   const advanceMandatory = appSettings.isYes('MAKE_ADVANCE_MANDATORY', 'No');
@@ -1170,17 +1168,6 @@ const CreateOrder = ({ mode, orderId }) => {
     }
     return out;
   }, [lines, pickupDate]);
-
-  const deliveryMax = useMemo(
-    () => (maxFutureBookingDays > 0 ? addDaysISO(todayISO, maxFutureBookingDays) : undefined),
-    [maxFutureBookingDays]
-  );
-
-  const returnMax = useMemo(
-    () =>
-      pickupDate && maxReturnDays > 0 ? addDaysISO(pickupDate, maxReturnDays) : undefined,
-    [pickupDate, maxReturnDays]
-  );
 
   /** Cash collected at booking: advance + security when “Paid Security Amt.” is checked (matches payment rows on submit). */
   const paidAtBooking = useMemo(() => {
@@ -3172,20 +3159,6 @@ const CreateOrder = ({ mode, orderId }) => {
       add('returnDate', 'Return date cannot be before delivery date');
     }
 
-    if (pickupDate && maxFutureBookingDays > 0) {
-      const maxPickup = addDaysISO(todayISO, maxFutureBookingDays);
-      if (pickupDate > maxPickup) {
-        add('pickupDate', `Delivery date cannot be more than ${maxFutureBookingDays} days ahead`);
-      }
-    }
-
-    if (pickupDate && returnDate && maxReturnDays > 0) {
-      const maxReturn = addDaysISO(pickupDate, maxReturnDays);
-      if (returnDate > maxReturn) {
-        add('returnDate', `Return date cannot be more than ${maxReturnDays} days after delivery`);
-      }
-    }
-
     const advAmt = toNonNegativeAmount(advanceAmount);
     const expectedSecurity = toNonNegativeAmount(deposit);
     const advAcc = String(advanceAccountId || '').trim();
@@ -4699,7 +4672,6 @@ const CreateOrder = ({ mode, orderId }) => {
                 label="Delivery Date*"
                 type="date"
                 min={todayISO}
-                max={deliveryMax}
                 value={pickupDate}
                 error={err('pickupDate')}
                 onChange={(e) => {
@@ -4734,7 +4706,6 @@ const CreateOrder = ({ mode, orderId }) => {
                 type="date"
                 panelAlign="end"
                 min={pickupDate || todayISO}
-                max={returnMax}
                 value={returnDate}
                 error={err('returnDate')}
                 onChange={(e) => {

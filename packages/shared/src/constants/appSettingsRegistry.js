@@ -39,7 +39,7 @@ export const APP_SETTINGS_REGISTRY = [
   },
   {
     key: 'AUTO_SELECT_RETURN_DATE_DAYS',
-    name: 'Auto select return date days.',
+    name: 'Default rental length in days (return date auto-fills; staff can pick any other dates).',
     type: APP_SETTING_TYPES.NUMBER,
     defaultValue: '3',
     group: 'booking',
@@ -67,9 +67,9 @@ export const APP_SETTINGS_REGISTRY = [
   },
   {
     key: 'DELIVERY_TO_RETURN_DATE_MAX_DAYS',
-    name: 'Delivery to return date max days.',
+    name: 'Delivery to return date max days (0 = no limit; not enforced on booking form).',
     type: APP_SETTING_TYPES.NUMBER,
-    defaultValue: '10',
+    defaultValue: '0',
     group: 'booking',
   },
   {
@@ -95,9 +95,9 @@ export const APP_SETTINGS_REGISTRY = [
   },
   {
     key: 'MAXIMUM_FUTURE_BOOKING_DURATION',
-    name: 'Maximum Future Booking Duration',
+    name: 'Maximum future booking duration (0 = no limit; not enforced on booking form).',
     type: APP_SETTING_TYPES.NUMBER,
-    defaultValue: '3',
+    defaultValue: '0',
     group: 'booking',
   },
   {
