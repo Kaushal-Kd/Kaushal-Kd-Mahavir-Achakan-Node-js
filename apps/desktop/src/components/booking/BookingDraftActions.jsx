@@ -1,5 +1,5 @@
 import { formatDateTime } from '@wrs/shared';
-import { Check, ClipboardList, FilePlus2, Save, Trash2 } from 'lucide-react';
+import { ClipboardList, FilePlus2, Save, Trash2 } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -21,26 +21,14 @@ function formatDraftSavedTime(updatedAt) {
 }
 
 function BookingDraftAutosaveStatus({ status, savedTimeLabel }) {
-  if (status === 'saving') {
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded border border-brand bg-brand-light text-brand text-[11px] font-semibold"
-        aria-live="polite"
-      >
-        Auto saving
-        <span className="inline-block w-0.5 h-3 bg-brand animate-pulse" aria-hidden />
-      </span>
-    );
-  }
   if (status === 'saved') {
     return (
       <span
-        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded border border-green-200 bg-green-50 text-green-700 text-[11px] font-semibold"
+        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded border border-gray-200 bg-white text-gray-600 text-[11px] font-medium"
         aria-live="polite"
       >
-        <Check size={12} strokeWidth={2.5} />
         Auto saved
-        {savedTimeLabel ? <span className="font-medium text-green-600 tabular-nums">· {savedTimeLabel}</span> : null}
+        {savedTimeLabel ? <span className="text-gray-500 tabular-nums">· {savedTimeLabel}</span> : null}
       </span>
     );
   }
@@ -52,7 +40,7 @@ function BookingDraftAutosaveStatus({ status, savedTimeLabel }) {
 }
 
 BookingDraftAutosaveStatus.propTypes = {
-  status: PropTypes.oneOf(['idle', 'saving', 'saved']).isRequired,
+  status: PropTypes.oneOf(['idle', 'saved']).isRequired,
   savedTimeLabel: PropTypes.string,
 };
 
@@ -265,7 +253,7 @@ BookingDraftActions.propTypes = {
   mode: PropTypes.oneOf(['embedded', 'navigate']).isRequired,
   activeDraftId: PropTypes.string,
   draftSavedTimeLabel: PropTypes.string,
-  autosaveStatus: PropTypes.oneOf(['idle', 'saving', 'saved']),
+  autosaveStatus: PropTypes.oneOf(['idle', 'saved']),
   onSaveDraft: PropTypes.func,
   onNewDraft: PropTypes.func,
   onResumeDraft: PropTypes.func,

@@ -4111,7 +4111,6 @@ const CreateOrder = ({ mode, orderId }) => {
   useLayoutEffect(() => {
     if (isEditMode) return;
     if (!Array.isArray(lines) || lines.length === 0) return;
-    setDraftSaveStatus('saving');
     flushBookingDraftToStorage();
   }, [isEditMode, lines, flushBookingDraftToStorage]);
 
@@ -4136,7 +4135,6 @@ const CreateOrder = ({ mode, orderId }) => {
 
   useEffect(() => {
     if (isEditMode) return undefined;
-    if (bookingDraftIdRef.current) setDraftSaveStatus('saving');
     const t = setTimeout(() => {
       const snap = buildBookingDraftSnapshot();
       const hasContent = !isSnapshotTriviallyEmpty(snap);
@@ -4144,7 +4142,6 @@ const CreateOrder = ({ mode, orderId }) => {
         setDraftSaveStatus('idle');
         return;
       }
-      if (hasContent) setDraftSaveStatus('saving');
       const ok = flushBookingDraftToStorage();
       if (ok) setDraftSaveStatus('saved');
       else if (!bookingDraftIdRef.current) setDraftSaveStatus('idle');
@@ -4158,7 +4155,6 @@ const CreateOrder = ({ mode, orderId }) => {
   }, [lastDraftSavedAt]);
 
   const handleManualSaveDraft = useCallback(() => {
-    setDraftSaveStatus('saving');
     if (flushBookingDraftToStorage()) {
       toast.success('Draft saved on this device');
     } else {
