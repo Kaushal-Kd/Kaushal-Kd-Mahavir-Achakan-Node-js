@@ -64,6 +64,12 @@ export function resolveApiAction(path, method) {
   const cleanPath = String(path || '').split('?')[0];
   if (
     String(method || '').toUpperCase() === 'POST' &&
+    cleanPath === '/api/products/visual-search'
+  ) {
+    return ACTIONS.VIEW;
+  }
+  if (
+    String(method || '').toUpperCase() === 'POST' &&
     /^\/api\/gst\/[^/]+\/convert-to-kaccha$/.test(cleanPath)
   ) {
     return ACTIONS.APPROVE;

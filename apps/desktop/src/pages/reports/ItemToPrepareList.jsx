@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   earliestNextBookingPickupIsoFromAlerts,
   formatBookingDateTime,
@@ -12,7 +12,7 @@ import {
   buildPrepareProductExportRows,
 } from '../../lib/itemToPreparePdfExport.js';
 import { ClipboardCheck, Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import TableColumnPicker from '../../components/ui/TableColumnPicker.jsx';
 import { useApplyDashboardListDateFilters } from '../../hooks/useDashboardListDateDefaults.js';
@@ -28,6 +28,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import BookingBillLink from '../../components/booking/BookingBillLink.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
+import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
 import DataTable from '../../components/ui/DataTable.jsx';
 import Input from '../../components/ui/Input.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -41,8 +42,12 @@ import {
 import { fetchProductWiseSlipTargets } from '../../lib/itemToCollectSlip.js';
 import { buildCustomerAddressColumn } from '../../lib/listOrderColumns.jsx';
 import { buildBookingDateTimeColumn } from '../../lib/listTimestampColumns.js';
+import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
+import { submitSalesmanReassignment } from '../../lib/salesmanReassign.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
+import { usePendingChecklistCommands } from '../../hooks/api/useChecklistCommand.js';
 import { toast } from '../../stores/uiStore.js';
+import { syncService } from '../../services/syncService.js';
 import { BookingListNextBookingAlert } from '../booking/ChecklistNextBookingAlert.jsx';
 import { orderHasNextBookingAlert } from '../booking/checklistNextBookingAlertUtils.js';
 import DeliverySettlementModal from '../booking/DeliverySettlementModal.jsx';
@@ -100,6 +105,9 @@ const ItemToPrepareList = () => {
   const [returnStageUpdates, setReturnStageUpdates] = useState(null);
   const [returnStageDraftAfter, setReturnStageDraftAfter] = useState(null);
   const [returnConditionUpdates, setReturnConditionUpdates] = useState(null);
+  const [selectedBookingIds, setSelectedBookingIds] = useState(() => new Set());
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignSalesmanId, setReassignSalesmanId] = useState('');
 
   const refreshPrepareList = () => {
     void queryClient.invalidateQueries({ queryKey: ['items-to-prepare'] });
@@ -137,6 +145,92 @@ const ItemToPrepareList = () => {
 
   const rows = data?.data ?? [];
   const totalCount = Number(data?.meta?.total ?? 0);
+  const pendingChecklistEntries = usePendingChecklistCommands();
+  const pendingOrderIds = useMemo(
+    () => new Set(pendingChecklistEntries.map((entry) => String(entry.entityId))),
+    [pendingChecklistEntries]
+  );
+
+  useEffect(() => {
+    setSelectedBookingIds(new Set());
+  }, [filterParams, page]);
+
+  const selectedCount = selectedBookingIds.size;
+  const pageSelectableIds = useMemo(
+    () => rows.map((r) => String(r.id)).filter((id) => id && !pendingOrderIds.has(id)),
+    [rows, pendingOrderIds]
+  );
+  const headerCheckboxChecked =
+    pageSelectableIds.length > 0 && pageSelectableIds.every((id) => selectedBookingIds.has(id));
+  const somePageSelected = pageSelectableIds.some((id) => selectedBookingIds.has(id));
+
+  const toggleBookingSelection = (bookingId) => {
+    const id = String(bookingId || '');
+    if (!id || pendingOrderIds.has(id)) return;
+    setSelectedBookingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAllHeaderChange = (event) => {
+    const checked = event.target.checked;
+    setSelectedBookingIds((prev) => {
+      const next = new Set(prev);
+      for (const id of pageSelectableIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const reassignMut = useMutation({
+    mutationFn: async () => {
+      const selectedRows = rows.filter((r) => selectedBookingIds.has(String(r.id)));
+      if (!selectedRows.length) throw new Error('Select at least one booking');
+      const lineRows = await fetchPrepareLinesForBookings(selectedRows, filterParams, {
+        allLines: true,
+      });
+      const selectedLines = new Map();
+      for (const line of lineRows) {
+        if (String(line?.item_type || line?.line_kind || '') === 'accessory') continue;
+        const id = String(line?.id || '');
+        const orderId = String(line?.order_id || line?.booking_id || '');
+        if (!id || !orderId) continue;
+        selectedLines.set(id, { id, order_id: orderId });
+      }
+      const selectedPreview = selectedRows.map((row) => ({
+        order_id: String(row.id),
+        order_number: row.order_number,
+      }));
+      return submitSalesmanReassignment({
+        selectedLines,
+        salesPersonId: reassignSalesmanId,
+        selectedPreview,
+        pendingOrderIds,
+        submit: (orderId, payload, metadata) =>
+          syncService.submitOrQueueSalesmanReassignment(orderId, payload, metadata),
+      });
+    },
+    onSuccess: async ({ lineCount, queued }) => {
+      setReassignOpen(false);
+      setReassignSalesmanId('');
+      setSelectedBookingIds(new Set());
+      await invalidateOrderDomain(queryClient);
+      toast.success(
+        queued > 0
+          ? `Salesman transfer queued for ${lineCount} line(s)`
+          : `Transferred ${lineCount} line(s) to the selected salesman`
+      );
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.error?.message || error?.message || 'Could not transfer work'
+      ),
+  });
 
   const resolvePrepareLineRows = async () => {
     const bookings = await fetchAllBookingsToPrepare(filterParams);
@@ -274,6 +368,54 @@ const ItemToPrepareList = () => {
   const addressColumn = buildCustomerAddressColumn();
 
   const allColumns = [
+    {
+      key: 'select',
+      locked: true,
+      header: (
+        <input
+          type="checkbox"
+          checked={headerCheckboxChecked}
+          disabled={pageSelectableIds.length === 0 || reassignMut.isPending}
+          ref={(el) => {
+            if (el) el.indeterminate = somePageSelected && !headerCheckboxChecked;
+          }}
+          onChange={handleSelectAllHeaderChange}
+          className="h-3.5 w-3.5 rounded border-gray-300 accent-brand"
+          aria-label="Select all bookings on this page"
+        />
+      ),
+      width: 40,
+      className: 'align-middle',
+      render: (r) => {
+        const id = String(r.id);
+        const pending = pendingOrderIds.has(id);
+        const selected = selectedBookingIds.has(id);
+        return (
+          <div
+            className="flex justify-center"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            role="presentation"
+          >
+            <input
+              type="checkbox"
+              checked={selected && !pending}
+              disabled={pending || reassignMut.isPending}
+              onChange={() => toggleBookingSelection(id)}
+              className="h-3.5 w-3.5 rounded border-gray-300 accent-brand disabled:opacity-40 disabled:cursor-not-allowed"
+              title={
+                pending
+                  ? 'Checklist save pending. Review Pending sync before transferring this booking.'
+                  : selected
+                    ? 'Deselect booking'
+                    : 'Select booking'
+              }
+              aria-label={pending ? 'Checklist save pending' : selected ? 'Deselect booking' : 'Select booking'}
+            />
+          </div>
+        );
+      },
+    },
     {
       key: 'actions',
       header: 'Action',
@@ -589,6 +731,29 @@ const ItemToPrepareList = () => {
             />
           </div>
         </div>
+        {selectedCount > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100">
+            <span className="text-xs text-gray-600">{selectedCount} selected</span>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={reassignMut.isPending}
+              onClick={() => setReassignOpen(true)}
+            >
+              Transfer salesman
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={reassignMut.isPending}
+              onClick={() => setSelectedBookingIds(new Set())}
+            >
+              Clear selection
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <DataTable
@@ -613,6 +778,32 @@ const ItemToPrepareList = () => {
           setPage(1);
           setPerPage(n);
         }}
+      />
+
+      <ConfirmDialog
+        isOpen={reassignOpen}
+        onClose={() => !reassignMut.isPending && setReassignOpen(false)}
+        onConfirm={() => reassignMut.mutate()}
+        title="Transfer selected work"
+        message={
+          <div className="space-y-2">
+            <p>
+              Assign product lines on {selectedCount} selected booking(s) to another salesman. The
+              booking salesman will not change.
+            </p>
+            <Select
+              label="Salesman"
+              value={reassignSalesmanId}
+              onChange={(event) => setReassignSalesmanId(event.target.value)}
+              options={[
+                { value: '', label: 'Select salesman' },
+                ...salesmanFilterOptions.filter((option) => option.value !== 'none'),
+              ]}
+            />
+          </div>
+        }
+        confirmLabel="Transfer"
+        loading={reassignMut.isPending}
       />
 
       <ItemStageExportLayoutDialog

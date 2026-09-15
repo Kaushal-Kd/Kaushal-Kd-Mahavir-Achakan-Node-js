@@ -1,8 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { formatCurrency, toISODate, toLocalISODate } from '@wrs/shared';
 import { toast } from '../../stores/uiStore.js';
 import clsx from 'clsx';
-import { Camera, History, LayoutGrid, List, PackagePlus, Search } from 'lucide-react';
+import {
+  Camera,
+  History,
+  LayoutGrid,
+  List,
+  PackagePlus,
+  ScanSearch,
+  Search,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import ProductsAvailableAddToCartModal from '../../components/booking/ProductsAvailableAddToCartModal.jsx';
@@ -22,8 +31,10 @@ import { configurationsApi } from '../../lib/api/configurations.js';
 import { sortColorsAZ } from '../../lib/colorOrder.js';
 import { productsApi } from '../../lib/api/products.js';
 import { useAppSettings } from '../../hooks/useAppSettings.js';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus.js';
 import { tableCountFromListResponse } from '../../lib/tableListMeta.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
+import { compressImageFile } from '../../utils/compressImage.js';
 
 const LAYOUT_STORAGE_KEY = 'products-available-layout';
 
@@ -58,6 +69,15 @@ function parseOptionalRentFilter(value) {
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read the selected image'));
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Show code once — size is already embedded in codes like A-0796[40]. */
 function formatProductCodeLabel(product) {
   const code = String(product?.code ?? '').trim();
@@ -69,6 +89,7 @@ function formatProductCodeLabel(product) {
 
 const ProductsAvailable = () => {
   const appSettings = useAppSettings();
+  const isOnline = useOnlineStatus();
   const returnOffsetDays = appSettings.getNumber('AUTO_SELECT_RETURN_DATE_DAYS', 3);
   const todayISO = toISODate(new Date());
 
@@ -86,6 +107,46 @@ const ProductsAvailable = () => {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [bookProduct, setBookProduct] = useState(null);
   const [historyProduct, setHistoryProduct] = useState(null);
+  const [visualProductIds, setVisualProductIds] = useState([]);
+  const [visualSearchMeta, setVisualSearchMeta] = useState(null);
+  const visualFileRef = useRef(null);
+
+  const { data: visualStatusResponse } = useQuery({
+    queryKey: ['products', 'visual-search', 'status'],
+    queryFn: productsApi.visualSearchStatus,
+    enabled: isOnline,
+    staleTime: 5 * 60_000,
+  });
+  const visualSearchEnabled = Boolean(visualStatusResponse?.data?.enabled);
+  const visualSearchMutation = useMutation({
+    mutationFn: async (file) => {
+      const optimized = await compressImageFile(file);
+      if (optimized.size > 2 * 1024 * 1024) {
+        throw new Error('Select an image that is 2 MB or smaller after optimization');
+      }
+      return productsApi.visualSearch(await fileToDataUrl(optimized));
+    },
+    onSuccess: (response) => {
+      const result = response?.data || {};
+      const ids = (result.matches || []).map((match) => match.product_id).filter(Boolean);
+      setVisualProductIds(ids);
+      setVisualSearchMeta(result);
+      setSearchInput('');
+      setPage(1);
+      if (!ids.length) toast.warning('No visually similar catalog photos were found');
+      else if (result.remaining_to_index > 0) {
+        toast.success(
+          `Found ${ids.length} matches. ${result.remaining_to_index} catalog photos remain to be indexed.`
+        );
+      } else {
+        toast.success(`Found ${ids.length} visually similar products`);
+      }
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.error?.message || error?.message || 'Visual search failed'
+      ),
+  });
 
   const { data: cats } = useQuery({
     queryKey: ['categories', 'product', 'products-available'],
@@ -159,9 +220,23 @@ const ProductsAvailable = () => {
     isLoading,
     isFetching,
   } = useQuery({
-    queryKey: ['products-available', appliedFilters, page, perPage],
-    queryFn: () =>
-      productsApi.availabilityList({
+    queryKey: [
+      'products-available',
+      appliedFilters,
+      visualSearchMeta !== null,
+      visualProductIds,
+      page,
+      perPage,
+    ],
+    queryFn: () => {
+      if (visualSearchMeta !== null && visualProductIds.length === 0) {
+        return {
+          ok: true,
+          data: [],
+          meta: { total: 0, page: 1, per_page: perPage, total_pages: 0 },
+        };
+      }
+      return productsApi.availabilityList({
         from: appliedFilters.from,
         to: appliedFilters.to,
         page,
@@ -173,7 +248,9 @@ const ProductsAvailable = () => {
         ...(appliedFilters.color ? { color: appliedFilters.color } : {}),
         ...(appliedFilters.rent_min != null ? { rent_min: appliedFilters.rent_min } : {}),
         ...(appliedFilters.rent_max != null ? { rent_max: appliedFilters.rent_max } : {}),
-      }),
+        ...(visualProductIds.length ? { product_ids: visualProductIds.join(',') } : {}),
+      });
+    },
     enabled: !!appliedFilters,
     keepPreviousData: true,
   });
@@ -216,6 +293,8 @@ const ProductsAvailable = () => {
 
   const runSearch = useCallback(() => {
     window.clearTimeout(searchDebounceRef.current);
+    setVisualProductIds([]);
+    setVisualSearchMeta(null);
     applyFiltersFromUi({ silent: false });
   }, [applyFiltersFromUi]);
 
@@ -325,9 +404,11 @@ const ProductsAvailable = () => {
 
   const showEmpty = appliedFilters && !isLoading && rows.length === 0;
   const listLoading = isLoading || (isFetching && rows.length === 0);
-  const emptyMessage = appliedFilters?.search
-    ? 'No matching products available for these dates.'
-    : 'No products available in this range.';
+  const emptyMessage = visualSearchMeta !== null
+    ? 'No visually similar products are available for these dates.'
+    : appliedFilters?.search
+      ? 'No matching products available for these dates.'
+      : 'No products available in this range.';
 
   return (
     <>
@@ -336,6 +417,35 @@ const ProductsAvailable = () => {
         description="Search rent products available between delivery and return dates"
         actions={
           <div className="flex items-center gap-2">
+            <input
+              ref={visualFileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) visualSearchMutation.mutate(file);
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              icon={ScanSearch}
+              loading={visualSearchMutation.isPending}
+              disabled={!isOnline || !visualSearchEnabled}
+              title={
+                !isOnline
+                  ? 'Visual search requires an internet connection'
+                  : visualSearchEnabled
+                  ? 'Find similar products from a photo'
+                  : 'Visual search is not configured on this server'
+              }
+              onClick={() => visualFileRef.current?.click()}
+            >
+              Visual search
+            </Button>
             {layout === 'list' ? <TableColumnPicker {...pickerProps} menuAlign="end" /> : null}
             <div className="flex items-center gap-1 border border-gray-200 rounded-md p-0.5 bg-white">
               <button
@@ -383,7 +493,11 @@ const ProductsAvailable = () => {
                 className="input w-full min-w-0 h-8 text-xs px-2 py-1 pr-8"
                 placeholder="Code, name, or design details"
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(e) => {
+                  setSearchInput(e.target.value);
+                  setVisualProductIds([]);
+                  setVisualSearchMeta(null);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') runSearch();
                 }}
@@ -506,6 +620,33 @@ const ProductsAvailable = () => {
         </div>
       </div>
 
+      {visualSearchMeta !== null ? (
+        <div className="mb-3 flex items-center gap-2 rounded-md border border-brand/20 bg-brand-light px-3 py-2 text-xs text-gray-700">
+          <ScanSearch size={16} className="shrink-0 text-brand" />
+          <span>
+            {visualProductIds.length
+              ? `Showing ${visualProductIds.length} visual matches`
+              : 'No visual matches found'}
+            {visualSearchMeta?.indexed_count
+              ? ` from ${visualSearchMeta.indexed_count} indexed catalog photos`
+              : ''}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            icon={X}
+            iconOnly
+            className="ml-auto"
+            aria-label="Clear visual search"
+            onClick={() => {
+              setVisualProductIds([]);
+              setVisualSearchMeta(null);
+            }}
+          />
+        </div>
+      ) : null}
+
       {layout === 'grid' ? (
         <div className="card overflow-hidden">
           {listLoading ? (
@@ -619,6 +760,8 @@ const ProductsAvailable = () => {
           setScannerOpen(false);
           window.clearTimeout(searchDebounceRef.current);
           setSearchInput(trimmed);
+          setVisualProductIds([]);
+          setVisualSearchMeta(null);
           setPage(1);
           setAppliedFilters({ ...buildAppliedFilters(), search: trimmed });
         }}

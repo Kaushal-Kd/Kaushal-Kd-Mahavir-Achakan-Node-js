@@ -381,6 +381,25 @@ export function applyBulkStageTrueToDraft(draftMap, field, order = null, conditi
   return applyGivenWithRentLocksToDraft(next, order);
 }
 
+/** Accessories whose full quantity will be newly marked by a bulk Prepare/Deliver action. */
+export function getBulkAccessoryQuantityWarnings(order, beforeDraft, afterDraft, field) {
+  if (field !== 'prepared' && field !== 'delivered') return [];
+  return (order?.accessories || [])
+    .filter((row) => {
+      if (isSellLine(row) || Number(row.qty || 1) <= 1) return false;
+      const key = checklistRowKey('accessory', row.id);
+      return !beforeDraft?.[key]?.[field] && !!afterDraft?.[key]?.[field];
+    })
+    .map((row) => ({
+      id: row.id,
+      qty: Number(row.qty || 1),
+      label:
+        [row.code_snapshot || row.code, row.name_snapshot || row.name]
+          .filter(Boolean)
+          .join(' — ') || 'Accessory',
+    }));
+}
+
 /** True when persisting these updates would newly mark at least one line delivered. */
 export function stageUpdatesIncludeNewDelivered(updates) {
   return (updates || []).some((u) => u.field === 'delivered' && u.value === true);
@@ -514,11 +533,17 @@ export function diffStageUpdates(order, draftMap, conditionDraft = null) {
         ) {
           continue;
         }
-        updates.push({ item_id: it.id, item_type: 'item', field, value,
-          ...(it.product_id && it.replacement_version != null ? {
-            expected_product_id: it.product_id,
-            expected_line_version: Number(it.replacement_version),
-          } : {}),
+        updates.push({
+          item_id: it.id,
+          item_type: 'item',
+          field,
+          value,
+          ...(it.product_id && it.replacement_version != null
+            ? {
+                expected_product_id: it.product_id,
+                expected_line_version: Number(it.replacement_version),
+              }
+            : {}),
         });
       }
     }

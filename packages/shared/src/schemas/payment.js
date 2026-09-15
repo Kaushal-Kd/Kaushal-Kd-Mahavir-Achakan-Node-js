@@ -70,7 +70,7 @@ export const securityTransactionsQuerySchema = z.object({
   from: paymentListDate,
   to: paymentListDate,
   security_account_id: z.string().trim().max(80).optional(),
-  view: z.enum(['received', 'return', 'on_hand']).optional().default('received'),
+  view: z.enum(['all', 'received', 'return', 'on_hand']).optional().default('received'),
 });
 
 export const securityDueQuerySchema = z.object({

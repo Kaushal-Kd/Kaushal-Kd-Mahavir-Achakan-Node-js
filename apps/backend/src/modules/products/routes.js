@@ -42,11 +42,15 @@ import {
   listRelatedProductsForBooking,
   exportProducts,
 } from './service.js';
+import { getVisualSearchStatus, searchProductsByImage } from './visualSearchService.js';
 
 const codeFormatSchema = z.object({
   default_prefix: z.string().trim().max(40).default(''),
   padding: z.coerce.number().int().min(1).max(10).default(4),
   by_category: z.record(z.string().uuid(), z.string().trim().max(40)).default({}),
+});
+const visualSearchSchema = z.object({
+  image_data_url: z.string().min(100).max(3_000_000),
 });
 
 export default async function productRoutes(fastify) {
@@ -115,6 +119,17 @@ export default async function productRoutes(fastify) {
   fastify.get('/availability-list', async (request) => {
     const result = await listProductAvailability(request.shopId, request.query || {});
     return { ok: true, ...result };
+  });
+
+  fastify.get('/visual-search/status', async () => ({
+    ok: true,
+    data: getVisualSearchStatus(),
+  }));
+
+  fastify.post('/visual-search', async (request) => {
+    const body = validate(visualSearchSchema, request.body || {});
+    const data = await searchProductsByImage(request.shopId, body.image_data_url);
+    return { ok: true, data };
   });
 
   fastify.get('/booking-availability', async (request) => {
@@ -240,7 +255,10 @@ export default async function productRoutes(fastify) {
   fastify.delete('/:id', { preHandler: fastify.requireShopAdminPassword }, async (request) => {
     const intent = validate(catalogDeleteSchema, request.body || {});
     const { before, mode } = await deleteProduct(request.shopId, request.params.id, intent.mode);
-    await request.audit('products', mode === 'deactivated' ? 'DELETE' : 'DELETE_PERMANENT', { id: before.id, old: before });
+    await request.audit('products', mode === 'deactivated' ? 'DELETE' : 'DELETE_PERMANENT', {
+      id: before.id,
+      old: before,
+    });
     return { ok: true, data: { mode } };
   });
 }

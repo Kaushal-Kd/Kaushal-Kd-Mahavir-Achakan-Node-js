@@ -12,6 +12,7 @@ import {
 } from '@wrs/shared';
 
 import { hasCachedShopAccess, invalidateAuthCacheForUser } from '../../lib/authCache.js';
+import { requireShopAdministrator } from '../../lib/requireShopAdministrator.js';
 import { z } from 'zod';
 import { assertShopIpAccess, resolveShopIpAccess } from '../ip-whitelist/shopService.js';
 import knex from '../../db/knex.js';
@@ -50,7 +51,7 @@ export default async function authRoutes(fastify) {
     });
     const ipAccess = await assertIpAccess(user.id, request.ip);
     const shopAccess = await Promise.all(
-      shops.map((shop) => resolveShopIpAccess(knex, shop.id, user.id, request.ip))
+      shops.map((shop) => resolveShopIpAccess(knex, shop.id, user.id, request.ip, body.device_id))
     );
     ipAccess.restricted ||= shopAccess.some((access) => access.restricted);
     const sessionId = await createAuthSession({
@@ -171,6 +172,53 @@ export default async function authRoutes(fastify) {
       const query = validate(authSessionListQuerySchema, request.query || {});
       const rows = await listShopAuthSessions(request.shopId, query.status, request.authUser.id);
       return { ok: true, data: { rows, current_session_id: request.user?.sid || null } };
+    }
+  );
+
+  fastify.post(
+    '/devices/:id/approval',
+    {
+      onRequest: [fastify.authenticate, fastify.requireShop],
+    },
+    async (request) => {
+      await requireShopAdministrator(knex, request.shopId, request.authUser.id);
+      const body = validate(z.object({ approved: z.boolean() }).strict(), request.body || {});
+      const session = await getShopScopedAuthSession(request.shopId, request.params.id);
+      if (!session) throw notFound('Device session not found');
+      if (
+        !body.approved &&
+        session.id === request.user?.sid &&
+        request.authUser.role !== 'super_admin'
+      ) {
+        const ownPolicy = await knex('shop_user_ip_policies')
+          .where({ shop_id: request.shopId, user_id: request.authUser.id })
+          .first('mode');
+        if (ownPolicy?.mode === 'registered_device') {
+          throw forbidden('Change your access policy before removing approval from this device');
+        }
+      }
+      const key = {
+        shop_id: request.shopId,
+        user_id: session.user_id,
+        device_id: session.device_id,
+      };
+      if (body.approved) {
+        await knex('shop_approved_devices')
+          .insert({
+            ...key,
+            approved_by_user_id: request.authUser.id,
+            approved_at: knex.fn.now(),
+          })
+          .onConflict(['shop_id', 'user_id', 'device_id'])
+          .merge({ approved_by_user_id: request.authUser.id, approved_at: knex.fn.now() });
+      } else {
+        await knex('shop_approved_devices').where(key).delete();
+      }
+      await request.audit('shop_approved_device', body.approved ? 'CREATE' : 'DELETE', {
+        id: `${request.shopId}:${session.user_id}:${session.device_id}`,
+        new: { ...key, approved: body.approved },
+      });
+      return { ok: true, data: { approved: body.approved } };
     }
   );
 
@@ -303,7 +351,13 @@ export default async function authRoutes(fastify) {
     );
     if (!(await hasCachedShopAccess(knex, request.authUser.id, shop_id, request.authUser.role)))
       throw forbidden('You do not have access to this shop');
-    const access = await assertShopIpAccess(knex, shop_id, request.authUser.id, request.ip);
+    const access = await assertShopIpAccess(
+      knex,
+      shop_id,
+      request.authUser.id,
+      request.ip,
+      request.sessionDeviceId
+    );
     await knex('users')
       .where({ id: request.authUser.id })
       .update({ last_selected_shop_id: shop_id });

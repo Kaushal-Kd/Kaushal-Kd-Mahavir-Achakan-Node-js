@@ -1,9 +1,56 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { accessoryRentableQty, collectIndianPhones, formatAccessoryQtyExceededMessage, formatAccessorySpareMessage, formatCurrency, formatDate, formatDateTime, getIndiaDateTimeParts, isIndianPhone, normalizeBookingTime, normalizeOrderTime, normalizeTime12, formatOrderTime12, normalizePhone, normalizeCustomOrderSqlDate, phoneInputDigits, nowDatetimeLocal, round2, splitDatetimeLocal, syncAccessoryStageFlagsForGivenStatusChange, toDatetimeLocalValue, toISODate, ACTIONS, MODULES, hasPermission, toLocalISODate } from '@wrs/shared';
+import {
+  accessoryRentableQty,
+  collectIndianPhones,
+  formatAccessoryQtyExceededMessage,
+  formatAccessorySpareMessage,
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  getIndiaDateTimeParts,
+  isIndianPhone,
+  normalizeBookingTime,
+  normalizeOrderTime,
+  normalizeTime12,
+  formatOrderTime12,
+  normalizePhone,
+  normalizeCustomOrderSqlDate,
+  phoneInputDigits,
+  nowDatetimeLocal,
+  round2,
+  splitDatetimeLocal,
+  syncAccessoryStageFlagsForGivenStatusChange,
+  toDatetimeLocalValue,
+  toISODate,
+  ACTIONS,
+  MODULES,
+  hasPermission,
+  toLocalISODate,
+} from '@wrs/shared';
 import clsx from 'clsx';
-import { Camera, GripVertical, History, Info, Minus, PackagePlus, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import {
+  Camera,
+  GripVertical,
+  History,
+  Info,
+  Minus,
+  PackagePlus,
+  Pencil,
+  Plus,
+  ScanSearch,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import PropTypes from 'prop-types';
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import BarcodeScannerModal from '../../components/ui/BarcodeScannerModal.jsx';
@@ -23,6 +70,7 @@ import BookingLogsModal from '../../components/booking/BookingLogsModal.jsx';
 import SettlementModal from './SettlementModal.jsx';
 import ProductRentalHistoryModal from '../../components/booking/ProductRentalHistoryModal.jsx';
 import LineNotesCell from '../../components/booking/LineNotesCell.jsx';
+import ReplacementRequirementsPanel from './ReplacementRequirementsPanel.jsx';
 import SmartImage from '../../components/ui/SmartImage.jsx';
 import TableHeaderLabel from '../../components/ui/TableHeaderLabel.jsx';
 import { accessoriesApi } from '../../lib/api/accessories.js';
@@ -33,6 +81,7 @@ import { ordersApi } from '../../lib/api/orders.js';
 import { paymentAccountsApi } from '../../lib/api/paymentAccounts.js';
 import { buildBookingEditSettlement } from '../../lib/bookingEditSettlement.js';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus.js';
+import { useOrderReplacementRequirements } from '../../hooks/api/useOrderReplacements.js';
 import { createQueueId, syncService } from '../../services/syncService.js';
 import { productsApi } from '../../lib/api/products.js';
 import { customOrdersApi } from '../../lib/api/customOrders.js';
@@ -52,6 +101,7 @@ import { useWhatsAppOutbound } from '../../contexts/WhatsAppOutboundContext.jsx'
 import { hydrateBookingCustomerFields } from '../../lib/bookingCustomerHydration.js';
 import { buildCustomerContactPatch } from '../../lib/customerContactPatch.js';
 import { printBill } from '../../utils/printBill.js';
+import { compressImageFile } from '../../utils/compressImage.js';
 import {
   FALLBACK_DEFAULT_DELIVERY_TIME,
   FALLBACK_DEFAULT_RETURN_TIME,
@@ -110,8 +160,18 @@ import {
 } from '../../lib/productAvailability.js';
 import { validateOrderRentAvailability } from '../../lib/orderSubmitAvailability.js';
 import { useAuthStore } from '../../stores/authStore.js';
+import { useShopStore } from '../../stores/shopStore.js';
 import { clearFieldError, fieldShellClass, rejectSubmit } from '../../lib/formValidation.js';
 import { toast } from '../../stores/uiStore.js';
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read the selected image'));
+    reader.readAsDataURL(file);
+  });
+}
 
 const todayISO = toISODate(new Date());
 const STATUS_TONE = {
@@ -126,7 +186,7 @@ const STATUS_TONE = {
   returned: 'gray',
   cancelled: 'gray',
   closed: 'gray',
-}
+};
 /** Modal open target when there is no product line (accessories-only booking). */
 const ACCESSORY_ONLY_MODAL_LINE_ID = '__accessories_only__';
 
@@ -147,7 +207,10 @@ function sumPaymentsByCategory(payments, category) {
 /** Advance net from payment rows (matches edit hydrate / deltaAdv on save). */
 function netAdvanceFromPayments(payments) {
   return round2(
-    Math.max(0, sumPaymentsByCategory(payments, 'advance') - sumPaymentsByCategory(payments, 'refund'))
+    Math.max(
+      0,
+      sumPaymentsByCategory(payments, 'advance') - sumPaymentsByCategory(payments, 'refund')
+    )
   );
 }
 
@@ -159,7 +222,8 @@ function netBillPaidFromPayments(payments) {
     sumPaymentsByCategory(payments, 'final') +
     sumPaymentsByCategory(payments, 'credit_note_apply');
   const expense =
-    sumPaymentsByCategory(payments, 'refund') + sumPaymentsByCategory(payments, 'credit_note_issue');
+    sumPaymentsByCategory(payments, 'refund') +
+    sumPaymentsByCategory(payments, 'credit_note_issue');
   return round2(Math.max(0, income - expense));
 }
 
@@ -184,9 +248,7 @@ function normalizeAccessoryOrderStatus(v) {
 function buildPersistedAccessoryStageFlagsPayload(accessoryRow) {
   if (!accessoryRow?.persisted_id) return {};
   const newStatus = normalizeAccessoryOrderStatus(accessoryRow.accessory_order_status);
-  const oldStatus = normalizeAccessoryOrderStatus(
-    accessoryRow._hydrated_given_status ?? newStatus
-  );
+  const oldStatus = normalizeAccessoryOrderStatus(accessoryRow._hydrated_given_status ?? newStatus);
   if (oldStatus === newStatus) return {};
   return {
     stage_flags: syncAccessoryStageFlagsForGivenStatusChange(
@@ -227,15 +289,22 @@ function accessoryDefaultOrderStatus(accessory) {
 }
 
 function filterRecommendedGroupItems(items, searchTerm) {
-  const term = String(searchTerm || '').trim().toLowerCase();
+  const term = String(searchTerm || '')
+    .trim()
+    .toLowerCase();
   if (!term) return items;
-  return items.filter((a) => String(a.name_snapshot || '').toLowerCase().includes(term));
+  return items.filter((a) =>
+    String(a.name_snapshot || '')
+      .toLowerCase()
+      .includes(term)
+  );
 }
 
 function formatAccessoryBillingSummaryForLine(a) {
   const typeLabel = a.type === 'sell' ? 'Sell' : 'Rent';
   const s = normalizeAccessoryOrderStatus(a.accessory_order_status);
-  const statusLabel = s === ACCESSORY_GIVE_STATUS ? 'Give' : s === 'pack_with_rent' ? 'Pack w/ rent' : 'Regular';
+  const statusLabel =
+    s === ACCESSORY_GIVE_STATUS ? 'Give' : s === 'pack_with_rent' ? 'Pack w/ rent' : 'Regular';
   return `${typeLabel} · ${statusLabel}`;
 }
 
@@ -296,6 +365,7 @@ const CreateOrder = ({ mode, orderId }) => {
   const reconcileAdminPassword = location.state?.adminPassword;
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
+  const selectedShopId = useShopStore((s) => s.selectedShopId);
   const appSettings = useAppSettings();
   const wa = useWhatsAppOutbound();
   const sendAfterCreateRef = useRef(null);
@@ -338,6 +408,7 @@ const CreateOrder = ({ mode, orderId }) => {
   const [productQuery, setProductQuery] = useState('');
   const [productOpen, setProductOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [visualProductIds, setVisualProductIds] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyProductSnapshot, setHistoryProductSnapshot] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -361,7 +432,7 @@ const CreateOrder = ({ mode, orderId }) => {
   const [whatsappManual, setWhatsappManual] = useState('');
   const [address, setAddress] = useState('');
   const [igstBill, setIgstBill] = useState(false);
-  const [gstEnabled, setGstEnabled] = useState(true);
+  const [gstEnabled, setGstEnabled] = useState(false);
   const [gstDefaultRate, setGstDefaultRate] = useState(0);
   const [taxMode, setTaxMode] = useState('exclusive');
   const [referenceName, setReferenceName] = useState('');
@@ -443,9 +514,11 @@ const CreateOrder = ({ mode, orderId }) => {
   const recommendedAccessoryInitKeyRef = useRef('');
   const productCodeFieldRef = useRef(null);
   const productSearchInputRef = useRef(null);
+  const visualProductFileRef = useRef(null);
   const addingProductLineRef = useRef(false);
   const [addingProductLine, setAddingProductLine] = useState(false);
   const [productDropdownPos, setProductDropdownPos] = useState(null);
+  const hasProductLookup = productQuery.trim().length >= 1 || visualProductIds.length > 0;
 
   const syncProductDropdownPos = useCallback(() => {
     const el = productCodeFieldRef.current;
@@ -460,6 +533,7 @@ const CreateOrder = ({ mode, orderId }) => {
 
   const resetProductSearchBar = useCallback(() => {
     setProductQuery('');
+    setVisualProductIds([]);
     setSelectedProduct(null);
     setProductOpen(false);
     setLineQty(1);
@@ -476,7 +550,7 @@ const CreateOrder = ({ mode, orderId }) => {
   }, []);
 
   useEffect(() => {
-    if (!productOpen || productQuery.trim().length < 1) {
+    if (!productOpen || !hasProductLookup) {
       setProductDropdownPos(null);
       return undefined;
     }
@@ -488,7 +562,7 @@ const CreateOrder = ({ mode, orderId }) => {
       window.removeEventListener('resize', onReposition);
       window.removeEventListener('scroll', onReposition, true);
     };
-  }, [productOpen, productQuery, syncProductDropdownPos]);
+  }, [hasProductLookup, productOpen, syncProductDropdownPos]);
 
   useEffect(() => {
     bookingDraftIdRef.current = bookingDraftId;
@@ -565,12 +639,19 @@ const CreateOrder = ({ mode, orderId }) => {
     const advNet = netAdvanceFromPayments(payments);
     initialEditAdvanceNetRef.current = advNet;
     const depNet = round2(
-      order.ordinary_security_net ?? Math.max(
-        0,
-        sumPaymentsByCategory(payments, 'deposit') - sumPaymentsByCategory(payments, 'deposit_refund')
-      )
+      order.ordinary_security_net ??
+        Math.max(
+          0,
+          sumPaymentsByCategory(payments, 'deposit') -
+            sumPaymentsByCategory(payments, 'deposit_refund')
+        )
     );
-    editFinancialBaselineRef.current = { advance: advNet, securityNet: depNet, depositAmount: toNonNegativeAmount(order.deposit_amount || 0), paid: depNet > 0 };
+    editFinancialBaselineRef.current = {
+      advance: advNet,
+      securityNet: depNet,
+      depositAmount: toNonNegativeAmount(order.deposit_amount || 0),
+      paid: depNet > 0,
+    };
     setAdvanceAmount(toNonNegativeAmount(advNet));
     setDeposit(toNonNegativeAmount(order.deposit_amount || 0));
     setPaidSecurityAmt(depNet > 0);
@@ -628,35 +709,96 @@ const CreateOrder = ({ mode, orderId }) => {
     navigate,
   ]);
 
+  const visualSearchStatusQuery = useQuery({
+    queryKey: ['products', 'visual-search', 'status'],
+    queryFn: productsApi.visualSearchStatus,
+    enabled: isOnline,
+    staleTime: 5 * 60_000,
+  });
+  const visualSearchEnabled = Boolean(visualSearchStatusQuery.data?.data?.enabled);
+  const replacementRequirementsQuery = useOrderReplacementRequirements(
+    isEditMode ? orderId : '',
+    'target'
+  );
+  const damagedPersistedIds = useMemo(() => {
+    const ids = new Set();
+    for (const row of replacementRequirementsQuery.data || []) {
+      if (row.status !== 'pending' && row.status !== 'preview') continue;
+      if (row.target_order_item_id) ids.add(String(row.target_order_item_id));
+    }
+    return ids;
+  }, [replacementRequirementsQuery.data]);
+  const visualSearchMutation = useMutation({
+    mutationFn: async (file) => {
+      if (!pickupDate || !returnDate) throw new Error('Select delivery and return dates first');
+      const optimized = await compressImageFile(file);
+      if (optimized.size > 2 * 1024 * 1024) {
+        throw new Error('Select an image that is 2 MB or smaller after optimization');
+      }
+      return productsApi.visualSearch(await fileToDataUrl(optimized));
+    },
+    onSuccess: (response) => {
+      const result = response?.data || {};
+      const ids = (result.matches || []).map((match) => match.product_id).filter(Boolean);
+      setVisualProductIds(ids);
+      setProductQuery('');
+      setSelectedProduct(null);
+      setProductOpen(ids.length > 0);
+      window.requestAnimationFrame(syncProductDropdownPos);
+      if (!ids.length) toast.warning('No visually similar catalog photos were found');
+      else toast.success(`Found ${ids.length} visually similar products`);
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.error?.message || error?.message || 'Visual search failed'
+      ),
+  });
+
   const productAvailabilityQuery = useQuery({
     queryKey: [
       'booking-product-search',
       productQuery,
+      visualProductIds,
       pickupDate,
       returnDate,
       lineQty,
     ],
     queryFn: () =>
       productsApi.bookingAvailability({
-        search: productQuery,
+        ...(productQuery.trim() ? { search: productQuery.trim() } : {}),
+        ...(visualProductIds.length ? { product_ids: visualProductIds.join(',') } : {}),
         from: pickupDate,
         to: returnDate,
         qty: Math.max(1, Number(lineQty) || 1),
         per_page: 20,
       }),
     enabled:
-      allowProductAutocomplete && productQuery.trim().length >= 1 && !!pickupDate && !!returnDate,
+      ((allowProductAutocomplete && productQuery.trim().length >= 1) ||
+        visualProductIds.length > 0) &&
+      !!pickupDate &&
+      !!returnDate,
     keepPreviousData: true,
   });
 
   const productSearchFallbackQuery = useQuery({
     queryKey: ['booking-product-search-fallback', productQuery],
     queryFn: () => productsApi.list({ search: productQuery, per_page: 20 }),
-    enabled: allowProductAutocomplete && productQuery.trim().length >= 1,
+    enabled:
+      allowProductAutocomplete &&
+      productQuery.trim().length >= 1 &&
+      visualProductIds.length === 0,
     keepPreviousData: true,
   });
   const accessorySearchQuery = useQuery({
-    queryKey: ['accessory-search-booking', accessorySearch, accessoryCategoryId, pickupDate, returnDate, isEditMode ? orderId : '', accessoryModalMode],
+    queryKey: [
+      'accessory-search-booking',
+      accessorySearch,
+      accessoryCategoryId,
+      pickupDate,
+      returnDate,
+      isEditMode ? orderId : '',
+      accessoryModalMode,
+    ],
     queryFn: () =>
       accessoriesApi.list({
         search: accessorySearch,
@@ -674,8 +816,7 @@ const CreateOrder = ({ mode, orderId }) => {
     () =>
       (lines || []).some(
         (l) =>
-          l.line_kind === 'standalone_accessory' ||
-          (l.accessories || []).some((a) => a.selected)
+          l.line_kind === 'standalone_accessory' || (l.accessories || []).some((a) => a.selected)
       ),
     [lines]
   );
@@ -720,9 +861,10 @@ const CreateOrder = ({ mode, orderId }) => {
   });
 
   const shopUsersQuery = useQuery({
-    queryKey: queryKeys.users.dropdown,
+    queryKey: queryKeys.users.dropdown(selectedShopId),
     queryFn: () => usersApi.list({ per_page: 200, is_active: 'true' }),
     staleTime: 60_000,
+    enabled: Boolean(selectedShopId),
   });
   const salesmanOptions = useMemo(() => {
     const extras = [];
@@ -746,9 +888,10 @@ const CreateOrder = ({ mode, orderId }) => {
     return buildSalesmanSelectOptions(
       shopUsersQuery.data?.data || [],
       currentUser,
-      extras
+      extras,
+      selectedShopId
     );
-  }, [shopUsersQuery.data, currentUser, editOrderQuery.data?.items, lines]);
+  }, [shopUsersQuery.data, currentUser, editOrderQuery.data?.items, lines, selectedShopId]);
   const salesmanLabelById = useMemo(() => {
     const map = new Map();
     for (const o of salesmanOptions) map.set(String(o.value), o.label);
@@ -805,7 +948,8 @@ const CreateOrder = ({ mode, orderId }) => {
   );
 
   const activeAccessoryLine = useMemo(() => {
-    if (!addAccessoryForLineId || addAccessoryForLineId === ACCESSORY_ONLY_MODAL_LINE_ID) return null;
+    if (!addAccessoryForLineId || addAccessoryForLineId === ACCESSORY_ONLY_MODAL_LINE_ID)
+      return null;
     return lines.find((line) => line.line_id === addAccessoryForLineId) || null;
   }, [lines, addAccessoryForLineId]);
 
@@ -1033,12 +1177,30 @@ const CreateOrder = ({ mode, orderId }) => {
       const result = moveLinkedAccessory(prev, dragAccId, target, {
         validateMergeQty: ({ lines: draft, mergedAccessory, mergedQty, omitAccessoryLineId }) => {
           if (isSellAccessoryLine(mergedAccessory)) {
-            const available = getSellAccessoryAvailable(mergedAccessory, draft, { omitAccessoryLineId });
-            return withStockValidation(mergedQty, available, mergedAccessory.name_snapshot, mergedAccessory) >= 1;
+            const available = getSellAccessoryAvailable(mergedAccessory, draft, {
+              omitAccessoryLineId,
+            });
+            return (
+              withStockValidation(
+                mergedQty,
+                available,
+                mergedAccessory.name_snapshot,
+                mergedAccessory
+              ) >= 1
+            );
           }
           if (isRentAccessoryLine(mergedAccessory)) {
-            const available = getRentAccessoryAvailable(mergedAccessory, draft, { omitAccessoryLineId });
-            return withStockValidation(mergedQty, available, mergedAccessory.name_snapshot, mergedAccessory) >= 1;
+            const available = getRentAccessoryAvailable(mergedAccessory, draft, {
+              omitAccessoryLineId,
+            });
+            return (
+              withStockValidation(
+                mergedQty,
+                available,
+                mergedAccessory.name_snapshot,
+                mergedAccessory
+              ) >= 1
+            );
           }
           return true;
         },
@@ -1248,11 +1410,12 @@ const CreateOrder = ({ mode, orderId }) => {
     if (!isEditMode) return 0;
     const payments = editOrderQuery.data?.payments;
     return round2(
-      editOrderQuery.data?.ordinary_security_net ?? Math.max(
-        0,
-        sumPaymentsByCategory(payments, 'deposit') -
-          sumPaymentsByCategory(payments, 'deposit_refund')
-      )
+      editOrderQuery.data?.ordinary_security_net ??
+        Math.max(
+          0,
+          sumPaymentsByCategory(payments, 'deposit') -
+            sumPaymentsByCategory(payments, 'deposit_refund')
+        )
     );
   }, [isEditMode, editOrderQuery.data?.payments, editOrderQuery.data?.ordinary_security_net]);
   const resolvedWhatsapp = resolveWhatsappValue({
@@ -1471,7 +1634,10 @@ const CreateOrder = ({ mode, orderId }) => {
     }
     setPickupDate(String(snap.pickupDate || snap.pickup_date || todayISO).slice(0, 10));
     setReturnDate(
-      String(snap.returnDate || snap.return_date || addDaysISO(todayISO, returnOffsetDays)).slice(0, 10)
+      String(snap.returnDate || snap.return_date || addDaysISO(todayISO, returnOffsetDays)).slice(
+        0,
+        10
+      )
     );
     setPickupTime(
       snap.pickupTime || snap.pickup_time || snap.delivery_time || defaultBookingTimes.delivery
@@ -1496,7 +1662,7 @@ const CreateOrder = ({ mode, orderId }) => {
     setWhatsappManual(String(snap.whatsappManual ?? snap.whatsapp_manual ?? ''));
     setAddress(String(snap.address ?? ''));
     setIgstBill(!!(snap.igstBill ?? snap.igst_bill));
-    setGstEnabled((snap.gstEnabled ?? snap.gst_enabled) !== false);
+    setGstEnabled((snap.gstEnabled ?? snap.gst_enabled) === true);
     setTaxMode((snap.taxMode || snap.tax_mode) === 'inclusive' ? 'inclusive' : 'exclusive');
     setReferenceName(String(snap.referenceName ?? snap.reference_name ?? ''));
     const gapRaw = snap.nextBookingGapDaysInput ?? snap.next_booking_gap_days;
@@ -1557,7 +1723,7 @@ const CreateOrder = ({ mode, orderId }) => {
       whatsappManual: '',
       address: '',
       igstBill: false,
-      gstEnabled: true,
+      gstEnabled: false,
       taxMode: 'exclusive',
       referenceName: '',
       nextBookingGapDaysInput: '',
@@ -1701,16 +1867,23 @@ const CreateOrder = ({ mode, orderId }) => {
       if (editCommandRef.current?.fingerprint !== fingerprint) {
         editCommandRef.current = { fingerprint, key: createQueueId() };
       }
-      const result = await syncService.submitOrderEdit(orderId, {
-        ...body, idempotency_key: editCommandRef.current.key,
-      }, { orderNumber: editBookingNumber, requiresMasterPassword: Boolean(body.admin_password) });
+      const result = await syncService.submitOrderEdit(
+        orderId,
+        {
+          ...body,
+          idempotency_key: editCommandRef.current.key,
+        },
+        { orderNumber: editBookingNumber, requiresMasterPassword: Boolean(body.admin_password) }
+      );
       return result.queued ? { queued: true } : result.response;
     },
     onSuccess: async (resp) => {
       const waChoice = sendAfterCreateRef.current;
       sendAfterCreateRef.current = null;
       if (resp?.queued) {
-        toast.info('Booking edit queued. Stock and payments are not confirmed until it syncs; review any sync conflict.');
+        toast.info(
+          'Booking edit queued. Stock and payments are not confirmed until it syncs; review any sync conflict.'
+        );
         navigate('/booking');
         return;
       }
@@ -2041,7 +2214,9 @@ const CreateOrder = ({ mode, orderId }) => {
         qty: ex.qty ?? recRow.qty,
         price: ex.price ?? recRow.price,
         discount: ex.discount ?? recRow.discount,
-        remarks: String(ex.remarks ?? '').trim().slice(0, 500),
+        remarks: String(ex.remarks ?? '')
+          .trim()
+          .slice(0, 500),
         accessory_order_status: ex.accessory_order_status ?? recRow.accessory_order_status,
         type: ex.type ?? recRow.type,
         category_id: ex.category_id ?? recRow.category_id,
@@ -2107,7 +2282,9 @@ const CreateOrder = ({ mode, orderId }) => {
     setAccessorySearch('');
     setAccessoryCategoryId('all');
     setAccessoryModalMode('all');
-    const lastProductLine = [...lines].reverse().find((l) => l.line_kind !== 'standalone_accessory');
+    const lastProductLine = [...lines]
+      .reverse()
+      .find((l) => l.line_kind !== 'standalone_accessory');
     const targetLineId = lastProductLine ? lastProductLine.line_id : ACCESSORY_ONLY_MODAL_LINE_ID;
     setAccessoryModalRemarks(resolveAccessoryModalRemarksSeed(lines, targetLineId, 'all'));
     setAddAccessoryForLineId(targetLineId);
@@ -2121,7 +2298,11 @@ const CreateOrder = ({ mode, orderId }) => {
     try {
       const products = selectableProductMatches;
       const byCode = products.find(
-        (p) => String(p.code || '').toLowerCase() === String(productQuery || '').trim().toLowerCase()
+        (p) =>
+          String(p.code || '').toLowerCase() ===
+          String(productQuery || '')
+            .trim()
+            .toLowerCase()
       );
       const product =
         selectedProduct ||
@@ -2411,8 +2592,13 @@ const CreateOrder = ({ mode, orderId }) => {
   };
 
   const saveProductNoteEditor = () => {
-    const clean = String(noteEditorValue || '').trim().slice(0, 500);
-    const imageUrl = String(noteEditorImageUrl || '').trim().slice(0, 500) || '';
+    const clean = String(noteEditorValue || '')
+      .trim()
+      .slice(0, 500);
+    const imageUrl =
+      String(noteEditorImageUrl || '')
+        .trim()
+        .slice(0, 500) || '';
     if (noteEditorLineId) {
       setProductField(noteEditorLineId, {
         tailor_notes: clean,
@@ -2425,8 +2611,8 @@ const CreateOrder = ({ mode, orderId }) => {
   const productLineHasNote = (line) =>
     Boolean(
       line &&
-        line.line_kind !== 'standalone_accessory' &&
-        (String(line.tailor_notes || '').trim() || String(line.tailor_note_image || '').trim())
+      line.line_kind !== 'standalone_accessory' &&
+      (String(line.tailor_notes || '').trim() || String(line.tailor_note_image || '').trim())
     );
 
   const setProductQtyWithValidation = async (line, nextQty) => {
@@ -2475,11 +2661,7 @@ const CreateOrder = ({ mode, orderId }) => {
         const safe = withStockValidation(wanted, available, merged.name_snapshot, merged);
         if (safe < 1) return;
         setLines((prev) =>
-          prev.map((l) =>
-            l.line_id === line.line_id
-              ? { ...merged, qty: safe }
-              : l
-          )
+          prev.map((l) => (l.line_id === line.line_id ? { ...merged, qty: safe } : l))
         );
       } finally {
         setQtyValidatingLineId('');
@@ -2604,7 +2786,12 @@ const CreateOrder = ({ mode, orderId }) => {
                 const available = getSellAccessoryAvailable(merged, prev, {
                   omitAccessoryLineId: a.line_id,
                 });
-                const safe = withStockValidation(merged.qty, available, merged.name_snapshot, merged);
+                const safe = withStockValidation(
+                  merged.qty,
+                  available,
+                  merged.name_snapshot,
+                  merged
+                );
                 if (safe < 1) return a;
                 return { ...merged, qty: safe };
               }),
@@ -2627,7 +2814,9 @@ const CreateOrder = ({ mode, orderId }) => {
             if (a.line_id !== accessoryLineId) return a;
             const merged = { ...a, ...patch };
             if (isSellAccessoryLine(merged) && patch.type != null) {
-              const available = getSellAccessoryAvailable(merged, prev, { omitAccessoryLineId: a.line_id });
+              const available = getSellAccessoryAvailable(merged, prev, {
+                omitAccessoryLineId: a.line_id,
+              });
               const safe = withStockValidation(merged.qty, available, merged.name_snapshot, merged);
               if (safe < 1) return a;
               return { ...merged, qty: safe };
@@ -2670,17 +2859,13 @@ const CreateOrder = ({ mode, orderId }) => {
       if (acc) {
         const pickType = resolveAccessoryPickerType(acc, acc.type);
         const grandfather = canGrandfatherAccessorySelection(acc, { isEditMode });
-        if (isAccessoryPickerOutOfStock(acc, { type: pickType, grandfatherSelected: grandfather })) {
+        if (
+          isAccessoryPickerOutOfStock(acc, { type: pickType, grandfatherSelected: grandfather })
+        ) {
           toast.warning(`${acc.name_snapshot || 'Accessory'} is not available for selected dates`);
           return;
         }
-        if (
-          pickType !== 'sell' &&
-          pickupDate &&
-          returnDate &&
-          acc.accessory_id &&
-          !grandfather
-        ) {
+        if (pickType !== 'sell' && pickupDate && returnDate && acc.accessory_id && !grandfather) {
           const qty = Math.max(1, Number(acc.qty) || 1);
           const result = await validateRentAccessoryQty({
             accessoryId: acc.accessory_id,
@@ -2702,7 +2887,9 @@ const CreateOrder = ({ mode, orderId }) => {
       [accessoryLineId]: checked,
     }));
     if (checked && activeAccessoryLine) {
-      const acc = (activeAccessoryLine.accessories || []).find((a) => a.line_id === accessoryLineId);
+      const acc = (activeAccessoryLine.accessories || []).find(
+        (a) => a.line_id === accessoryLineId
+      );
       const aid = acc?.accessory_id;
       if (aid) {
         setPendingAccessoryPicks((prev) => {
@@ -2812,7 +2999,10 @@ const CreateOrder = ({ mode, orderId }) => {
         ? overrides.accessory_order_status
         : accessoryDefaultOrderStatus(accessory)
     );
-    const price = accessoryPriceForType({ price_rent: catalog_price_rent, price_sell: catalog_price_sell }, type);
+    const price = accessoryPriceForType(
+      { price_rent: catalog_price_rent, price_sell: catalog_price_sell },
+      type
+    );
 
     if (accessoryModalMode === 'all') {
       const categoryNameFallback = String(
@@ -2822,9 +3012,12 @@ const CreateOrder = ({ mode, orderId }) => {
           ''
       ).trim();
       const stockQty = getAccessoryCatalogStockForPick(accessory);
-      const apiFreeQty = accessory.free_qty != null ? Math.max(0, Number(accessory.free_qty)) : stockQty;
-      const apiTotalQty = accessory.total_qty != null ? Math.max(0, Number(accessory.total_qty)) : stockQty;
-      const apiBookedQty = accessory.booked_qty != null ? Math.max(0, Number(accessory.booked_qty)) : 0;
+      const apiFreeQty =
+        accessory.free_qty != null ? Math.max(0, Number(accessory.free_qty)) : stockQty;
+      const apiTotalQty =
+        accessory.total_qty != null ? Math.max(0, Number(accessory.total_qty)) : stockQty;
+      const apiBookedQty =
+        accessory.booked_qty != null ? Math.max(0, Number(accessory.booked_qty)) : 0;
       const next = {
         line_id: createLocalId(),
         line_kind: 'standalone_accessory',
@@ -2885,7 +3078,9 @@ const CreateOrder = ({ mode, orderId }) => {
       if (existing) {
         const nextQty = existing.selected ? Number(existing.qty || 1) + 1 : 1;
         if (isSellAccessoryLine(existing)) {
-          const available = getSellAccessoryAvailable(existing, prev, { omitAccessoryLineId: existing.line_id });
+          const available = getSellAccessoryAvailable(existing, prev, {
+            omitAccessoryLineId: existing.line_id,
+          });
           const safe = withStockValidation(nextQty, available, existing.name_snapshot, existing);
           if (safe < 1) return line;
           productAdded = true;
@@ -2897,7 +3092,12 @@ const CreateOrder = ({ mode, orderId }) => {
                 return reactivateAccessoryRow(a, {
                   category_id: a.category_id || categoryId,
                   category_name: String(a.category_name || '').trim() || categoryName,
-                  remarks: mergedRemarks || String(a.remarks || '').trim().slice(0, 500) || '',
+                  remarks:
+                    mergedRemarks ||
+                    String(a.remarks || '')
+                      .trim()
+                      .slice(0, 500) ||
+                    '',
                 });
               }
               return {
@@ -2906,7 +3106,12 @@ const CreateOrder = ({ mode, orderId }) => {
                 qty: safe,
                 category_id: a.category_id || categoryId,
                 category_name: String(a.category_name || '').trim() || categoryName,
-                remarks: mergedRemarks || String(a.remarks || '').trim().slice(0, 500) || '',
+                remarks:
+                  mergedRemarks ||
+                  String(a.remarks || '')
+                    .trim()
+                    .slice(0, 500) ||
+                  '',
               };
             }),
           };
@@ -2925,7 +3130,12 @@ const CreateOrder = ({ mode, orderId }) => {
               return reactivateAccessoryRow(a, {
                 category_id: a.category_id || categoryId,
                 category_name: String(a.category_name || '').trim() || categoryName,
-                remarks: mergedRemarks || String(a.remarks || '').trim().slice(0, 500) || '',
+                remarks:
+                  mergedRemarks ||
+                  String(a.remarks || '')
+                    .trim()
+                    .slice(0, 500) ||
+                  '',
               });
             }
             return {
@@ -2934,15 +3144,23 @@ const CreateOrder = ({ mode, orderId }) => {
               qty: safe,
               category_id: a.category_id || categoryId,
               category_name: String(a.category_name || '').trim() || categoryName,
-              remarks: mergedRemarks || String(a.remarks || '').trim().slice(0, 500) || '',
+              remarks:
+                mergedRemarks ||
+                String(a.remarks || '')
+                  .trim()
+                  .slice(0, 500) ||
+                '',
             };
           }),
         };
       }
       const stockQty = getAccessoryCatalogStockForPick(accessory);
-      const apiFreeQty = accessory.free_qty != null ? Math.max(0, Number(accessory.free_qty)) : stockQty;
-      const apiTotalQty = accessory.total_qty != null ? Math.max(0, Number(accessory.total_qty)) : stockQty;
-      const apiBookedQty = accessory.booked_qty != null ? Math.max(0, Number(accessory.booked_qty)) : 0;
+      const apiFreeQty =
+        accessory.free_qty != null ? Math.max(0, Number(accessory.free_qty)) : stockQty;
+      const apiTotalQty =
+        accessory.total_qty != null ? Math.max(0, Number(accessory.total_qty)) : stockQty;
+      const apiBookedQty =
+        accessory.booked_qty != null ? Math.max(0, Number(accessory.booked_qty)) : 0;
       const next = {
         line_id: createLocalId(),
         accessory_id: accessory.id,
@@ -2993,7 +3211,9 @@ const CreateOrder = ({ mode, orderId }) => {
   };
 
   const commitAccessoryModal = async () => {
-    const remarkSnap = String(accessoryModalRemarks || '').trim().slice(0, 500);
+    const remarkSnap = String(accessoryModalRemarks || '')
+      .trim()
+      .slice(0, 500);
     const picks = Object.values(pendingAccessoryPicks);
     let addedCount = 0;
     let recommendedAppliedCount = 0;
@@ -3028,7 +3248,9 @@ const CreateOrder = ({ mode, orderId }) => {
         const grandfather = canGrandfatherAccessorySelection(a, { isEditMode });
 
         if (isSellAccessoryLine(merged)) {
-          const available = getSellAccessoryAvailable(merged, next, { omitAccessoryLineId: a.line_id });
+          const available = getSellAccessoryAvailable(merged, next, {
+            omitAccessoryLineId: a.line_id,
+          });
           if (available < 1 && !grandfather) {
             recommendedFailedCount += 1;
             toast.warning(`${merged.name_snapshot} is out of stock`);
@@ -3037,7 +3259,8 @@ const CreateOrder = ({ mode, orderId }) => {
           }
         } else {
           let availableOk =
-            getRentAccessoryAvailable(merged, next, { omitAccessoryLineId: a.line_id }) >= 1 || grandfather;
+            getRentAccessoryAvailable(merged, next, { omitAccessoryLineId: a.line_id }) >= 1 ||
+            grandfather;
           if (!availableOk && pickupDate && returnDate && a.accessory_id) {
             const qty = Math.max(1, Number(merged.qty) || 1);
             const result = await validateRentAccessoryQty({
@@ -3131,11 +3354,15 @@ const CreateOrder = ({ mode, orderId }) => {
   const securityAccounts = securityAccountsQuery.data?.data || [];
 
   const advanceBankAccounts = useMemo(() => {
-    return paymentAccounts.filter((a) => normPaymentAccountGroup(a.account_group) === 'bank accounts');
+    return paymentAccounts.filter(
+      (a) => normPaymentAccountGroup(a.account_group) === 'bank accounts'
+    );
   }, [paymentAccounts]);
 
   const advanceCashAccounts = useMemo(() => {
-    return paymentAccounts.filter((a) => normPaymentAccountGroup(a.account_group) === 'cash accounts');
+    return paymentAccounts.filter(
+      (a) => normPaymentAccountGroup(a.account_group) === 'cash accounts'
+    );
   }, [paymentAccounts]);
 
   useEffect(() => {
@@ -3160,371 +3387,417 @@ const CreateOrder = ({ mode, orderId }) => {
     setIsSubmitting(true);
 
     try {
-    const errors = {};
-    let firstMessage = null;
-    const add = (key, msg) => {
-      if (!errors[key]) errors[key] = msg;
-      if (!firstMessage) firstMessage = msg;
-    };
+      const errors = {};
+      let firstMessage = null;
+      const add = (key, msg) => {
+        if (!errors[key]) errors[key] = msg;
+        if (!firstMessage) firstMessage = msg;
+      };
 
-    if (!customer) add('customer', 'Select a customer first');
-    if (customer && !customerName) add('customerName', 'Enter customer name');
-    if (lines.length === 0) add('lines', 'Add at least one product or accessory');
-    if (!isIndianPhone(customerPhone1)) add('contactNo1', 'Enter a valid 10-digit Contact No.1');
-    if (!isIndianPhone(effectiveContactNo2)) add('contactNo2', 'Enter a valid 10-digit Contact No.2');
-    if (whatsappSource === 'phone2' && !isIndianPhone(effectiveContactNo2)) {
-      add('whatsapp', 'Enter a valid Contact No.2 to use it as WhatsApp number');
-    }
-    if (whatsappSource === 'manual' && !isIndianPhone(resolvedWhatsapp)) {
-      add('whatsapp', 'Enter a valid 10-digit WhatsApp number');
-    }
-    if (!String(address || '').trim()) add('address', 'Enter address');
+      if (!customer) add('customer', 'Select a customer first');
+      if (customer && !customerName) add('customerName', 'Enter customer name');
+      if (lines.length === 0) add('lines', 'Add at least one product or accessory');
+      if (!isIndianPhone(customerPhone1)) add('contactNo1', 'Enter a valid 10-digit Contact No.1');
+      if (!isIndianPhone(effectiveContactNo2)) {
+        add('contactNo2', 'Enter a valid 10-digit Contact No.2');
+      }
+      if (whatsappSource === 'phone2' && !isIndianPhone(effectiveContactNo2)) {
+        add('whatsapp', 'Enter a valid Contact No.2 to use it as WhatsApp number');
+      }
+      if (whatsappSource === 'manual' && !isIndianPhone(resolvedWhatsapp)) {
+        add('whatsapp', 'Enter a valid 10-digit WhatsApp number');
+      }
+      if (!String(address || '').trim()) add('address', 'Enter address');
 
-    if (timeSlotMandatory) {
-      if (!normalizeTime12(pickupTime)) add('pickupTime', 'Select delivery time');
-      if (!normalizeTime12(returnTime)) add('returnTime', 'Select return time');
-    }
+      if (timeSlotMandatory) {
+        if (!normalizeTime12(pickupTime)) add('pickupTime', 'Select delivery time');
+        if (!normalizeTime12(returnTime)) add('returnTime', 'Select return time');
+      }
 
-    if (!pickupDate) add('pickupDate', 'Delivery and return dates are required');
-    if (!returnDate) add('returnDate', 'Delivery and return dates are required');
 
-    if (pickupDate && pickupDate < todayISO) {
-      const grandfather =
-        isEditMode && pickupDate === editOriginalPickupRef.current;
-      if (!grandfather) add('pickupDate', 'Delivery date cannot be in the past');
-    }
-    if (returnDate && returnDate < todayISO) {
-      const grandfather =
-        isEditMode && returnDate === editOriginalReturnRef.current;
-      if (!grandfather) add('returnDate', 'Return date cannot be in the past');
-    }
-    if (pickupDate && returnDate && returnDate < pickupDate) {
-      add('returnDate', 'Return date cannot be before delivery date');
-    }
+      if (!pickupDate) add('pickupDate', 'Delivery and return dates are required');
+      if (!returnDate) add('returnDate', 'Delivery and return dates are required');
 
-    const advAmt = toNonNegativeAmount(advanceAmount);
-    const expectedSecurity = toNonNegativeAmount(deposit);
-    const advAcc = String(advanceAccountId || '').trim();
-    const secAcc = String(securityAccountId || '').trim();
+      if (pickupDate && pickupDate < todayISO) {
+        const grandfather = isEditMode && pickupDate === editOriginalPickupRef.current;
+        if (!grandfather) add('pickupDate', 'Delivery date cannot be in the past');
+      }
+      if (returnDate && returnDate < todayISO) {
+        const grandfather = isEditMode && returnDate === editOriginalReturnRef.current;
+        if (!grandfather) add('returnDate', 'Return date cannot be in the past');
+      }
+      if (pickupDate && returnDate && returnDate < pickupDate) {
+        add('returnDate', 'Return date cannot be before delivery date');
+      }
 
-    if (!isEditMode && advanceMandatory && advAmt <= 0) {
-      add('advanceAmount', 'Advance payment is required for new bookings');
-    }
+      const advAmt = toNonNegativeAmount(advanceAmount);
+      const expectedSecurity = toNonNegativeAmount(deposit);
+      const advAcc = String(advanceAccountId || '').trim();
+      const secAcc = String(securityAccountId || '').trim();
 
-    const advanceAccountChoices = advanceBankAccounts.length + advanceCashAccounts.length;
-    const editOrder = isEditMode ? editOrderQuery.data : null;
-    const editSettlement = isEditMode ? buildBookingEditSettlement(editFinancialBaselineRef.current, {
-      advance: advAmt, depositAmount: expectedSecurity, paid: paidSecurityAmt,
-      paymentDate: toLocalISODate(new Date()), paymentAccountId: advAcc, securityAccountId: secAcc,
-    }) : undefined;
-    const deltaAdv = editSettlement?.advance_net === undefined ? 0 : round2(editSettlement.advance_net - editSettlement.expected_advance_net);
-    const deltaDep = editSettlement?.security_net === undefined ? 0 : round2(editSettlement.security_net - editSettlement.expected_security_net);
+      if (!isEditMode && advanceMandatory && advAmt <= 0) {
+        add('advanceAmount', 'Advance payment is required for new bookings');
+      }
 
-    if (advAmt < 0 || expectedSecurity < 0) add('advanceAmount', 'Amounts cannot be negative');
+      const advanceAccountChoices = advanceBankAccounts.length + advanceCashAccounts.length;
+      const editOrder = isEditMode ? editOrderQuery.data : null;
+      const editSettlement = isEditMode
+        ? buildBookingEditSettlement(editFinancialBaselineRef.current, {
+            advance: advAmt,
+            depositAmount: expectedSecurity,
+            paid: paidSecurityAmt,
+            paymentDate: toLocalISODate(new Date()),
+            paymentAccountId: advAcc,
+            securityAccountId: secAcc,
+          })
+        : undefined;
+      const deltaAdv =
+        editSettlement?.advance_net === undefined
+          ? 0
+          : round2(editSettlement.advance_net - editSettlement.expected_advance_net);
+      const deltaDep =
+        editSettlement?.security_net === undefined
+          ? 0
+          : round2(editSettlement.security_net - editSettlement.expected_security_net);
 
-    if (!isEditMode && advAmt > 0 && advanceAccountChoices > 0 && !advAcc) {
-      add('advanceAccountId', 'Select an advance payment account for the amount entered');
-    }
-    if (!isEditMode && paidSecurityAmt && expectedSecurity > 0 && securityAccountOptions.length > 0 && !secAcc) {
-      add('securityAccountId', 'Select a security account when "Paid Security Amt." is checked.');
-    }
-    if (isEditMode && deltaAdv !== 0 && advanceAccountChoices > 0 && !advAcc) {
-      add('advanceAccountId', 'Select an advance payment account to adjust the advance amount');
-    }
-    if (isEditMode && deltaDep !== 0 && securityAccountOptions.length > 0 && !secAcc) {
-      add('securityAccountId', 'Select a security account to adjust the security amount');
-    }
+      if (advAmt < 0 || expectedSecurity < 0) add('advanceAmount', 'Amounts cannot be negative');
 
-    if (!splitDatetimeLocal(bookingDateTime).date) {
-      add('bookingDateTime', 'Enter booking date and time');
-    }
+      if (!isEditMode && advAmt > 0 && advanceAccountChoices > 0 && !advAcc) {
+        add('advanceAccountId', 'Select an advance payment account for the amount entered');
+      }
+      if (
+        !isEditMode &&
+        paidSecurityAmt &&
+        expectedSecurity > 0 &&
+        securityAccountOptions.length > 0 &&
+        !secAcc
+      ) {
+        add('securityAccountId', 'Select a security account when "Paid Security Amt." is checked.');
+      }
+      if (isEditMode && deltaAdv !== 0 && advanceAccountChoices > 0 && !advAcc) {
+        add('advanceAccountId', 'Select an advance payment account to adjust the advance amount');
+      }
+      if (isEditMode && deltaDep !== 0 && securityAccountOptions.length > 0 && !secAcc) {
+        add('securityAccountId', 'Select a security account to adjust the security amount');
+      }
 
-    if (!isEditMode && applyCustomerCredit) {
-      const creditApply = toNonNegativeAmount(applyCreditAmount);
-      if (creditApply > 0) {
-        if (creditLookupPhones.length === 0) {
-          add('applyCreditAmount', 'Enter a valid contact number to apply customer credit');
-        } else if (creditApply > customerOpenCredit) {
-          add(
-            'applyCreditAmount',
-            `Credit cannot exceed available balance (${formatCurrency(customerOpenCredit)})`
-          );
-        } else if (creditApply > totals.grand_total) {
-          add('applyCreditAmount', 'Credit cannot exceed order total');
+      if (!splitDatetimeLocal(bookingDateTime).date) {
+        add('bookingDateTime', 'Enter booking date and time');
+      }
+
+      if (!isEditMode && applyCustomerCredit) {
+        const creditApply = toNonNegativeAmount(applyCreditAmount);
+        if (creditApply > 0) {
+          if (creditLookupPhones.length === 0) {
+            add('applyCreditAmount', 'Enter a valid contact number to apply customer credit');
+          } else if (creditApply > customerOpenCredit) {
+            add(
+              'applyCreditAmount',
+              `Credit cannot exceed available balance (${formatCurrency(customerOpenCredit)})`
+            );
+          } else if (creditApply > totals.grand_total) {
+            add('applyCreditAmount', 'Credit cannot exceed order total');
+          }
         }
       }
-    }
 
-    if (
-      rejectSubmit({
-        errors,
-        setErrors: setFieldErrors,
-        toast,
-        message: firstMessage,
-        fieldRefs,
-        scrollOrder: BOOKING_FIELD_SCROLL_ORDER,
-      })
-    ) {
-      releaseSubmitLock();
-      return;
-    }
-
-    // Keep customer master details in sync with what operator corrected here.
-    const detailRow = customerDetailQuery?.data?.data || customer || {};
-    const patch = buildCustomerContactPatch(detailRow, {
-      name: customerName,
-      phone1: customerPhone1,
-      phone2: String(effectiveContactNo2 || '').trim() || null,
-      phone2_name: String(contact2Name || '').trim().slice(0, 60) || null,
-      whatsapp: String(resolvedWhatsapp || '').trim() || null,
-      address: String(address || '').trim() || null,
-    });
-    if (Object.keys(patch).length > 0 && !isOnline) {
-      toast.warning('Reconnect before changing customer master details. Existing-customer booking edits can be queued offline.');
-      releaseSubmitLock();
-      return;
-    }
-    if (Object.keys(patch).length > 0) {
-      try {
-        await customersApi.update(customer.id, patch);
-      } catch (err) {
-        const msg = getApiErrorMessage(err, 'Customer details could not be synced');
-        if (patch.phone1 !== undefined) add('contactNo1', msg);
-        if (patch.address !== undefined) add('address', msg);
-        if (patch.phone1 === undefined && patch.address === undefined) add('customer', msg);
+      if (
         rejectSubmit({
           errors,
           setErrors: setFieldErrors,
           toast,
-          message: msg,
+          message: firstMessage,
           fieldRefs,
           scrollOrder: BOOKING_FIELD_SCROLL_ORDER,
-        });
+        })
+      ) {
         releaseSubmitLock();
         return;
       }
-    }
 
-    if (wasReconcileRef.current && isOnline) {
-      const reconcileCheck = await validateReconcileProductLines(lines);
-      if (!reconcileCheck.ok) {
-        toast.error(reconcileCheck.message || 'A product on this booking is already sold');
+      // Keep customer master details in sync with what operator corrected here.
+      const detailRow = customerDetailQuery?.data?.data || customer || {};
+      const patch = buildCustomerContactPatch(detailRow, {
+        name: customerName,
+        phone1: customerPhone1,
+        phone2: String(effectiveContactNo2 || '').trim() || null,
+        phone2_name:
+          String(contact2Name || '')
+            .trim()
+            .slice(0, 60) || null,
+        whatsapp: String(resolvedWhatsapp || '').trim() || null,
+        address: String(address || '').trim() || null,
+      });
+      if (Object.keys(patch).length > 0 && !isOnline) {
+        toast.warning(
+          'Reconnect before changing customer master details. Existing-customer booking edits can be queued offline.'
+        );
         releaseSubmitLock();
         return;
       }
-    }
+      if (Object.keys(patch).length > 0) {
+        try {
+          await customersApi.update(customer.id, patch);
+        } catch (err) {
+          const msg = getApiErrorMessage(err, 'Customer details could not be synced');
+          if (patch.phone1 !== undefined) add('contactNo1', msg);
+          if (patch.address !== undefined) add('address', msg);
+          if (patch.phone1 === undefined && patch.address === undefined) add('customer', msg);
+          rejectSubmit({
+            errors,
+            setErrors: setFieldErrors,
+            toast,
+            message: msg,
+            fieldRefs,
+            scrollOrder: BOOKING_FIELD_SCROLL_ORDER,
+          });
+          releaseSubmitLock();
+          return;
+        }
+      }
 
-    const stockResult = isEditMode && !isOnline ? { ok: true } : await validateOrderRentAvailability(lines, {
-      from: pickupDate,
-      to: returnDate,
-      excludeOrderId: isEditMode ? orderId : undefined,
-    });
-    if (!stockResult.ok) {
-      toast.error(stockResult.message);
-      releaseSubmitLock();
-      return;
-    }
+      if (wasReconcileRef.current && isOnline) {
+        const reconcileCheck = await validateReconcileProductLines(lines);
+        if (!reconcileCheck.ok) {
+          toast.error(reconcileCheck.message || 'A product on this booking is already sold');
+          releaseSubmitLock();
+          return;
+        }
+      }
 
-    const items = [];
-    for (const line of lines) {
-      if (line.line_kind === 'standalone_accessory') {
+      const stockResult =
+        isEditMode && !isOnline
+          ? { ok: true }
+          : await validateOrderRentAvailability(lines, {
+              from: pickupDate,
+              to: returnDate,
+              excludeOrderId: isEditMode ? orderId : undefined,
+            });
+      if (!stockResult.ok) {
+        toast.error(stockResult.message);
+        releaseSubmitLock();
+        return;
+      }
+
+      const items = [];
+      for (const line of lines) {
+        if (line.line_kind === 'standalone_accessory') {
+          const qty = Number(line.qty || 1);
+          const taxable = Math.max(
+            0,
+            (toNonNegativeAmount(line.price) - toNonNegativeAmount(line.discount)) * qty
+          );
+          const accessoryTaxRate = gstEnabled ? Number(line.gst_percent || 0) / 100 : 0;
+          const accessoryTax =
+            accessoryTaxRate <= 0
+              ? 0
+              : taxMode === 'inclusive'
+                ? taxable - taxable / (1 + accessoryTaxRate)
+                : taxable * accessoryTaxRate;
+          const g = givenRentBooleansFromStatus(line.accessory_order_status);
+          const handedOver = isCounterHandoverAccessory(line);
+          items.push({
+            id: line.persisted_id || undefined,
+            item_type: 'accessory',
+            accessory_id: line.accessory_id,
+            name_snapshot: line.name_snapshot,
+            qty,
+            price: toNonNegativeAmount(line.price),
+            discount: toNonNegativeAmount(line.discount),
+            tax: round2(accessoryTax),
+            type: line.type || 'rent',
+            given_with_rent: g.given_with_rent,
+            pack_with_rent: g.pack_with_rent,
+            remarks:
+              String(line.remarks || '')
+                .trim()
+                .slice(0, 500) || null,
+            display_order: Number(line.display_order ?? 0),
+            ...(handedOver && !line.persisted_id
+              ? { stage_flags: defaultHandedOverAccessoryStageFlags() }
+              : buildPersistedAccessoryStageFlagsPayload(line)),
+          });
+          continue;
+        }
+
         const qty = Number(line.qty || 1);
         const taxable = Math.max(
           0,
           (toNonNegativeAmount(line.price) - toNonNegativeAmount(line.discount)) * qty
         );
-        const accessoryTaxRate = gstEnabled ? Number(line.gst_percent || 0) / 100 : 0;
-        const accessoryTax =
-          accessoryTaxRate <= 0
+        const productTaxRate = gstEnabled ? Number(line.gst_percent || 0) / 100 : 0;
+        const productTax =
+          productTaxRate <= 0
             ? 0
             : taxMode === 'inclusive'
-              ? taxable - taxable / (1 + accessoryTaxRate)
-              : taxable * accessoryTaxRate;
-        const g = givenRentBooleansFromStatus(line.accessory_order_status);
-        const handedOver = isCounterHandoverAccessory(line);
+              ? taxable - taxable / (1 + productTaxRate)
+              : taxable * productTaxRate;
         items.push({
           id: line.persisted_id || undefined,
-          item_type: 'accessory',
-          accessory_id: line.accessory_id,
+          item_type: 'product',
+          line_id: line.line_id,
+          product_id: line.product_id,
+          ...(line.persisted_id && line.expected_line_version != null
+            ? {
+                expected_product_id: line.expected_product_id,
+                expected_line_version: line.expected_line_version,
+              }
+            : {}),
           name_snapshot: line.name_snapshot,
+          code_snapshot: line.code_snapshot,
           qty,
           price: toNonNegativeAmount(line.price),
           discount: toNonNegativeAmount(line.discount),
-          tax: round2(accessoryTax),
+          tax: round2(productTax),
           type: line.type || 'rent',
-          given_with_rent: g.given_with_rent,
-          pack_with_rent: g.pack_with_rent,
-          remarks: String(line.remarks || '').trim().slice(0, 500) || null,
+          tailor_notes:
+            String(line.tailor_notes || '')
+              .trim()
+              .slice(0, 500) || null,
+          tailor_note_image:
+            String(line.tailor_note_image || '')
+              .trim()
+              .slice(0, 500) || null,
+          sales_person_id: line.sales_person_id || null,
           display_order: Number(line.display_order ?? 0),
-          ...(handedOver && !line.persisted_id
-            ? { stage_flags: defaultHandedOverAccessoryStageFlags() }
-            : buildPersistedAccessoryStageFlagsPayload(line)),
         });
-        continue;
-      }
-
-      const qty = Number(line.qty || 1);
-      const taxable = Math.max(
-        0,
-        (toNonNegativeAmount(line.price) - toNonNegativeAmount(line.discount)) * qty
-      );
-      const productTaxRate = gstEnabled ? Number(line.gst_percent || 0) / 100 : 0;
-      const productTax =
-        productTaxRate <= 0
-          ? 0
-          : taxMode === 'inclusive'
-            ? taxable - taxable / (1 + productTaxRate)
-            : taxable * productTaxRate;
-      items.push({
-        id: line.persisted_id || undefined,
-        item_type: 'product',
-        line_id: line.line_id,
-        product_id: line.product_id,
-        ...(line.persisted_id && line.expected_line_version != null ? {
-          expected_product_id: line.expected_product_id,
-          expected_line_version: line.expected_line_version,
-        } : {}),
-        name_snapshot: line.name_snapshot,
-        code_snapshot: line.code_snapshot,
-        qty,
-        price: toNonNegativeAmount(line.price),
-        discount: toNonNegativeAmount(line.discount),
-        tax: round2(productTax),
-        type: line.type || 'rent',
-        tailor_notes: String(line.tailor_notes || '').trim().slice(0, 500) || null,
-        tailor_note_image: String(line.tailor_note_image || '').trim().slice(0, 500) || null,
-        sales_person_id: line.sales_person_id || null,
-        display_order: Number(line.display_order ?? 0),
-      });
-      const selectedAccessories = sortAccessoriesByDisplayOrder(
-        (line.accessories || []).filter((a) => a.selected)
-      );
-      selectedAccessories.forEach((a, idx) => {
-        const aqty = Number(a.qty || 1);
-        const ataxable = Math.max(
-          0,
-          (toNonNegativeAmount(a.price) - toNonNegativeAmount(a.discount)) * aqty
+        const selectedAccessories = sortAccessoriesByDisplayOrder(
+          (line.accessories || []).filter((a) => a.selected)
         );
-        const accessoryTaxRate = gstEnabled ? Number(a.gst_percent || 0) / 100 : 0;
-        const accessoryTax =
-          accessoryTaxRate <= 0
-            ? 0
-            : taxMode === 'inclusive'
-              ? ataxable - ataxable / (1 + accessoryTaxRate)
-              : ataxable * accessoryTaxRate;
-        const g = givenRentBooleansFromStatus(a.accessory_order_status);
-        const handedOver = isCounterHandoverAccessory(a);
-        items.push({
-          id: a.persisted_id || undefined,
-          item_type: 'accessory',
-          parent_line_id: line.line_id,
-          accessory_id: a.accessory_id,
-          name_snapshot: a.name_snapshot,
-          qty: aqty,
-          price: toNonNegativeAmount(a.price),
-          discount: toNonNegativeAmount(a.discount),
-          tax: round2(accessoryTax),
-          type: a.type || 'rent',
-          given_with_rent: g.given_with_rent,
-          pack_with_rent: g.pack_with_rent,
-          remarks: String(a.remarks || '').trim().slice(0, 500) || null,
-          display_order: compositeAccessoryDisplayOrder(a, idx),
-          ...(handedOver && !a.persisted_id
-            ? { stage_flags: defaultHandedOverAccessoryStageFlags() }
-            : buildPersistedAccessoryStageFlagsPayload(a)),
+        selectedAccessories.forEach((a, idx) => {
+          const aqty = Number(a.qty || 1);
+          const ataxable = Math.max(
+            0,
+            (toNonNegativeAmount(a.price) - toNonNegativeAmount(a.discount)) * aqty
+          );
+          const accessoryTaxRate = gstEnabled ? Number(a.gst_percent || 0) / 100 : 0;
+          const accessoryTax =
+            accessoryTaxRate <= 0
+              ? 0
+              : taxMode === 'inclusive'
+                ? ataxable - ataxable / (1 + accessoryTaxRate)
+                : ataxable * accessoryTaxRate;
+          const g = givenRentBooleansFromStatus(a.accessory_order_status);
+          const handedOver = isCounterHandoverAccessory(a);
+          items.push({
+            id: a.persisted_id || undefined,
+            item_type: 'accessory',
+            parent_line_id: line.line_id,
+            accessory_id: a.accessory_id,
+            name_snapshot: a.name_snapshot,
+            qty: aqty,
+            price: toNonNegativeAmount(a.price),
+            discount: toNonNegativeAmount(a.discount),
+            tax: round2(accessoryTax),
+            type: a.type || 'rent',
+            given_with_rent: g.given_with_rent,
+            pack_with_rent: g.pack_with_rent,
+            remarks:
+              String(a.remarks || '')
+                .trim()
+                .slice(0, 500) || null,
+            display_order: compositeAccessoryDisplayOrder(a, idx),
+            ...(handedOver && !a.persisted_id
+              ? { stage_flags: defaultHandedOverAccessoryStageFlags() }
+              : buildPersistedAccessoryStageFlagsPayload(a)),
+          });
         });
-      });
-    }
-
-    const { date: bookingDate, time: bookingTime } = splitDatetimeLocal(bookingDateTime);
-    const bookingTime24 =
-      bookingTime || splitDatetimeLocal(nowDatetimeLocal()).time || normalizeOrderTime('00:00');
-    const normalizedBookingTime = normalizeBookingTime(bookingTime24);
-
-    const payload = {
-      customer_id: customer.id,
-      order_type: deriveOrderType(lines),
-      ...(isEditMode ? {} : { status: 'booked' }),
-      booking_date: bookingDate,
-      booking_time: normalizedBookingTime,
-      pickup_date: pickupDate,
-      return_date: returnDate || null,
-      delivery_time: normalizeTime12(pickupTime) || defaultBookingTimes.delivery,
-      return_time: normalizeTime12(returnTime) || defaultBookingTimes.return,
-      reference_name: referenceName || null,
-      pickup_name: contactNo2SameAsPhone1
-        ? customerName || null
-        : String(contact2Name || '').trim().slice(0, 200) || null,
-      pickup_number: effectiveContactNo2 || null,
-      contact_phone1: customerPhone1 || null,
-      contact_address: String(address || '').trim() || null,
-      customer_notes: customerNotes || null,
-      next_booking_gap_days: Math.max(0, Math.floor(Number(nextBookingGapDaysInput) || 0)),
-      previous_booking_gap_days: Math.max(0, Math.floor(Number(previousBookingGapDaysInput) || 0)),
-      bill_type: gstEnabled ? 'gst' : 'kaccha',
-      gst_enabled: gstEnabled,
-      igst_bill: igstBill,
-      tax_mode: taxMode,
-      advance_account_id: advanceAccountId || null,
-      security_account_id: securityAccountId || null,
-      booking_discount_type: bookingDiscountType,
-      booking_discount_value: toNonNegativeAmount(bookingDiscountValue),
-      items,
-    };
-    if (isEditMode && wasDeliveredEditRef.current && deliveredEditAdminPassword) {
-      payload.admin_password = deliveredEditAdminPassword;
-    }
-    if (isEditMode && wasReconcileRef.current && reconcileAdminPassword) {
-      payload.reconcile = true;
-      payload.admin_password = reconcileAdminPassword;
-    }
-    if (!isEditMode) {
-      payload.advance_amount = advAmt;
-      payload.paid_security_amt = paidSecurityAmt;
-      payload.deposit_amount = expectedSecurity;
-      const creditApply = applyCustomerCredit ? toNonNegativeAmount(applyCreditAmount) : 0;
-      if (creditApply > 0) {
-        payload.apply_credit_amount = creditApply;
-        if (creditLookupPhone1) payload.credit_lookup_phone1 = creditLookupPhone1;
-        if (creditLookupPhone2) payload.credit_lookup_phone2 = creditLookupPhone2;
       }
-    }
-    if (isEditMode && editOrder) {
-      payload.expected_product_lines = editExpectedProductsRef.current;
-      if (editSettlement) payload.edit_settlement = editSettlement;
-    }
 
-    sendAfterCreateRef.current = null;
-    const waTemplateKey = isEditMode ? 'UPDATE_BOOKING' : 'CREATE_BOOKING';
-    const waActionLabel = isEditMode ? 'Update booking' : 'Save booking';
-    const waNoPhoneMsg = isEditMode
-      ? 'Customer has no WhatsApp number. Booking will be updated without message.'
-      : 'Customer has no WhatsApp number. Booking will be saved without message.';
-    const waNotConnectedMsg = isEditMode
-      ? 'WhatsApp is not connected. Booking will be updated without message.'
-      : 'WhatsApp is not connected. Booking will be saved without message.';
+      const { date: bookingDate, time: bookingTime } = splitDatetimeLocal(bookingDateTime);
+      const bookingTime24 =
+        bookingTime || splitDatetimeLocal(nowDatetimeLocal()).time || normalizeOrderTime('00:00');
+      const normalizedBookingTime = normalizeBookingTime(bookingTime24);
 
-    const choice = await wa.confirmBeforeAction({
-      templateKey: waTemplateKey,
-      phone: resolvedWhatsapp,
-      customer,
-      actionLabel: waActionLabel,
-    });
-    if (choice === 'send') {
-      sendAfterCreateRef.current = 'send';
-    } else if (choice === 'skip') {
-      sendAfterCreateRef.current = 'skip';
-    } else if (choice === 'no_phone') {
-      toast.warning(waNoPhoneMsg);
-    } else if (choice === 'not_connected') {
-      toast.info(waNotConnectedMsg);
-    }
+      const payload = {
+        customer_id: customer.id,
+        order_type: deriveOrderType(lines),
+        ...(isEditMode ? {} : { status: 'booked' }),
+        booking_date: bookingDate,
+        booking_time: normalizedBookingTime,
+        pickup_date: pickupDate,
+        return_date: returnDate || null,
+        delivery_time: normalizeTime12(pickupTime) || defaultBookingTimes.delivery,
+        return_time: normalizeTime12(returnTime) || defaultBookingTimes.return,
+        reference_name: referenceName || null,
+        pickup_name: contactNo2SameAsPhone1
+          ? customerName || null
+          : String(contact2Name || '')
+              .trim()
+              .slice(0, 200) || null,
+        pickup_number: effectiveContactNo2 || null,
+        contact_phone1: customerPhone1 || null,
+        contact_address: String(address || '').trim() || null,
+        customer_notes: customerNotes || null,
+        next_booking_gap_days: Math.max(0, Math.floor(Number(nextBookingGapDaysInput) || 0)),
+        previous_booking_gap_days: Math.max(
+          0,
+          Math.floor(Number(previousBookingGapDaysInput) || 0)
+        ),
+        bill_type: gstEnabled ? 'gst' : 'kaccha',
+        gst_enabled: gstEnabled,
+        igst_bill: igstBill,
+        tax_mode: taxMode,
+        advance_account_id: advanceAccountId || null,
+        security_account_id: securityAccountId || null,
+        booking_discount_type: bookingDiscountType,
+        booking_discount_value: toNonNegativeAmount(bookingDiscountValue),
+        items,
+      };
+      if (isEditMode && wasDeliveredEditRef.current && deliveredEditAdminPassword) {
+        payload.admin_password = deliveredEditAdminPassword;
+      }
+      if (isEditMode && wasReconcileRef.current && reconcileAdminPassword) {
+        payload.reconcile = true;
+        payload.admin_password = reconcileAdminPassword;
+      }
+      if (!isEditMode) {
+        payload.advance_amount = advAmt;
+        payload.paid_security_amt = paidSecurityAmt;
+        payload.deposit_amount = expectedSecurity;
+        const creditApply = applyCustomerCredit ? toNonNegativeAmount(applyCreditAmount) : 0;
+        if (creditApply > 0) {
+          payload.apply_credit_amount = creditApply;
+          if (creditLookupPhone1) payload.credit_lookup_phone1 = creditLookupPhone1;
+          if (creditLookupPhone2) payload.credit_lookup_phone2 = creditLookupPhone2;
+        }
+      }
+      if (isEditMode && editOrder) {
+        payload.expected_product_lines = editExpectedProductsRef.current;
+        if (editSettlement) payload.edit_settlement = editSettlement;
+      }
 
-    saveMutation.mutate(payload, {
-      onSettled: () => {
-        releaseSubmitLock();
-      },
-    });
+      sendAfterCreateRef.current = null;
+      const waTemplateKey = isEditMode ? 'UPDATE_BOOKING' : 'CREATE_BOOKING';
+      const waActionLabel = isEditMode ? 'Update booking' : 'Save booking';
+      const waNoPhoneMsg = isEditMode
+        ? 'Customer has no WhatsApp number. Booking will be updated without message.'
+        : 'Customer has no WhatsApp number. Booking will be saved without message.';
+      const waNotConnectedMsg = isEditMode
+        ? 'WhatsApp is not connected. Booking will be updated without message.'
+        : 'WhatsApp is not connected. Booking will be saved without message.';
+
+      const choice = await wa.confirmBeforeAction({
+        templateKey: waTemplateKey,
+        phone: resolvedWhatsapp,
+        customer,
+        actionLabel: waActionLabel,
+      });
+      if (choice === 'send') {
+        sendAfterCreateRef.current = 'send';
+      } else if (choice === 'skip') {
+        sendAfterCreateRef.current = 'skip';
+      } else if (choice === 'no_phone') {
+        toast.warning(waNoPhoneMsg);
+      } else if (choice === 'not_connected') {
+        toast.info(waNotConnectedMsg);
+      }
+
+      saveMutation.mutate(payload, {
+        onSettled: () => {
+          releaseSubmitLock();
+        },
+      });
     } catch (err) {
       releaseSubmitLock();
       toast.error(err?.message || 'Could not save booking');
@@ -3571,8 +3844,12 @@ const CreateOrder = ({ mode, orderId }) => {
         discount: Number(line.discount || 0) || 0,
         type: line.type || 'rent',
         category_id: line.category_id || null,
-        tailor_notes: String(line.tailor_notes || '').trim().slice(0, 500),
-        tailor_note_image: String(line.tailor_note_image || '').trim().slice(0, 500),
+        tailor_notes: String(line.tailor_notes || '')
+          .trim()
+          .slice(0, 500),
+        tailor_note_image: String(line.tailor_note_image || '')
+          .trim()
+          .slice(0, 500),
         gap_days: 0,
         next_available_date: null,
         accessories: line.accessories,
@@ -3678,7 +3955,7 @@ const CreateOrder = ({ mode, orderId }) => {
     }
 
     const fin = handoff.financial || {};
-    if (fin.gst_enabled != null) setGstEnabled(!!fin.gst_enabled);
+    setGstEnabled(false);
     if (fin.igst_bill != null) setIgstBill(!!fin.igst_bill);
     if (fin.tax_mode) setTaxMode(fin.tax_mode === 'inclusive' ? 'inclusive' : 'exclusive');
     setBookingDiscountType(fin.booking_discount_type === 'percent' ? 'percent' : 'flat');
@@ -3697,7 +3974,9 @@ const CreateOrder = ({ mode, orderId }) => {
       setApplyCreditAmount('');
     }
 
-    const tailorNotes = String(handoff.tailor_notes || handoff.remarks || '').trim().slice(0, 500);
+    const tailorNotes = String(handoff.tailor_notes || handoff.remarks || '')
+      .trim()
+      .slice(0, 500);
     const handoffLinePrice = toNonNegativeAmount(fin.price);
     const handoffLineDiscount = toNonNegativeAmount(fin.line_discount);
 
@@ -3745,10 +4024,7 @@ const CreateOrder = ({ mode, orderId }) => {
                 : catalogPriceForType(product, getDefaultProductLineType(product)),
             discount: handoffLineDiscount,
             gst_percent: gstEnabled ? gstDefaultRate : 0,
-            type:
-              fin.order_type === 'sell'
-                ? 'sell'
-                : getDefaultProductLineType(product),
+            type: fin.order_type === 'sell' ? 'sell' : getDefaultProductLineType(product),
             category_id: product.category_id || null,
             total_qty: Number(product.qty || 0),
             free_qty: freeQty,
@@ -3878,7 +4154,8 @@ const CreateOrder = ({ mode, orderId }) => {
     if (editHydratedForOrderIdRef.current === oid) return;
     editHydratedForOrderIdRef.current = oid;
     editExpectedProductsRef.current = (order.items || []).map((item) => ({
-      item_id: item.id, expected_product_id: item.product_id || null,
+      item_id: item.id,
+      expected_product_id: item.product_id || null,
       expected_line_version: Number(item.replacement_version || 0),
     }));
     setInitializingEdit(true);
@@ -3888,9 +4165,8 @@ const CreateOrder = ({ mode, orderId }) => {
       );
     } else {
       const createdAt = order.created_at ? new Date(order.created_at) : null;
-      const createdParts = createdAt && !Number.isNaN(createdAt.getTime())
-        ? getIndiaDateTimeParts(createdAt)
-        : null;
+      const createdParts =
+        createdAt && !Number.isNaN(createdAt.getTime()) ? getIndiaDateTimeParts(createdAt) : null;
       const createdTime = createdParts
         ? normalizeOrderTime(`${createdParts.hour}:${createdParts.minute}`)
         : splitDatetimeLocal(nowDatetimeLocal()).time;
@@ -3912,8 +4188,12 @@ const CreateOrder = ({ mode, orderId }) => {
     setWhatsappManual('');
     setCustomerNotes(order.customer_notes || '');
     setIgstBill(!!order.igst_bill);
-    setGstEnabled(order.gst_enabled !== false);
-    setTaxMode(order.tax_total > 0 && Number(order.total_amount || 0) === Number(order.subtotal || 0) ? 'inclusive' : 'exclusive');
+    setGstEnabled(order.gst_enabled === true);
+    setTaxMode(
+      order.tax_total > 0 && Number(order.total_amount || 0) === Number(order.subtotal || 0)
+        ? 'inclusive'
+        : 'exclusive'
+    );
     setNextBookingGapDaysInput(String(order.next_booking_gap_days || 0));
     setPreviousBookingGapDaysInput(String(order.previous_booking_gap_days || 0));
     setBookingDiscountType(order.booking_discount_type || 'flat');
@@ -3924,9 +4204,19 @@ const CreateOrder = ({ mode, orderId }) => {
     const advNet = netAdvanceFromPayments(payments);
     initialEditAdvanceNetRef.current = advNet;
     const depNet = round2(
-      order.ordinary_security_net ?? Math.max(0, sumPaymentsByCategory(payments, 'deposit') - sumPaymentsByCategory(payments, 'deposit_refund'))
+      order.ordinary_security_net ??
+        Math.max(
+          0,
+          sumPaymentsByCategory(payments, 'deposit') -
+            sumPaymentsByCategory(payments, 'deposit_refund')
+        )
     );
-    editFinancialBaselineRef.current = { advance: advNet, securityNet: depNet, depositAmount: toNonNegativeAmount(order.deposit_amount || 0), paid: depNet > 0 };
+    editFinancialBaselineRef.current = {
+      advance: advNet,
+      securityNet: depNet,
+      depositAmount: toNonNegativeAmount(order.deposit_amount || 0),
+      paid: depNet > 0,
+    };
     setAdvanceAmount(toNonNegativeAmount(advNet));
     setDeposit(toNonNegativeAmount(order.deposit_amount || 0));
     setPaidSecurityAmt(depNet > 0);
@@ -4097,11 +4387,10 @@ const CreateOrder = ({ mode, orderId }) => {
 
   useEffect(() => {
     if (isEditMode || appSettings.isLoading) return;
-    const { enabled, default_rate: defaultRate } = appSettings.gst;
-    setGstDefaultRate(defaultRate);
+    setGstDefaultRate(appSettings.gst.default_rate);
     if (lockDraftFormDefaultsRef.current) return;
-    setGstEnabled(enabled);
-    if (!enabled) setIgstBill(false);
+    setGstEnabled(false);
+    setIgstBill(false);
   }, [isEditMode, appSettings.isLoading, appSettings.gst]);
 
   useEffect(() => {
@@ -4196,8 +4485,9 @@ const CreateOrder = ({ mode, orderId }) => {
             ) : null}
           </p>
           <p className="mt-1 text-gray-700">
-            Verify delivery and return dates and that all rent products and accessories are available
-            before saving. The booking will return to Booked status with checklist stages reset.
+            Verify delivery and return dates and that all rent products and accessories are
+            available before saving. The booking will return to Booked status with checklist stages
+            reset.
           </p>
         </div>
       ) : null}
@@ -4224,10 +4514,10 @@ const CreateOrder = ({ mode, orderId }) => {
             ) : null}
           </p>
           <p className="mt-1 text-amber-900/90">
-            After you save, checklist stages reset only for newly added products and accessories. Items
-            already collected or delivered stay as they were. The booking status may move back (e.g. to
-            Booked) until the new lines are prepared and delivered. Payments already recorded are kept;
-            pending balance is recalculated from the new order total.
+            After you save, checklist stages reset only for newly added products and accessories.
+            Items already collected or delivered stay as they were. The booking status may move back
+            (e.g. to Booked) until the new lines are prepared and delivered. Payments already
+            recorded are kept; pending balance is recalculated from the new order total.
           </p>
         </div>
       ) : null}
@@ -4284,6 +4574,10 @@ const CreateOrder = ({ mode, orderId }) => {
         }
       />
 
+      {isEditMode && orderId ? (
+        <ReplacementRequirementsPanel orderId={orderId} direction="target" />
+      ) : null}
+
       {isEditMode && canViewLogs && orderId ? (
         <div className="mb-2">
           <BookingAuditBadge
@@ -4297,23 +4591,13 @@ const CreateOrder = ({ mode, orderId }) => {
       <div className="space-y-2 text-xs [&_.input]:h-8 [&_.input]:py-1 [&_.input]:px-2 [&_.input]:text-xs [&_.label]:mb-0.5 [&_.label]:text-[11px] [&_.btn-primary]:h-8 [&_.btn-primary]:px-3 [&_.btn-primary]:text-xs [&_.btn-secondary]:h-8 [&_.btn-secondary]:px-3 [&_.btn-secondary]:text-xs">
         <div className="card p-2.5">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Customer Details</h3>
+            <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
+              Customer Details
+            </h3>
             <div className="flex items-center gap-2">
-              <div className="w-32">
-                <Select
-                  aria-label="Booking bill type"
-                  value={gstEnabled ? 'gst' : 'kaccha'}
-                  onChange={(event) => {
-                    const enabled = event.target.value === 'gst';
-                    setGstEnabled(enabled);
-                    if (!enabled) setIgstBill(false);
-                  }}
-                  options={[
-                    { value: 'kaccha', label: 'Kaccha Bill' },
-                    { value: 'gst', label: 'GST Bill' },
-                  ]}
-                />
-              </div>
+              <span className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-medium text-gray-700">
+                {gstEnabled ? 'Legacy GST Bill' : 'Kaccha Bill'}
+              </span>
               {gstEnabled ? (
                 <label className="flex items-center gap-2 text-xs text-gray-700">
                   <input
@@ -4388,7 +4672,9 @@ const CreateOrder = ({ mode, orderId }) => {
                       title="Open customer details"
                     >
                       <div className="min-w-0">
-                        <div className="text-xs font-medium text-gray-900 truncate">{customer.name}</div>
+                        <div className="text-xs font-medium text-gray-900 truncate">
+                          {customer.name}
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -4429,8 +4715,12 @@ const CreateOrder = ({ mode, orderId }) => {
                     const q = customerQuery.trim().toLowerCase();
                     const exact = rows.find(
                       (c) =>
-                        String(c.name || '').trim().toLowerCase() === q ||
-                        String(c.phone1 || '').trim().toLowerCase() === q
+                        String(c.name || '')
+                          .trim()
+                          .toLowerCase() === q ||
+                        String(c.phone1 || '')
+                          .trim()
+                          .toLowerCase() === q
                     );
                     if (exact) {
                       pickCustomer(exact);
@@ -4442,9 +4732,7 @@ const CreateOrder = ({ mode, orderId }) => {
                   }}
                 />
               )}
-              {!customer &&
-              customerOpen &&
-              customerQuery.trim().length >= 2 ? (
+              {!customer && customerOpen && customerQuery.trim().length >= 2 ? (
                 <div className="absolute z-20 left-0 right-0 mt-1 border border-gray-200 rounded-md max-h-48 overflow-auto bg-white shadow-lg">
                   {(customerResults?.data || []).length === 0 ? (
                     <div className="px-3 py-2 text-xs text-gray-500">No matches</div>
@@ -4538,14 +4826,18 @@ const CreateOrder = ({ mode, orderId }) => {
                 <p>
                   This number is also used by:{' '}
                   <span className="font-medium text-gray-900">
-                    {otherCustomersWithSamePhone.map((c) => c.name || 'Unnamed customer').join(', ')}
+                    {otherCustomersWithSamePhone
+                      .map((c) => c.name || 'Unnamed customer')
+                      .join(', ')}
                   </span>
                 </p>
               </div>
             ) : null}
             <div className="md:col-span-6 grid grid-cols-1 md:grid-cols-6 gap-2">
               <div className="md:col-span-2 min-w-0">
-                <label htmlFor="booking-whatsapp-source" className="label">WhatsApp Number</label>
+                <label htmlFor="booking-whatsapp-source" className="label">
+                  WhatsApp Number
+                </label>
                 <select
                   id="booking-whatsapp-source"
                   className={fieldShellClass(err('whatsapp'), 'input w-full')}
@@ -4579,7 +4871,11 @@ const CreateOrder = ({ mode, orderId }) => {
               {err('whatsapp') && whatsappSource !== 'manual' ? (
                 <p className="md:col-span-6 text-xs text-red-600">{err('whatsapp')}</p>
               ) : null}
-              <div className={whatsappSource === 'manual' ? 'md:col-span-2 min-w-0' : 'md:col-span-4 min-w-0'}>
+              <div
+                className={
+                  whatsappSource === 'manual' ? 'md:col-span-2 min-w-0' : 'md:col-span-4 min-w-0'
+                }
+              >
                 <Input
                   label="Address"
                   required
@@ -4597,24 +4893,28 @@ const CreateOrder = ({ mode, orderId }) => {
 
         <div
           ref={linesCardRef}
-          className={clsx(
-            'card p-2.5',
-            err('lines') && 'ring-1 ring-red-400 border-red-400'
-          )}
+          className={clsx('card p-2.5', err('lines') && 'ring-1 ring-red-400 border-red-400')}
         >
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Products Added</h3>
+            <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
+              Products Added
+            </h3>
           </div>
           {err('lines') ? <p className="text-xs text-red-600 mb-2">{err('lines')}</p> : null}
 
           <div className="flex w-full min-w-0 flex-wrap items-end gap-1.5 overflow-x-visible pb-0.5 sm:gap-2">
-          <div ref={productCodeFieldRef} className="relative z-30 w-[9.5rem] shrink-0 sm:w-[10.5rem]">
+            <div
+              ref={productCodeFieldRef}
+              className="relative z-30 w-[9.5rem] shrink-0 sm:w-[10.5rem]"
+            >
               <Input
                 ref={productSearchInputRef}
                 label="Code*"
                 value={productQuery}
+                inputClassName="pr-24"
                 onChange={(e) => {
                   setProductQuery(e.target.value);
+                  setVisualProductIds([]);
                   setSelectedProduct(null);
                   setProductOpen(true);
                   syncProductDropdownPos();
@@ -4650,6 +4950,34 @@ const CreateOrder = ({ mode, orderId }) => {
                 }}
                 placeholder="Name / Code"
               />
+              <input
+                ref={visualProductFileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) visualSearchMutation.mutate(file);
+                }}
+              />
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                disabled={!isOnline || !visualSearchEnabled || visualSearchMutation.isPending}
+                onClick={() => visualProductFileRef.current?.click()}
+                className="absolute right-[4.25rem] bottom-1 p-1 rounded-md text-gray-500 hover:text-brand hover:bg-brand-light/60 disabled:opacity-40 disabled:pointer-events-none"
+                title={
+                  !isOnline
+                    ? 'Visual search requires an internet connection'
+                    : visualSearchEnabled
+                    ? 'Find a similar product from a photo'
+                    : 'Visual search is not configured on this server'
+                }
+                aria-label="Visual product search"
+              >
+                <ScanSearch size={16} />
+              </button>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
@@ -4682,80 +5010,89 @@ const CreateOrder = ({ mode, orderId }) => {
               >
                 <History size={16} />
               </button>
-              {allowProductAutocomplete &&
+              {(allowProductAutocomplete || visualProductIds.length > 0) &&
               productOpen &&
-              productQuery.trim().length >= 1 &&
+              hasProductLookup &&
               productDropdownPos
                 ? createPortal(
-                <div
-                  className="fixed z-[200] border border-gray-200 rounded-md max-h-56 overflow-auto divide-y divide-gray-100 bg-white shadow-md"
-                  style={{
-                    top: productDropdownPos.top,
-                    left: productDropdownPos.left,
-                    width: productDropdownPos.width,
-                  }}
-                >
-                  {productAvailabilityQuery.isLoading || productSearchFallbackQuery.isLoading ? (
-                    <div className="px-2 py-1.5 text-[11px] text-gray-500">Searching…</div>
-                  ) : selectableProductMatches.length === 0 ? (
-                    <div className="px-2 py-1.5 text-[11px] text-gray-500">
-                      {productMatches.length > 0
-                        ? 'All matching products are already added.'
-                        : `No products found for “${productQuery}”`}
-                    </div>
-                  ) : (
-                    selectableProductMatches.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className={`w-full px-2 py-1.5 text-left flex items-start gap-2 ${
-                          isProductBookableForSelection(p, lineQty)
-                            ? 'hover:bg-gray-50'
-                            : 'bg-gray-50 text-gray-400 cursor-not-allowed'
-                        }`}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          if (!isProductBookableForSelection(p, lineQty)) {
-                            toast.warning('Product not available for selected delivery/return dates.');
-                            return;
-                          }
-                          setSelectedProduct(p);
-                          setProductQuery(p.code || p.name || '');
-                          setProductOpen(false);
-                        }}
-                        title={
-                          isProductBookableForSelection(p, lineQty)
-                            ? ''
-                            : p.next_available_date
-                              ? `Not available (next: ${formatDate(p.next_available_date) || '-'})`
-                              : 'Not available'
-                        }
-                      >
-                        <SmartImage
-                          src={p.main_image}
-                          alt={p.name}
-                          className="w-8 h-8 rounded border border-gray-100 bg-gray-50 object-contain shrink-0 mt-0.5"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-medium text-gray-800 truncate">{p.name}</div>
-                          <div className="text-xs text-gray-500">
-                            {p.code} · {formatCurrency(
-                              catalogPriceForType(p, getDefaultProductLineType(p))
-                            )}
-                          </div>
-                          <div className="text-[11px] text-gray-500 mt-0.5">
-                            {buildAvailabilityMeta(p, { includeReturnPending: false }) || '—'}
-                          </div>
+                    <div
+                      className="fixed z-[200] border border-gray-200 rounded-md max-h-56 overflow-auto divide-y divide-gray-100 bg-white shadow-md"
+                      style={{
+                        top: productDropdownPos.top,
+                        left: productDropdownPos.left,
+                        width: productDropdownPos.width,
+                      }}
+                    >
+                      {productAvailabilityQuery.isLoading ||
+                      productSearchFallbackQuery.isLoading ? (
+                        <div className="px-2 py-1.5 text-[11px] text-gray-500">Searching…</div>
+                      ) : selectableProductMatches.length === 0 ? (
+                        <div className="px-2 py-1.5 text-[11px] text-gray-500">
+                          {productMatches.length > 0
+                            ? 'All matching products are already added.'
+                            : visualProductIds.length
+                              ? 'No visually similar products are available for these dates.'
+                              : `No products found for “${productQuery}”`}
                         </div>
-                      </button>
-                    ))
-                  )}
-                </div>,
-                document.body
-              )
+                      ) : (
+                        selectableProductMatches.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className={`w-full px-2 py-1.5 text-left flex items-start gap-2 ${
+                              isProductBookableForSelection(p, lineQty)
+                                ? 'hover:bg-gray-50'
+                                : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                            }`}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              if (!isProductBookableForSelection(p, lineQty)) {
+                                toast.warning(
+                                  'Product not available for selected delivery/return dates.'
+                                );
+                                return;
+                              }
+                              setSelectedProduct(p);
+                              setVisualProductIds([]);
+                              setProductQuery(p.code || p.name || '');
+                              setProductOpen(false);
+                            }}
+                            title={
+                              isProductBookableForSelection(p, lineQty)
+                                ? ''
+                                : p.next_available_date
+                                  ? `Not available (next: ${formatDate(p.next_available_date) || '-'})`
+                                  : 'Not available'
+                            }
+                          >
+                            <SmartImage
+                              src={p.main_image}
+                              alt={p.name}
+                              className="w-8 h-8 rounded border border-gray-100 bg-gray-50 object-contain shrink-0 mt-0.5"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-medium text-gray-800 truncate">
+                                {p.name}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {p.code} ·{' '}
+                                {formatCurrency(
+                                  catalogPriceForType(p, getDefaultProductLineType(p))
+                                )}
+                              </div>
+                              <div className="text-[11px] text-gray-500 mt-0.5">
+                                {buildAvailabilityMeta(p, { includeReturnPending: false }) || '—'}
+                              </div>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>,
+                    document.body
+                  )
                 : null}
             </div>
-             
+
             <div className="w-[3.5rem] shrink-0">
               <Input
                 label="Qty"
@@ -4786,7 +5123,7 @@ const CreateOrder = ({ mode, orderId }) => {
                 }}
               />
             </div>
-          
+
             <div className="w-[7.5rem] shrink-0 sm:w-[8rem]">
               <Select
                 label="Delivery Time"
@@ -4799,7 +5136,7 @@ const CreateOrder = ({ mode, orderId }) => {
                 options={timeSelectOptions}
               />
             </div>
-            
+
             <div ref={returnDateFieldRef} className="w-[8.25rem] shrink-0 sm:w-[8.5rem]">
               <Input
                 label="Return Date*"
@@ -4814,7 +5151,7 @@ const CreateOrder = ({ mode, orderId }) => {
                 }}
               />
             </div>
-           
+
             <div className="w-[7.5rem] shrink-0 sm:w-[8rem]">
               <Select
                 label="Return Time"
@@ -4858,10 +5195,14 @@ const CreateOrder = ({ mode, orderId }) => {
               />
               <div>
                 <div className="text-xs font-medium text-gray-800">
-                  {selectedProduct.name} <span className="font-mono text-xs text-gray-500">({selectedProduct.code})</span>
+                  {selectedProduct.name}{' '}
+                  <span className="font-mono text-xs text-gray-500">({selectedProduct.code})</span>
                 </div>
                 {buildAvailabilityMeta(selectedProduct, { includeReturnPending: true }) ? (
-                  <div>Availability · {buildAvailabilityMeta(selectedProduct, { includeReturnPending: true })}</div>
+                  <div>
+                    Availability ·{' '}
+                    {buildAvailabilityMeta(selectedProduct, { includeReturnPending: true })}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -4923,8 +5264,12 @@ const CreateOrder = ({ mode, orderId }) => {
               <tbody className="divide-y divide-gray-100">
                 {lines.length === 0 ? (
                   <tr>
-                    <td colSpan={bookingTableColSpan} className="px-2 py-5 text-center text-gray-500">
-                      Add a product, or use <span className="font-semibold text-gray-700">Add Accessories</span> for an
+                    <td
+                      colSpan={bookingTableColSpan}
+                      className="px-2 py-5 text-center text-gray-500"
+                    >
+                      Add a product, or use{' '}
+                      <span className="font-semibold text-gray-700">Add Accessories</span> for an
                       accessories-only bill.
                     </td>
                   </tr>
@@ -4953,369 +5298,60 @@ const CreateOrder = ({ mode, orderId }) => {
                       lineInSaleSection &&
                       displayIndex > 0 &&
                       !prevInSaleSection;
+                    const lineIsDamaged = damagedPersistedIds.has(String(line.persisted_id || ''));
                     return (
-                    <Fragment key={line.line_id}>
-                    {showSaleDivider ? (
-                      <tr className="bg-gray-100">
-                        <td
-                          colSpan={bookingTableColSpan}
-                          className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-700"
-                        >
-                          Sale items
-                        </td>
-                      </tr>
-                    ) : null}
-                    <tr
-                      className={clsx(
-                        isSaleOnlyProduct ? 'bg-brand-light/30' : 'bg-white',
-                        dragTarget?.kind === 'line' &&
-                          dragTarget.lineId === line.line_id &&
-                          'opacity-50',
-                        dropTarget?.kind === 'line' &&
-                          dropTarget.lineId === line.line_id &&
-                          dragTarget?.kind === 'line' &&
-                          dragTarget.lineId !== line.line_id &&
-                          'border-t-2 border-brand',
-                        dropTarget?.kind === 'product' &&
-                          dropTarget.parentLineId === line.line_id &&
-                          dragTarget?.kind === 'accessory' &&
-                          line.line_kind !== 'standalone_accessory' &&
-                          'ring-1 ring-inset ring-brand'
-                      )}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        if (line.line_kind === 'standalone_accessory') return;
-                        if (dragTarget?.kind === 'accessory') {
-                          setDropTarget({ kind: 'product', parentLineId: line.line_id });
-                        } else if (
-                          dragTarget?.kind === 'line' &&
-                          dragTarget.lineId !== line.line_id &&
-                          showLineReorder
-                        ) {
-                          setDropTarget({ kind: 'line', lineId: line.line_id });
-                        }
-                      }}
-                      onDragLeave={() => {
-                        if (
-                          dropTarget?.kind === 'line' &&
-                          dropTarget.lineId === line.line_id
-                        ) {
-                          setDropTarget(null);
-                        }
-                        if (
-                          dropTarget?.kind === 'product' &&
-                          dropTarget.parentLineId === line.line_id
-                        ) {
-                          setDropTarget(null);
-                        }
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (
-                          dragTarget?.kind === 'accessory' &&
-                          line.line_kind !== 'standalone_accessory'
-                        ) {
-                          handleAccessoryDragDrop(dragTarget.accessoryLineId, {
-                            kind: 'product',
-                            parentLineId: line.line_id,
-                          });
-                        } else if (
-                          dragTarget?.kind === 'line' &&
-                          dragTarget.lineId !== line.line_id &&
-                          showLineReorder
-                        ) {
-                          handleLineDragDrop(dragTarget.lineId, line.line_id);
-                        }
-                        clearTableDrag();
-                      }}
-                    >
-                        {showLineReorder ? (
-                          <>
-                            <td className="w-7 px-0 py-1.5 align-middle">
-                              <div
-                                draggable={showLineReorder}
-                                onDragStart={(e) => {
-                                  e.stopPropagation();
-                                  setDragTarget({ kind: 'line', lineId: line.line_id });
-                                  e.dataTransfer.effectAllowed = 'move';
-                                }}
-                                onDragEnd={clearTableDrag}
-                                className="mx-auto flex h-7 w-6 items-center justify-center rounded text-gray-400 cursor-grab active:cursor-grabbing hover:bg-gray-50 hover:text-gray-600"
-                                title="Drag to reorder product"
-                              >
-                                <GripVertical size={14} aria-hidden />
-                              </div>
-                            </td>
-                            <td className="w-7 px-0 py-1.5 text-center align-middle tabular-nums text-[11px] font-medium text-gray-500">
-                              {displayIndex + 1}
-                            </td>
-                          </>
-                        ) : null}
-                        <td className="px-2 py-1.5 font-mono text-[10px] whitespace-nowrap">
-                          {line.line_kind === 'standalone_accessory' ? (
-                            <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2 py-0.5 font-semibold text-[10px] text-gray-700">
-                              {String(line.category_name || '').trim() ||
-                                String(
-                                  accessoryCategoryLabelById.get(String(line.category_id || '')) || ''
-                                ).trim() ||
-                                '—'}
-                            </span>
-                          ) : (
-                            line.code_snapshot
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <div className="flex items-center gap-2">
-                            <SmartImage
-                              src={line.main_image}
-                              alt={line.name_snapshot}
-                                className="w-8 h-8 rounded border border-gray-200 bg-white object-contain shrink-0"
-                            />
-                            <div className="font-medium text-gray-900 text-[11px] flex items-center gap-1.5 flex-wrap">
-                              <span>{line.name_snapshot}</span>
-                              {isSaleOnlyProduct ? (
-                                <Badge tone="green" className="shrink-0 text-[10px]">
-                                  Sale
-                                </Badge>
-                              ) : null}
-                              {line.line_kind === 'standalone_accessory' &&
-                              String(line.type || 'rent') === 'sell' ? (
-                                <Badge tone="green" className="shrink-0 text-[10px]">
-                                  Sale
-                                </Badge>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="text-[11px] text-gray-500">
-                            {buildAvailabilityMeta(line, { includeReturnPending: true }) || '—'}
-                          </div>
-                          {line.line_kind === 'standalone_accessory' ? (
-                            <div className="mt-1">
-                              <span className="text-[10px] text-gray-500">
-                                {formatAccessoryBillingSummaryForLine(line)}
-                              </span>
-                            </div>
-                          ) : null}
-                        </td>
-                        {line.line_kind !== 'standalone_accessory' ? (
-                          <LineNotesCell
-                            notes={line.tailor_notes}
-                            noteImage={line.tailor_note_image}
-                            compact
-                          />
-                        ) : (
-                          <td className="px-2 py-1.5 text-[10px] text-gray-400">—</td>
-                        )}
-                        <td className="px-2 py-1.5">
-                          <div className="flex items-center justify-end">
-                            <input
-                              type="number"
-                              value={line.qty}
-                              disabled={qtyValidatingLineId === line.line_id}
-                              onChange={(e) => setProductQtyWithValidation(line, e.target.value)}
-                              onFocus={selectIfZero}
-                              className="w-14 text-center border border-gray-200 rounded px-1 py-0.5 disabled:opacity-60"
-                            />
-                          </div>
-                        </td>
-                        <td className="px-2 py-1.5 text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={line.price}
-                            onChange={(e) =>
-                              setProductField(line.line_id, {
-                                price: parseAmountInput(e.target.value),
-                              })
-                            }
-                            onFocus={selectIfZero}
-                            className="w-16 text-right border border-gray-200 rounded px-1.5 py-0.5"
-                          />
-                        </td>
-                        <td className="px-2 py-1.5 text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={line.discount}
-                            onChange={(e) =>
-                              setProductField(line.line_id, {
-                                discount: parseAmountInput(e.target.value),
-                              })
-                            }
-                            onFocus={selectIfZero}
-                            className="w-14 text-right border border-gray-200 rounded px-1.5 py-0.5"
-                          />
-                        </td>
-                        {gstEnabled ? (
-                          <td className="px-2 py-1.5 text-right">
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={line.gst_percent || 0}
-                              onChange={(e) =>
-                                setProductField(line.line_id, {
-                                  gst_percent: parseAmountInput(e.target.value),
-                                })
-                              }
-                              onFocus={selectIfZero}
-                              className="w-12 text-right border border-gray-200 rounded px-1.5 py-0.5"
-                            />
-                          </td>
-                        ) : null}
-                        <td className="px-2 py-1.5 text-right font-semibold text-gray-900">
-                          {formatCurrency((Number(line.price || 0) - Number(line.discount || 0)) * Number(line.qty || 1))}
-                        </td>
-                        {displaySalesman ? (
-                          <td className="px-2 py-1.5 min-w-[11rem] align-middle">
-                            {line.line_kind !== 'standalone_accessory' ? (
-                              <select
-                                className="block w-full min-w-[10rem] max-w-[16rem] text-xs border border-gray-200 rounded-md px-2 pr-8 py-1 bg-white"
-                                value={String(line.sales_person_id || '')}
-                                onChange={(e) => setLineSalesPerson(line.line_id, e.target.value)}
-                                title={
-                                  resolveLineSalesPersonLabel(line, salesmanLabelById) ||
-                                  'Salesman who added this product'
-                                }
-                              >
-                                <option value="">Select</option>
-                                {String(line.sales_person_id || '') &&
-                                !salesmanOptions.some(
-                                  (o) => String(o.value) === String(line.sales_person_id)
-                                ) ? (
-                                  <option value={String(line.sales_person_id)}>
-                                    {resolveLineSalesPersonLabel(line, salesmanLabelById)}
-                                  </option>
-                                ) : null}
-                                {salesmanOptions.map((o) => (
-                                  <option key={o.value} value={o.value}>
-                                    {o.label}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
-                          </td>
-                        ) : null}
-                        <td className="px-2 py-1.5">
-                          {line.line_kind === 'standalone_accessory' ? (
-                            <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                              <select
-                                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[4.5rem]"
-                                value={line.type === 'sell' ? 'sell' : 'rent'}
-                                onChange={(e) => {
-                                  const nextType = e.target.value === 'sell' ? 'sell' : 'rent';
-                                  const nextPrice = accessoryPriceForType(line, nextType);
-                                  setProductField(line.line_id, { type: nextType, price: nextPrice });
-                                }}
-                              >
-                                <option value="rent">Rent</option>
-                                <option value="sell">Sell</option>
-                              </select>
-                              <select
-                                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[8rem]"
-                                value={normalizeAccessoryOrderStatus(line.accessory_order_status)}
-                                onChange={(e) =>
-                                  setProductField(line.line_id, {
-                                    accessory_order_status: normalizeAccessoryOrderStatus(e.target.value),
-                                  })
-                                }
-                              >
-                                {ACCESSORY_ORDER_STATUS_OPTIONS.map((o) => (
-                                  <option key={o.value} value={o.value}>
-                                    {o.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => openProductAccessoryModal(line)}
-                                className="inline-flex items-center justify-center rounded border border-gray-200 p-1 text-gray-600 hover:bg-gray-50 hover:text-gray-800"
-                                title="Manage linked accessories for this product"
-                                aria-label="Manage linked accessories for this product"
-                              >
-                                <PackagePlus size={13} />
-                              </button>
-                              <span
-                                className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                                  getSelectedAccessoryQty(line) > 0
-                                    ? 'bg-brand-light text-brand'
-                                    : 'bg-gray-100 text-gray-500'
-                                }`}
-                                title={`${
-                                  getSelectedAccessoryQty(line)
-                                } selected accessory qty`}
-                              >
-                                {getSelectedAccessoryQty(line)}
-                              </span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {line.line_kind !== 'standalone_accessory' ? (
-                              <button
-                                type="button"
-                                onClick={() => openProductNoteEditor(line)}
-                                className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
-                                  productLineHasNote(line)
-                                    ? 'border-brand bg-brand-light text-brand'
-                                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-800'
-                                }`}
-                                title="Add or edit note"
-                                aria-label="Add or edit note"
-                              >
-                                Note
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => removeProductLine(line.line_id)}
-                              className="text-gray-400 hover:text-red-600"
-                              aria-label="Remove"
+                      <Fragment key={line.line_id}>
+                        {showSaleDivider ? (
+                          <tr className="bg-gray-100">
+                            <td
+                              colSpan={bookingTableColSpan}
+                              className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-700"
                             >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      {linkedAccessories.map((a) => (
+                              Sale items
+                            </td>
+                          </tr>
+                        ) : null}
                         <tr
-                          key={`${line.line_id}-${a.line_id}`}
                           className={clsx(
-                            'bg-gray-50/80',
-                            dragTarget?.kind === 'accessory' &&
-                              dragTarget.accessoryLineId === a.line_id &&
+                            lineIsDamaged
+                              ? 'bg-red-50'
+                              : isSaleOnlyProduct
+                                ? 'bg-brand-light/30'
+                                : 'bg-white',
+                            dragTarget?.kind === 'line' &&
+                              dragTarget.lineId === line.line_id &&
                               'opacity-50',
-                            dropTarget?.kind === 'accessory' &&
-                              dropTarget.accessoryLineId === a.line_id &&
+                            dropTarget?.kind === 'line' &&
+                              dropTarget.lineId === line.line_id &&
+                              dragTarget?.kind === 'line' &&
+                              dragTarget.lineId !== line.line_id &&
+                              'border-t-2 border-brand',
+                            dropTarget?.kind === 'product' &&
+                              dropTarget.parentLineId === line.line_id &&
                               dragTarget?.kind === 'accessory' &&
-                              dragTarget.accessoryLineId !== a.line_id &&
-                              'border-t-2 border-brand'
+                              line.line_kind !== 'standalone_accessory' &&
+                              'ring-1 ring-inset ring-brand'
                           )}
                           onDragOver={(e) => {
                             e.preventDefault();
-                            if (
-                              dragTarget?.kind === 'accessory' &&
-                              dragTarget.accessoryLineId !== a.line_id
+                            if (line.line_kind === 'standalone_accessory') return;
+                            if (dragTarget?.kind === 'accessory') {
+                              setDropTarget({ kind: 'product', parentLineId: line.line_id });
+                            } else if (
+                              dragTarget?.kind === 'line' &&
+                              dragTarget.lineId !== line.line_id &&
+                              showLineReorder
                             ) {
-                              setDropTarget({
-                                kind: 'accessory',
-                                parentLineId: line.line_id,
-                                accessoryLineId: a.line_id,
-                              });
+                              setDropTarget({ kind: 'line', lineId: line.line_id });
                             }
                           }}
                           onDragLeave={() => {
+                            if (dropTarget?.kind === 'line' && dropTarget.lineId === line.line_id) {
+                              setDropTarget(null);
+                            }
                             if (
-                              dropTarget?.kind === 'accessory' &&
-                              dropTarget.accessoryLineId === a.line_id
+                              dropTarget?.kind === 'product' &&
+                              dropTarget.parentLineId === line.line_id
                             ) {
                               setDropTarget(null);
                             }
@@ -5324,116 +5360,115 @@ const CreateOrder = ({ mode, orderId }) => {
                             e.preventDefault();
                             if (
                               dragTarget?.kind === 'accessory' &&
-                              dragTarget.accessoryLineId !== a.line_id
+                              line.line_kind !== 'standalone_accessory'
                             ) {
                               handleAccessoryDragDrop(dragTarget.accessoryLineId, {
-                                kind: 'accessory',
+                                kind: 'product',
                                 parentLineId: line.line_id,
-                                accessoryLineId: a.line_id,
                               });
+                            } else if (
+                              dragTarget?.kind === 'line' &&
+                              dragTarget.lineId !== line.line_id &&
+                              showLineReorder
+                            ) {
+                              handleLineDragDrop(dragTarget.lineId, line.line_id);
                             }
                             clearTableDrag();
                           }}
                         >
                           {showLineReorder ? (
                             <>
-                              <td className="w-7 px-0 py-1.5 align-middle bg-gray-50/80">
+                              <td className="w-7 px-0 py-1.5 align-middle">
                                 <div
-                                  draggable
+                                  draggable={showLineReorder}
                                   onDragStart={(e) => {
                                     e.stopPropagation();
-                                    setDragTarget({
-                                      kind: 'accessory',
-                                      parentLineId: line.line_id,
-                                      accessoryLineId: a.line_id,
-                                    });
+                                    setDragTarget({ kind: 'line', lineId: line.line_id });
                                     e.dataTransfer.effectAllowed = 'move';
                                   }}
                                   onDragEnd={clearTableDrag}
                                   className="mx-auto flex h-7 w-6 items-center justify-center rounded text-gray-400 cursor-grab active:cursor-grabbing hover:bg-gray-50 hover:text-gray-600"
-                                  title="Drag to reorder or move accessory"
+                                  title="Drag to reorder product"
                                 >
-                                  <GripVertical size={12} aria-hidden />
+                                  <GripVertical size={14} aria-hidden />
                                 </div>
                               </td>
-                              <td className="w-7 px-0 bg-gray-50/80" aria-hidden />
+                              <td className="w-7 px-0 py-1.5 text-center align-middle tabular-nums text-[11px] font-medium text-gray-500">
+                                {displayIndex + 1}
+                              </td>
                             </>
                           ) : null}
-                          <td className="px-2 py-1.5 pl-5 text-[10px] text-gray-600 whitespace-nowrap">
-                            {!showLineReorder ? (
-                              <span
-                                draggable
-                                onDragStart={(e) => {
-                                  e.stopPropagation();
-                                  setDragTarget({
-                                    kind: 'accessory',
-                                    parentLineId: line.line_id,
-                                    accessoryLineId: a.line_id,
-                                  });
-                                  e.dataTransfer.effectAllowed = 'move';
-                                }}
-                                onDragEnd={clearTableDrag}
-                                className="mr-1 inline-flex align-middle text-gray-400 cursor-grab active:cursor-grabbing hover:text-gray-600"
-                                title="Drag to reorder or move accessory"
-                              >
-                                <GripVertical size={12} aria-hidden />
+                          <td className="px-2 py-1.5 font-mono text-[10px] whitespace-nowrap">
+                            {line.line_kind === 'standalone_accessory' ? (
+                              <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2 py-0.5 font-semibold text-[10px] text-gray-700">
+                                {String(line.category_name || '').trim() ||
+                                  String(
+                                    accessoryCategoryLabelById.get(
+                                      String(line.category_id || '')
+                                    ) || ''
+                                  ).trim() ||
+                                  '—'}
                               </span>
-                            ) : null}
-                            <span className="mr-1 text-gray-400 align-middle">-&gt;</span>
-                            <span
-                              className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2 py-0.5 font-semibold align-middle"
-                            >
-                              {String(a.category_name || '').trim() ||
-                                String(accessoryCategoryLabelById.get(String(a.category_id || '')) || '').trim() ||
-                                '—'}
-                            </span>
+                            ) : (
+                              line.code_snapshot
+                            )}
                           </td>
-                          <td className="px-2 py-1.5 pl-5">
+                          <td className="px-2 py-1.5">
                             <div className="flex items-center gap-2">
                               <SmartImage
-                                src={a.image_url}
-                                alt={a.name_snapshot}
+                                src={line.main_image}
+                                alt={line.name_snapshot}
                                 className="w-8 h-8 rounded border border-gray-200 bg-white object-contain shrink-0"
                               />
-                              <div>
-                                <div className="font-medium text-gray-900 text-[11px] flex items-center gap-1.5 flex-wrap">
-                                  {a.name_snapshot}
-                                  {isAccessoryPickerOutOfStock(a, {
-                                    type: resolveAccessoryPickerType(a, a.type),
-                                    grandfatherSelected: canGrandfatherAccessorySelection(a, { isEditMode }),
-                                  }) ? (
-                                    <span className="text-[9px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1 py-0.5 leading-none uppercase">
-                                      Not available
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="text-[10px] text-gray-500 mt-0.5">
-                                  {formatAccessoryDateAvailability(a, {
-                                    type: a.type,
-                                    from: pickupDate,
-                                    to: returnDate,
-                                  })}
-                                </div>
+                              <div className="font-medium text-gray-900 text-[11px] flex items-center gap-1.5 flex-wrap">
+                                <span>{line.name_snapshot}</span>
+                                {isSaleOnlyProduct ? (
+                                  <Badge tone="green" className="shrink-0 text-[10px]">
+                                    Sale
+                                  </Badge>
+                                ) : null}
+                                {lineIsDamaged ? (
+                                  <span className="text-[10px] font-semibold text-red-700">
+                                    this product is damaged
+                                  </span>
+                                ) : null}
+                                {line.line_kind === 'standalone_accessory' &&
+                                String(line.type || 'rent') === 'sell' ? (
+                                  <Badge tone="green" className="shrink-0 text-[10px]">
+                                    Sale
+                                  </Badge>
+                                ) : null}
                               </div>
                             </div>
+                            <div className="text-[11px] text-gray-500">
+                              {buildAvailabilityMeta(line, { includeReturnPending: true }) || '—'}
+                            </div>
+                            {line.line_kind === 'standalone_accessory' ? (
+                              <div className="mt-1">
+                                <span className="text-[10px] text-gray-500">
+                                  {formatAccessoryBillingSummaryForLine(line)}
+                                </span>
+                              </div>
+                            ) : null}
                           </td>
-                          <td className="px-2 py-1.5 text-[10px] text-gray-400">—</td>
+                          {line.line_kind !== 'standalone_accessory' ? (
+                            <LineNotesCell
+                              notes={line.tailor_notes}
+                              noteImage={line.tailor_note_image}
+                              compact
+                            />
+                          ) : (
+                            <td className="px-2 py-1.5 text-[10px] text-gray-400">—</td>
+                          )}
                           <td className="px-2 py-1.5">
                             <div className="flex items-center justify-end">
                               <input
                                 type="number"
-                                min={1}
-                                value={a.qty}
-                                onChange={(e) => {
-                                  setAccessoryField(line.line_id, a.line_id, {
-                                    qty:
-                                      e.target.value === ''
-                                        ? ''
-                                        : Math.max(1, Math.floor(Number(e.target.value)) || 1),
-                                  });
-                                }}
+                                value={line.qty}
+                                disabled={qtyValidatingLineId === line.line_id}
+                                onChange={(e) => setProductQtyWithValidation(line, e.target.value)}
                                 onFocus={selectIfZero}
-                                className="w-14 text-center border border-gray-200 rounded px-1 py-0.5"
+                                className="w-14 text-center border border-gray-200 rounded px-1 py-0.5 disabled:opacity-60"
                               />
                             </div>
                           </td>
@@ -5442,9 +5477,9 @@ const CreateOrder = ({ mode, orderId }) => {
                               type="number"
                               min={0}
                               step="0.01"
-                              value={a.price}
+                              value={line.price}
                               onChange={(e) =>
-                                setAccessoryField(line.line_id, a.line_id, {
+                                setProductField(line.line_id, {
                                   price: parseAmountInput(e.target.value),
                                 })
                               }
@@ -5457,9 +5492,9 @@ const CreateOrder = ({ mode, orderId }) => {
                               type="number"
                               min={0}
                               step="0.01"
-                              value={a.discount}
+                              value={line.discount}
                               onChange={(e) =>
-                                setAccessoryField(line.line_id, a.line_id, {
+                                setProductField(line.line_id, {
                                   discount: parseAmountInput(e.target.value),
                                 })
                               }
@@ -5473,9 +5508,9 @@ const CreateOrder = ({ mode, orderId }) => {
                                 type="number"
                                 min={0}
                                 step="0.01"
-                                value={a.gst_percent || 0}
+                                value={line.gst_percent || 0}
                                 onChange={(e) =>
-                                  setAccessoryField(line.line_id, a.line_id, {
+                                  setProductField(line.line_id, {
                                     gst_percent: parseAmountInput(e.target.value),
                                   })
                                 }
@@ -5486,60 +5521,391 @@ const CreateOrder = ({ mode, orderId }) => {
                           ) : null}
                           <td className="px-2 py-1.5 text-right font-semibold text-gray-900">
                             {formatCurrency(
-                              (Number(a.price || 0) - Number(a.discount || 0)) * Math.max(1, Number(a.qty || 1))
+                              (Number(line.price || 0) - Number(line.discount || 0)) *
+                                Number(line.qty || 1)
                             )}
                           </td>
                           {displaySalesman ? (
-                            <td className="px-2 py-1.5 text-[10px] text-gray-400">—</td>
+                            <td className="px-2 py-1.5 min-w-[11rem] align-middle">
+                              {line.line_kind !== 'standalone_accessory' ? (
+                                <select
+                                  className="block w-full min-w-[10rem] max-w-[16rem] text-xs border border-gray-200 rounded-md px-2 pr-8 py-1 bg-white"
+                                  value={String(line.sales_person_id || '')}
+                                  onChange={(e) => setLineSalesPerson(line.line_id, e.target.value)}
+                                  title={
+                                    resolveLineSalesPersonLabel(line, salesmanLabelById) ||
+                                    'Salesman who added this product'
+                                  }
+                                >
+                                  <option value="">Select</option>
+                                  {String(line.sales_person_id || '') &&
+                                  !salesmanOptions.some(
+                                    (o) => String(o.value) === String(line.sales_person_id)
+                                  ) ? (
+                                    <option value={String(line.sales_person_id)}>
+                                      {resolveLineSalesPersonLabel(line, salesmanLabelById)}
+                                    </option>
+                                  ) : null}
+                                  {salesmanOptions.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                      {o.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="text-xs text-gray-400">—</span>
+                              )}
+                            </td>
                           ) : null}
                           <td className="px-2 py-1.5">
-                            <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                              <select
-                                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[4.5rem]"
-                                value={a.type === 'sell' ? 'sell' : 'rent'}
-                                onChange={(e) => {
-                                  const nextType = e.target.value === 'sell' ? 'sell' : 'rent';
-                                  const nextPrice = accessoryPriceForType(a, nextType);
-                                  setAccessoryField(line.line_id, a.line_id, {
-                                    type: nextType,
-                                    price: nextPrice,
-                                  });
-                                }}
-                              >
-                                <option value="rent">Rent</option>
-                                <option value="sell">Sell</option>
-                              </select>
-                              <select
-                                className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[8rem]"
-                                value={normalizeAccessoryOrderStatus(a.accessory_order_status)}
-                                onChange={(e) =>
-                                  setAccessoryField(line.line_id, a.line_id, {
-                                    accessory_order_status: normalizeAccessoryOrderStatus(e.target.value),
-                                  })
-                                }
-                              >
-                                {ACCESSORY_ORDER_STATUS_OPTIONS.map((o) => (
-                                  <option key={o.value} value={o.value}>
-                                    {o.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
+                            {line.line_kind === 'standalone_accessory' ? (
+                              <div className="flex items-center justify-center gap-1 whitespace-nowrap">
+                                <select
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[4.5rem]"
+                                  value={line.type === 'sell' ? 'sell' : 'rent'}
+                                  onChange={(e) => {
+                                    const nextType = e.target.value === 'sell' ? 'sell' : 'rent';
+                                    const nextPrice = accessoryPriceForType(line, nextType);
+                                    setProductField(line.line_id, {
+                                      type: nextType,
+                                      price: nextPrice,
+                                    });
+                                  }}
+                                >
+                                  <option value="rent">Rent</option>
+                                  <option value="sell">Sell</option>
+                                </select>
+                                <select
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[8rem]"
+                                  value={normalizeAccessoryOrderStatus(line.accessory_order_status)}
+                                  onChange={(e) =>
+                                    setProductField(line.line_id, {
+                                      accessory_order_status: normalizeAccessoryOrderStatus(
+                                        e.target.value
+                                      ),
+                                    })
+                                  }
+                                >
+                                  {ACCESSORY_ORDER_STATUS_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                      {o.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => openProductAccessoryModal(line)}
+                                  className="inline-flex items-center justify-center rounded border border-gray-200 p-1 text-gray-600 hover:bg-gray-50 hover:text-gray-800"
+                                  title="Manage linked accessories for this product"
+                                  aria-label="Manage linked accessories for this product"
+                                >
+                                  <PackagePlus size={13} />
+                                </button>
+                                <span
+                                  className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                                    getSelectedAccessoryQty(line) > 0
+                                      ? 'bg-brand-light text-brand'
+                                      : 'bg-gray-100 text-gray-500'
+                                  }`}
+                                  title={`${getSelectedAccessoryQty(line)} selected accessory qty`}
+                                >
+                                  {getSelectedAccessoryQty(line)}
+                                </span>
+                              </div>
+                            )}
                           </td>
                           <td className="px-2 py-1.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeAccessoryLine(line.line_id, a.line_id)}
-                              className="text-gray-400 hover:text-red-600"
-                              title="Remove linked accessory"
-                              aria-label="Remove linked accessory"
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            <div className="flex items-center justify-center gap-1">
+                              {line.line_kind !== 'standalone_accessory' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openProductNoteEditor(line)}
+                                  className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+                                    productLineHasNote(line)
+                                      ? 'border-brand bg-brand-light text-brand'
+                                      : 'border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-800'
+                                  }`}
+                                  title="Add or edit note"
+                                  aria-label="Add or edit note"
+                                >
+                                  Note
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => removeProductLine(line.line_id)}
+                                className="text-gray-400 hover:text-red-600"
+                                aria-label="Remove"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
-                      ))}
-                    </Fragment>
+                        {linkedAccessories.map((a) => (
+                          <tr
+                            key={`${line.line_id}-${a.line_id}`}
+                            className={clsx(
+                              'bg-gray-50/80',
+                              dragTarget?.kind === 'accessory' &&
+                                dragTarget.accessoryLineId === a.line_id &&
+                                'opacity-50',
+                              dropTarget?.kind === 'accessory' &&
+                                dropTarget.accessoryLineId === a.line_id &&
+                                dragTarget?.kind === 'accessory' &&
+                                dragTarget.accessoryLineId !== a.line_id &&
+                                'border-t-2 border-brand'
+                            )}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              if (
+                                dragTarget?.kind === 'accessory' &&
+                                dragTarget.accessoryLineId !== a.line_id
+                              ) {
+                                setDropTarget({
+                                  kind: 'accessory',
+                                  parentLineId: line.line_id,
+                                  accessoryLineId: a.line_id,
+                                });
+                              }
+                            }}
+                            onDragLeave={() => {
+                              if (
+                                dropTarget?.kind === 'accessory' &&
+                                dropTarget.accessoryLineId === a.line_id
+                              ) {
+                                setDropTarget(null);
+                              }
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (
+                                dragTarget?.kind === 'accessory' &&
+                                dragTarget.accessoryLineId !== a.line_id
+                              ) {
+                                handleAccessoryDragDrop(dragTarget.accessoryLineId, {
+                                  kind: 'accessory',
+                                  parentLineId: line.line_id,
+                                  accessoryLineId: a.line_id,
+                                });
+                              }
+                              clearTableDrag();
+                            }}
+                          >
+                            {showLineReorder ? (
+                              <>
+                                <td className="w-7 px-0 py-1.5 align-middle bg-gray-50/80">
+                                  <div
+                                    draggable
+                                    onDragStart={(e) => {
+                                      e.stopPropagation();
+                                      setDragTarget({
+                                        kind: 'accessory',
+                                        parentLineId: line.line_id,
+                                        accessoryLineId: a.line_id,
+                                      });
+                                      e.dataTransfer.effectAllowed = 'move';
+                                    }}
+                                    onDragEnd={clearTableDrag}
+                                    className="mx-auto flex h-7 w-6 items-center justify-center rounded text-gray-400 cursor-grab active:cursor-grabbing hover:bg-gray-50 hover:text-gray-600"
+                                    title="Drag to reorder or move accessory"
+                                  >
+                                    <GripVertical size={12} aria-hidden />
+                                  </div>
+                                </td>
+                                <td className="w-7 px-0 bg-gray-50/80" aria-hidden />
+                              </>
+                            ) : null}
+                            <td className="px-2 py-1.5 pl-5 text-[10px] text-gray-600 whitespace-nowrap">
+                              {!showLineReorder ? (
+                                <span
+                                  draggable
+                                  onDragStart={(e) => {
+                                    e.stopPropagation();
+                                    setDragTarget({
+                                      kind: 'accessory',
+                                      parentLineId: line.line_id,
+                                      accessoryLineId: a.line_id,
+                                    });
+                                    e.dataTransfer.effectAllowed = 'move';
+                                  }}
+                                  onDragEnd={clearTableDrag}
+                                  className="mr-1 inline-flex align-middle text-gray-400 cursor-grab active:cursor-grabbing hover:text-gray-600"
+                                  title="Drag to reorder or move accessory"
+                                >
+                                  <GripVertical size={12} aria-hidden />
+                                </span>
+                              ) : null}
+                              <span className="mr-1 text-gray-400 align-middle">-&gt;</span>
+                              <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2 py-0.5 font-semibold align-middle">
+                                {String(a.category_name || '').trim() ||
+                                  String(
+                                    accessoryCategoryLabelById.get(String(a.category_id || '')) ||
+                                      ''
+                                  ).trim() ||
+                                  '—'}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1.5 pl-5">
+                              <div className="flex items-center gap-2">
+                                <SmartImage
+                                  src={a.image_url}
+                                  alt={a.name_snapshot}
+                                  className="w-8 h-8 rounded border border-gray-200 bg-white object-contain shrink-0"
+                                />
+                                <div>
+                                  <div className="font-medium text-gray-900 text-[11px] flex items-center gap-1.5 flex-wrap">
+                                    {a.name_snapshot}
+                                    {isAccessoryPickerOutOfStock(a, {
+                                      type: resolveAccessoryPickerType(a, a.type),
+                                      grandfatherSelected: canGrandfatherAccessorySelection(a, {
+                                        isEditMode,
+                                      }),
+                                    }) ? (
+                                      <span className="text-[9px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1 py-0.5 leading-none uppercase">
+                                        Not available
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <div className="text-[10px] text-gray-500 mt-0.5">
+                                    {formatAccessoryDateAvailability(a, {
+                                      type: a.type,
+                                      from: pickupDate,
+                                      to: returnDate,
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-2 py-1.5 text-[10px] text-gray-400">—</td>
+                            <td className="px-2 py-1.5">
+                              <div className="flex items-center justify-end">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={a.qty}
+                                  onChange={(e) => {
+                                    setAccessoryField(line.line_id, a.line_id, {
+                                      qty:
+                                        e.target.value === ''
+                                          ? ''
+                                          : Math.max(1, Math.floor(Number(e.target.value)) || 1),
+                                    });
+                                  }}
+                                  onFocus={selectIfZero}
+                                  className="w-14 text-center border border-gray-200 rounded px-1 py-0.5"
+                                />
+                              </div>
+                            </td>
+                            <td className="px-2 py-1.5 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={a.price}
+                                onChange={(e) =>
+                                  setAccessoryField(line.line_id, a.line_id, {
+                                    price: parseAmountInput(e.target.value),
+                                  })
+                                }
+                                onFocus={selectIfZero}
+                                className="w-16 text-right border border-gray-200 rounded px-1.5 py-0.5"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={a.discount}
+                                onChange={(e) =>
+                                  setAccessoryField(line.line_id, a.line_id, {
+                                    discount: parseAmountInput(e.target.value),
+                                  })
+                                }
+                                onFocus={selectIfZero}
+                                className="w-14 text-right border border-gray-200 rounded px-1.5 py-0.5"
+                              />
+                            </td>
+                            {gstEnabled ? (
+                              <td className="px-2 py-1.5 text-right">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={a.gst_percent || 0}
+                                  onChange={(e) =>
+                                    setAccessoryField(line.line_id, a.line_id, {
+                                      gst_percent: parseAmountInput(e.target.value),
+                                    })
+                                  }
+                                  onFocus={selectIfZero}
+                                  className="w-12 text-right border border-gray-200 rounded px-1.5 py-0.5"
+                                />
+                              </td>
+                            ) : null}
+                            <td className="px-2 py-1.5 text-right font-semibold text-gray-900">
+                              {formatCurrency(
+                                (Number(a.price || 0) - Number(a.discount || 0)) *
+                                  Math.max(1, Number(a.qty || 1))
+                              )}
+                            </td>
+                            {displaySalesman ? (
+                              <td className="px-2 py-1.5 text-[10px] text-gray-400">—</td>
+                            ) : null}
+                            <td className="px-2 py-1.5">
+                              <div className="flex items-center justify-center gap-1 whitespace-nowrap">
+                                <select
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[4.5rem]"
+                                  value={a.type === 'sell' ? 'sell' : 'rent'}
+                                  onChange={(e) => {
+                                    const nextType = e.target.value === 'sell' ? 'sell' : 'rent';
+                                    const nextPrice = accessoryPriceForType(a, nextType);
+                                    setAccessoryField(line.line_id, a.line_id, {
+                                      type: nextType,
+                                      price: nextPrice,
+                                    });
+                                  }}
+                                >
+                                  <option value="rent">Rent</option>
+                                  <option value="sell">Sell</option>
+                                </select>
+                                <select
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[8rem]"
+                                  value={normalizeAccessoryOrderStatus(a.accessory_order_status)}
+                                  onChange={(e) =>
+                                    setAccessoryField(line.line_id, a.line_id, {
+                                      accessory_order_status: normalizeAccessoryOrderStatus(
+                                        e.target.value
+                                      ),
+                                    })
+                                  }
+                                >
+                                  {ACCESSORY_ORDER_STATUS_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                      {o.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeAccessoryLine(line.line_id, a.line_id)}
+                                className="text-gray-400 hover:text-red-600"
+                                title="Remove linked accessory"
+                                aria-label="Remove linked accessory"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </Fragment>
                     );
                   })
                 )}
@@ -5569,7 +5935,9 @@ const CreateOrder = ({ mode, orderId }) => {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
           <div className="card p-2.5 space-y-2">
             <div>
-              <label htmlFor="booking-order-remarks" className="label">Order remarks</label>
+              <label htmlFor="booking-order-remarks" className="label">
+                Order remarks
+              </label>
               <textarea
                 id="booking-order-remarks"
                 className="input min-h-[88px]"
@@ -5613,7 +5981,11 @@ const CreateOrder = ({ mode, orderId }) => {
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <Input label="Reference Name" value={referenceName} onChange={(e) => setReferenceName(e.target.value)} />
+              <Input
+                label="Reference Name"
+                value={referenceName}
+                onChange={(e) => setReferenceName(e.target.value)}
+              />
               <div>
                 <div className="group/tooltip relative mb-1 inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
                   <label className="label mb-0 shrink-0" htmlFor="next-booking-gap-days">
@@ -5715,13 +6087,18 @@ const CreateOrder = ({ mode, orderId }) => {
                   Prep window (from catalog)
                 </div>
                 <div className="mt-1.5 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 text-[11px] text-gray-800">
-                  {lines.some((l) => l.line_kind !== 'standalone_accessory' && String(l.type || 'rent') !== 'sell') ? (
+                  {lines.some(
+                    (l) =>
+                      l.line_kind !== 'standalone_accessory' && String(l.type || 'rent') !== 'sell'
+                  ) ? (
                     <>
                       Largest gap among rent lines in this booking:{' '}
                       <span className="font-semibold tabular-nums">{maxRentGapDays}</span> day(s)
                     </>
                   ) : (
-                    <span className="text-gray-500">Add rent products to show gap from catalog.</span>
+                    <span className="text-gray-500">
+                      Add rent products to show gap from catalog.
+                    </span>
                   )}
                 </div>
                 {pickupBeforeNextAvailable.length > 0 ? (
@@ -5729,11 +6106,14 @@ const CreateOrder = ({ mode, orderId }) => {
                     className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900"
                     role="status"
                   >
-                    <div className="font-semibold mb-0.5">Delivery date is inside the prep window</div>
+                    <div className="font-semibold mb-0.5">
+                      Delivery date is inside the prep window
+                    </div>
                     <ul className="list-disc pl-4 space-y-0.5">
                       {pickupBeforeNextAvailable.map((w) => (
                         <li key={`${w.name}-${w.next}`}>
-                          <span className="font-medium">{w.name}</span>: delivery {formatDate(pickupDate) || '-'} is before next available{' '}
+                          <span className="font-medium">{w.name}</span>: delivery{' '}
+                          {formatDate(pickupDate) || '-'} is before next available{' '}
                           {formatDate(w.next) || '-'}
                           {w.gap > 0 ? ` (gap ${w.gap} day${w.gap === 1 ? '' : 's'})` : ''}.
                         </li>
@@ -5746,19 +6126,31 @@ const CreateOrder = ({ mode, orderId }) => {
           </div>
 
           <div ref={advanceSummaryRef} className="card p-2.5">
-            <h3 className="text-xs font-semibold text-gray-900 mb-1.5 uppercase tracking-wide">Summary</h3>
+            <h3 className="text-xs font-semibold text-gray-900 mb-1.5 uppercase tracking-wide">
+              Summary
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
               <Row label="Total Qty" value={String(totalQty(lines))} />
               <Row label="Taxable Amt." value={formatCurrency(totals.taxable)} />
               <Row label="Subtotal" value={formatCurrency(totals.subtotal)} />
-              {gstEnabled ? <Row label="CGST Amt." value={formatCurrency(totals.cgst)} muted /> : null}
+              {gstEnabled ? (
+                <Row label="CGST Amt." value={formatCurrency(totals.cgst)} muted />
+              ) : null}
               <Row label="Item Discount(-)" value={formatCurrency(totals.item_discount)} />
-              {gstEnabled ? <Row label="SGST Amt." value={formatCurrency(totals.sgst)} muted /> : null}
+              {gstEnabled ? (
+                <Row label="SGST Amt." value={formatCurrency(totals.sgst)} muted />
+              ) : null}
               <Row label="Booking Discount(-)" value={formatCurrency(totals.booking_discount)} />
-              {gstEnabled ? <Row label="IGST Amt." value={formatCurrency(totals.igst)} muted /> : null}
+              {gstEnabled ? (
+                <Row label="IGST Amt." value={formatCurrency(totals.igst)} muted />
+              ) : null}
               <Row label="Discount(-)" value={formatCurrency(totals.discount)} />
               <Row label="Round Off" value={formatCurrency(totals.round_off)} muted />
-              <Row label="Grand Total" value={formatCurrency(totals.grand_total)} className="md:col-span-2" />
+              <Row
+                label="Grand Total"
+                value={formatCurrency(totals.grand_total)}
+                className="md:col-span-2"
+              />
               <Row label="Advance amount" className="md:col-span-2">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <EditableAdvanceAmountField
@@ -5788,7 +6180,10 @@ const CreateOrder = ({ mode, orderId }) => {
                         setAdvanceAccountId(e.target.value);
                         touch('advanceAccountId')();
                       }}
-                      className={fieldShellClass(err('advanceAccountId'), `${BOOKING_ACCOUNT_SELECT_CLASS} w-full`)}
+                      className={fieldShellClass(
+                        err('advanceAccountId'),
+                        `${BOOKING_ACCOUNT_SELECT_CLASS} w-full`
+                      )}
                     >
                       <option value="">Select Account</option>
                       {advanceBankAccounts.length ? (
@@ -5847,7 +6242,10 @@ const CreateOrder = ({ mode, orderId }) => {
                         setSecurityAccountId(e.target.value);
                         touch('securityAccountId')();
                       }}
-                      className={fieldShellClass(err('securityAccountId'), `${BOOKING_ACCOUNT_SELECT_CLASS} w-full`)}
+                      className={fieldShellClass(
+                        err('securityAccountId'),
+                        `${BOOKING_ACCOUNT_SELECT_CLASS} w-full`
+                      )}
                     >
                       <option value="">Select Account</option>
                       {securityAccountOptions.map((o) => (
@@ -5899,7 +6297,9 @@ const CreateOrder = ({ mode, orderId }) => {
                     {paidSecurityAmt ? ` · Security ${formatCurrency(Number(deposit) || 0)}` : ''}
                   </div>
                 ) : (
-                  <div className="text-[10px] text-gray-500 leading-tight pl-0.5">No advance or marked security yet.</div>
+                  <div className="text-[10px] text-gray-500 leading-tight pl-0.5">
+                    No advance or marked security yet.
+                  </div>
                 )}
                 <Row
                   label={isEditMode ? 'Remaining balance' : 'Payable Amt.'}
@@ -5969,7 +6369,9 @@ const CreateOrder = ({ mode, orderId }) => {
                           value={applyCreditAmount}
                           onChange={(e) => {
                             setApplyCreditAmount(
-                              e.target.value === '' ? '' : String(toNonNegativeAmount(e.target.value))
+                              e.target.value === ''
+                                ? ''
+                                : String(toNonNegativeAmount(e.target.value))
                             );
                             touch('applyCreditAmount')();
                           }}
@@ -5984,7 +6386,9 @@ const CreateOrder = ({ mode, orderId }) => {
                       </div>
                     ) : null}
                     {err('applyCreditAmount') ? (
-                      <p className="text-sm font-semibold text-red-600">{err('applyCreditAmount')}</p>
+                      <p className="text-sm font-semibold text-red-600">
+                        {err('applyCreditAmount')}
+                      </p>
                     ) : null}
                   </div>
                 ) : null}
@@ -6088,7 +6492,8 @@ const CreateOrder = ({ mode, orderId }) => {
           </p>
           {pickupDate && returnDate ? (
             <p className="text-[11px] text-brand font-medium">
-              Availability for {formatDate(pickupDate) || pickupDate} – {formatDate(returnDate) || returnDate}
+              Availability for {formatDate(pickupDate) || pickupDate} –{' '}
+              {formatDate(returnDate) || returnDate}
             </p>
           ) : null}
           {accessoryModalMode !== 'all' ? (
@@ -6097,7 +6502,9 @@ const CreateOrder = ({ mode, orderId }) => {
                 <div className="text-[11px] font-semibold text-gray-700 uppercase tracking-wide">
                   Recommended Accessories
                   {recommendedAvailabilityLoading ? (
-                    <span className="ml-2 font-normal normal-case text-gray-500">Checking availability…</span>
+                    <span className="ml-2 font-normal normal-case text-gray-500">
+                      Checking availability…
+                    </span>
                   ) : null}
                 </div>
                 {recommendedAccessories.length > 0 ? (
@@ -6128,7 +6535,10 @@ const CreateOrder = ({ mode, orderId }) => {
                   No categorized recommended accessories found.
                 </div>
               ) : (
-                <div ref={recommendedDropdownWrapRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <div
+                  ref={recommendedDropdownWrapRef}
+                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+                >
                   {recommendedAccessoryGroups.map((group) => {
                     const isOpen = openRecommendedCategoryKey === group.key;
                     const selectedNames = group.items
@@ -6140,7 +6550,9 @@ const CreateOrder = ({ mode, orderId }) => {
                         ? selectedNames.join(', ')
                         : `${selectedNames.slice(0, 2).join(', ')} +${selectedNames.length - 2}`
                       : 'Select accessories';
-                    const groupHasSelected = group.items.some((x) => !!pendingRecommendedSelections[x.line_id]);
+                    const groupHasSelected = group.items.some(
+                      (x) => !!pendingRecommendedSelections[x.line_id]
+                    );
                     return (
                       <div key={group.key} className="relative">
                         <div className="mb-0.5 text-xs font-medium text-gray-800 truncate">
@@ -6244,7 +6656,10 @@ const CreateOrder = ({ mode, orderId }) => {
                                         checked={isChecked}
                                         disabled={outOfStock}
                                         onChange={(e) =>
-                                          void togglePendingRecommendedSelection(a.line_id, e.target.checked)
+                                          void togglePendingRecommendedSelection(
+                                            a.line_id,
+                                            e.target.checked
+                                          )
                                         }
                                         className="mt-0.5 shrink-0 accent-brand"
                                       />
@@ -6290,7 +6705,9 @@ const CreateOrder = ({ mode, orderId }) => {
                   type="button"
                   onClick={() => setAccessoryCategoryId('all')}
                   className={`w-full text-left px-2 py-1.5 text-xs border-b border-gray-100 ${
-                    accessoryCategoryId === 'all' ? 'bg-brand-light text-brand font-semibold' : 'hover:bg-gray-50'
+                    accessoryCategoryId === 'all'
+                      ? 'bg-brand-light text-brand font-semibold'
+                      : 'hover:bg-gray-50'
                   }`}
                 >
                   All ({accessoryCategoryCountsQuery.data?.total || 0})
@@ -6314,7 +6731,10 @@ const CreateOrder = ({ mode, orderId }) => {
 
             <div className="space-y-2">
               <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                />
                 <input
                   className="input pl-9"
                   placeholder="Search by name, code, category or barcode"
@@ -6345,7 +6765,9 @@ const CreateOrder = ({ mode, orderId }) => {
               </div>
               <div className="max-h-[40vh] overflow-auto border border-gray-200 rounded-md divide-y divide-gray-100">
                 {(accessorySearchQuery.data?.data || []).length === 0 ? (
-                  <div className="px-2 py-6 text-center text-xs text-gray-500">No accessories found.</div>
+                  <div className="px-2 py-6 text-center text-xs text-gray-500">
+                    No accessories found.
+                  </div>
                 ) : (
                   (accessorySearchQuery.data?.data || []).map((a) => {
                     const alreadyAdded = isAccessoryAlreadyOnBooking(a.id);
@@ -6389,7 +6811,9 @@ const CreateOrder = ({ mode, orderId }) => {
                           <div className="text-xs font-medium text-gray-800 flex items-center gap-1.5">
                             {a.name}
                             {outOfStock ? (
-                              <span className="text-[9px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1 py-0.5 leading-none uppercase">Not available</span>
+                              <span className="text-[9px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1 py-0.5 leading-none uppercase">
+                                Not available
+                              </span>
                             ) : null}
                           </div>
                           <div className="text-xs text-gray-500">
@@ -6445,6 +6869,7 @@ const CreateOrder = ({ mode, orderId }) => {
           const code = String(scanned || '').trim();
           if (!code) return;
           setScannerOpen(false);
+          setVisualProductIds([]);
           setProductQuery(code);
           setSelectedProduct(null);
           toast.success(`Scanned ${code}`);
@@ -6599,7 +7024,9 @@ function isRentAccessoryLine(row) {
 
 function collectRentAccessoryAllocations(lines, options = {}) {
   const omitLineId = options.omitLineId ? String(options.omitLineId) : '';
-  const omitAccessoryLineId = options.omitAccessoryLineId ? String(options.omitAccessoryLineId) : '';
+  const omitAccessoryLineId = options.omitAccessoryLineId
+    ? String(options.omitAccessoryLineId)
+    : '';
   const map = new Map();
 
   const add = (accessoryId, qty) => {
@@ -6650,7 +7077,12 @@ function getRentAccessoryAvailable(accessoryRow, lines, options = {}) {
       const acc = (productLine.accessories || []).find(
         (row) => String(row.line_id) === String(options.omitAccessoryLineId)
       );
-      if (acc && String(acc.accessory_id) === accessoryId && isRentAccessoryLine(acc) && acc.selected) {
+      if (
+        acc &&
+        String(acc.accessory_id) === accessoryId &&
+        isRentAccessoryLine(acc) &&
+        acc.selected
+      ) {
         reclaimQty += Number(acc.qty || 1);
       }
     }
@@ -6683,7 +7115,9 @@ function getAccessorySellStockQty(row) {
 
 function collectSellAccessoryAllocations(lines, options = {}) {
   const omitLineId = options.omitLineId ? String(options.omitLineId) : '';
-  const omitAccessoryLineId = options.omitAccessoryLineId ? String(options.omitAccessoryLineId) : '';
+  const omitAccessoryLineId = options.omitAccessoryLineId
+    ? String(options.omitAccessoryLineId)
+    : '';
   const map = new Map();
 
   const add = (accessoryId, qty) => {
@@ -6734,7 +7168,12 @@ function getSellAccessoryAvailable(accessoryRow, lines, options = {}) {
       const acc = (productLine.accessories || []).find(
         (row) => String(row.line_id) === String(options.omitAccessoryLineId)
       );
-      if (acc && String(acc.accessory_id) === accessoryId && isSellAccessoryLine(acc) && acc.selected) {
+      if (
+        acc &&
+        String(acc.accessory_id) === accessoryId &&
+        isSellAccessoryLine(acc) &&
+        acc.selected
+      ) {
         reclaimQty += Number(acc.qty || 1);
       }
     }
@@ -6798,9 +7237,13 @@ function hydrateLinesFromOrder(order) {
       next_available_date: null,
       gap_days: 0,
       can_book: true,
-      tailor_notes: String(item.tailor_notes ?? '').trim().slice(0, 500),
-      tailor_note_image: String(item.tailor_note_image ?? '').trim().slice(0, 500),
-        sales_person_id: lineSalesPersonId,
+      tailor_notes: String(item.tailor_notes ?? '')
+        .trim()
+        .slice(0, 500),
+      tailor_note_image: String(item.tailor_note_image ?? '')
+        .trim()
+        .slice(0, 500),
+      sales_person_id: lineSalesPersonId,
       sales_person_name: lineSalesPersonName,
       display_order: Number(item.display_order ?? 0),
       accessories: [],
@@ -6841,7 +7284,9 @@ function hydrateLinesFromOrder(order) {
         a.category_display_order !== undefined && a.category_display_order !== null
           ? Number(a.category_display_order)
           : null,
-      remarks: String(a.remarks ?? '').trim().slice(0, 500),
+      remarks: String(a.remarks ?? '')
+        .trim()
+        .slice(0, 500),
     };
     if (a.order_item_id && productByPersistedId.has(a.order_item_id)) {
       productByPersistedId.get(a.order_item_id).accessories.push(next);
@@ -6876,7 +7321,9 @@ function hydrateLinesFromOrder(order) {
         free_qty: sellLine ? catalogStock : Number(a.qty || 0),
         booked_qty: 0,
         total_qty: sellLine ? catalogStock : Number(a.qty || 0),
-        remarks: String(a.remarks ?? '').trim().slice(0, 500),
+        remarks: String(a.remarks ?? '')
+          .trim()
+          .slice(0, 500),
       });
     }
   }

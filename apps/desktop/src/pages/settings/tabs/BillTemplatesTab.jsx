@@ -16,11 +16,13 @@ import { useSelectedShopName } from '../../../hooks/useSelectedShopName.js';
 import { configurationsApi } from '../../../lib/api/configurations.js';
 import { billTemplatesApi } from '../../../lib/api/billTemplates.js';
 import { getApiErrorMessage } from '../../../lib/apiError.js';
+import { useAuthStore } from '../../../stores/authStore.js';
 import { useShopStore } from '../../../stores/shopStore.js';
 import { toast } from '../../../stores/uiStore.js';
 import {
   DEFAULT_TEMPLATE,
   DEFAULT_MANUAL_BILL_CONTENT,
+  LETTER_PAD_PAGE_SETTINGS,
   PAPER_SIZES,
   SAMPLE_ORDER,
   mergeTemplate,
@@ -33,11 +35,19 @@ import Tab, { Section } from './_Tab.jsx';
 
 /* ---------- helpers ---------- */
 
-const blankTemplate = (name = 'New template', paper_size = 'A4') => ({
+const blankTemplate = (name = 'New template', paper_size = 'A4', preset = 'default') => ({
   name,
   is_default: false,
   ...DEFAULT_TEMPLATE,
   paper_size,
+  ...(preset === 'letter_pad'
+    ? {
+        page_settings: {
+          ...DEFAULT_TEMPLATE.page_settings,
+          ...LETTER_PAD_PAGE_SETTINGS,
+        },
+      }
+    : {}),
 });
 
 /**
@@ -71,6 +81,8 @@ const BillTemplatesTab = () => {
   const selectedShopId = useShopStore((s) => s.selectedShopId);
   const shops = useShopStore((s) => s.shops);
   const shop = shops.find((sh) => sh.id === selectedShopId);
+  const currentRole = useAuthStore((s) => s.user?.role);
+  const canEditInches = ['super_admin', 'shop_admin'].includes(currentRole);
 
   const { data, isLoading } = useQuery({
     queryKey: ['bill-templates'],
@@ -91,7 +103,7 @@ const BillTemplatesTab = () => {
   const [draft, setDraft] = useState(blankTemplate());
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
-  const [newForm, setNewForm] = useState({ name: '', paper_size: 'A4' });
+  const [newForm, setNewForm] = useState({ name: '', paper_size: 'A4', preset: 'default' });
   const selectedShopName = useSelectedShopName();
 
   const invalidate = () => {
@@ -138,7 +150,7 @@ const BillTemplatesTab = () => {
       invalidate();
       setSelectedId(res?.data?.id || null);
       setCreating(false);
-      setNewForm({ name: '', paper_size: 'A4' });
+      setNewForm({ name: '', paper_size: 'A4', preset: 'default' });
       toast.success('Template created');
     },
     onError: (e) => toast.error(getApiErrorMessage(e, 'Could not create template')),
@@ -223,7 +235,7 @@ const BillTemplatesTab = () => {
   };
 
   const openCreate = () => {
-    setNewForm({ name: '', paper_size: 'A4' });
+    setNewForm({ name: '', paper_size: 'A4', preset: 'default' });
     setCreating(true);
   };
 
@@ -420,12 +432,50 @@ const BillTemplatesTab = () => {
                     label="Use as default for this shop"
                     description="New bills will use this template unless overridden at the order level."
                   />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={4}
+                    step="0.05"
+                    disabled={!canEditInches}
+                    label="Reserved letterhead top (inches)"
+                    hint={
+                      canEditInches
+                        ? undefined
+                        : 'Only shop admin can change letterhead inches.'
+                    }
+                    value={draft.page_settings?.letterhead_top_in ?? 0}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        letterhead_top_in: Math.min(4, Math.max(0, Number(e.target.value) || 0)),
+                      })
+                    }
+                  />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={4}
+                    step="0.05"
+                    disabled={!canEditInches}
+                    label="Reserved letterhead bottom (inches)"
+                    hint={
+                      canEditInches
+                        ? undefined
+                        : 'Only shop admin can change letterhead inches.'
+                    }
+                    value={draft.page_settings?.letterhead_bottom_in ?? 0}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        letterhead_bottom_in: Math.min(4, Math.max(0, Number(e.target.value) || 0)),
+                      })
+                    }
+                  />
                 </div>
               </Section>
 
               <Section
                 title="Blank-paper placement"
-                description="Move the complete bill up or down and optionally arrange its printable blocks manually."
+                description="Move the complete bill up or down and optionally arrange its printable blocks manually. Inch placement is admin-only."
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input
@@ -433,8 +483,13 @@ const BillTemplatesTab = () => {
                     min={-2}
                     max={4}
                     step="0.05"
+                    disabled={!canEditInches}
                     label="Vertical placement (inches)"
-                    hint="Use a negative value to move up and a positive value to move down."
+                    hint={
+                      canEditInches
+                        ? 'Use a negative value to move up and a positive value to move down.'
+                        : 'Only shop admin can move content up or down.'
+                    }
                     value={draft.page_settings?.vertical_offset_in ?? 0}
                     onChange={(e) =>
                       updateSection('page_settings', {
@@ -483,6 +538,73 @@ const BillTemplatesTab = () => {
                     </div>
                   </div>
                 ) : null}
+              </Section>
+
+              <Section
+                title="Booking token printing"
+                description="Adjust product-wise and accessory token size for the default template. Height is a minimum, so long notes are never clipped."
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Input
+                    type="number"
+                    min={50}
+                    max={190}
+                    step="1"
+                    label="Token width (mm)"
+                    value={draft.page_settings?.token_width_mm ?? 92}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        token_width_mm: Math.min(190, Math.max(50, Number(e.target.value) || 92)),
+                      })
+                    }
+                  />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={280}
+                    step="1"
+                    label="Minimum token height (mm)"
+                    hint="Use 0 for automatic height."
+                    value={draft.page_settings?.token_min_height_mm ?? 0}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        token_min_height_mm: Math.min(
+                          280,
+                          Math.max(0, Number(e.target.value) || 0)
+                        ),
+                      })
+                    }
+                  />
+                  <Input
+                    type="number"
+                    min={6}
+                    max={18}
+                    step="0.5"
+                    label="Token font size (pt)"
+                    value={draft.page_settings?.token_font_size ?? 9}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        token_font_size: Math.min(18, Math.max(6, Number(e.target.value) || 9)),
+                      })
+                    }
+                  />
+                  <Input
+                    type="number"
+                    min={3}
+                    max={25}
+                    step="1"
+                    label="Page margin (mm)"
+                    value={draft.page_settings?.token_page_margin_mm ?? 10}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        token_page_margin_mm: Math.min(
+                          25,
+                          Math.max(3, Number(e.target.value) || 10)
+                        ),
+                      })
+                    }
+                  />
+                </div>
               </Section>
 
               {/* Header */}
@@ -720,7 +842,11 @@ const BillTemplatesTab = () => {
               icon={Plus}
               onClick={() =>
                 createMut.mutate(
-                  blankTemplate(newForm.name.trim() || 'New template', newForm.paper_size)
+                  blankTemplate(
+                    newForm.name.trim() || 'New template',
+                    newForm.paper_size,
+                    newForm.preset
+                  )
                 )
               }
               loading={createMut.isPending}
@@ -740,8 +866,24 @@ const BillTemplatesTab = () => {
             onChange={(e) => setNewForm((f) => ({ ...f, name: e.target.value }))}
           />
           <Select
+            label="Ready preset"
+            value={newForm.preset}
+            onChange={(e) =>
+              setNewForm((f) => ({
+                ...f,
+                preset: e.target.value,
+                paper_size: e.target.value === 'letter_pad' ? 'A4' : f.paper_size,
+              }))
+            }
+            options={[
+              { value: 'default', label: 'Default blank paper' },
+              { value: 'letter_pad', label: 'A4 preprinted letter pad' },
+            ]}
+          />
+          <Select
             label="Paper size"
             value={newForm.paper_size}
+            disabled={newForm.preset === 'letter_pad'}
             onChange={(e) => setNewForm((f) => ({ ...f, paper_size: e.target.value }))}
             options={PAPER_SIZES.map((p) => ({ value: p.id, label: p.label }))}
           />

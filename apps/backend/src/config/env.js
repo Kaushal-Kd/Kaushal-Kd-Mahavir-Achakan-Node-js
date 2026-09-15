@@ -121,6 +121,15 @@ export const env = Object.freeze({
   // the app should try ADC-based auth (gcloud login / env-provided creds).
   GCS_ENABLED: !!gcs || hasAdcHints || hasGcsBucketConfig,
 
+  VERTEX_VISUAL_SEARCH_ENABLED:
+    String(process.env.VERTEX_VISUAL_SEARCH_ENABLED || '').toLowerCase() === 'true',
+  VERTEX_VISUAL_SEARCH_PROJECT_ID:
+    process.env.VERTEX_VISUAL_SEARCH_PROJECT_ID ||
+    process.env.GCS_PROJECT_ID ||
+    gcs?.credentials?.project_id ||
+    '',
+  VERTEX_VISUAL_SEARCH_LOCATION: process.env.VERTEX_VISUAL_SEARCH_LOCATION || 'us-central1',
+
   SEED_ADMIN_EMAIL: process.env.SEED_ADMIN_EMAIL || 'admin@wrs.local',
   SEED_ADMIN_PHONE: process.env.SEED_ADMIN_PHONE || '9999999999',
   SEED_ADMIN_PASSWORD: process.env.SEED_ADMIN_PASSWORD || 'Admin@12345',

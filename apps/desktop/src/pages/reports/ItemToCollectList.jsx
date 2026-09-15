@@ -17,6 +17,7 @@ import { useItemStageSalesmanOptions } from '../../hooks/useItemStageSalesmanOpt
 import { useDataTableColumns } from '../../hooks/useDataTableColumns.js';
 import {
   buildItemStageAllNotesColumn,
+  buildItemStageDesignDetailsColumn,
   buildItemStageProductNotesColumn,
 } from '../../components/reports/ItemStageNotesColumns.jsx';
 import ItemStageExportLayoutDialog from '../../components/reports/ItemStageExportLayoutDialog.jsx';
@@ -49,6 +50,7 @@ import { buildCustomerAddressColumn } from '../../lib/listOrderColumns.jsx';
 import { buildBookingDateTimeColumn } from '../../lib/listTimestampColumns.js';
 import { saveItemToCollectCommands } from '../../lib/orderChecklistSave.js';
 import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
+import { submitSalesmanReassignment } from '../../lib/salesmanReassign.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { toast } from '../../stores/uiStore.js';
 import { syncService } from '../../services/syncService.js';
@@ -56,17 +58,6 @@ import { BookingListNextBookingAlert } from '../booking/ChecklistNextBookingAler
 import { orderHasNextBookingAlert } from '../booking/checklistNextBookingAlertUtils.js';
 
 const SEARCH_ID = 'item-to-collect-search';
-
-/** @param {Map<string, { id: string, order_id: string }>} selectedLines */
-function groupSelectedByOrder(selectedLines) {
-  const byOrder = new Map();
-  for (const line of selectedLines.values()) {
-    const oid = String(line.order_id);
-    if (!byOrder.has(oid)) byOrder.set(oid, []);
-    byOrder.get(oid).push(line.id);
-  }
-  return byOrder;
-}
 
 const ItemToCollectList = () => {
   const [searchParams] = useSearchParams();
@@ -280,22 +271,15 @@ const ItemToCollectList = () => {
   });
 
   const reassignMut = useMutation({
-    mutationFn: async () => {
-      if (!reassignSalesmanId) throw new Error('Select a salesman');
-      if (selectedHasPending) throw new Error('Review the selected booking in Pending sync before transferring its work.');
-      const byOrder = groupSelectedByOrder(selectedLines);
-      let queued = 0;
-      for (const [orderId, itemIds] of byOrder) {
-        const orderNumber = selectedPreview.find((row) => row.order_id === orderId)?.order_number;
-        const result = await syncService.submitOrQueueSalesmanReassignment(
-          orderId,
-          { order_item_ids: itemIds, sales_person_id: reassignSalesmanId },
-          { orderNumber }
-        );
-        if (result.queued) queued += 1;
-      }
-      return { lineCount: selectedLines.size, queued };
-    },
+    mutationFn: () =>
+      submitSalesmanReassignment({
+        selectedLines,
+        salesPersonId: reassignSalesmanId,
+        selectedPreview,
+        pendingOrderIds,
+        submit: (orderId, payload, metadata) =>
+          syncService.submitOrQueueSalesmanReassignment(orderId, payload, metadata),
+      }),
     onSuccess: async ({ lineCount, queued }) => {
       setReassignOpen(false);
       setReassignSalesmanId('');
@@ -479,6 +463,7 @@ const ItemToCollectList = () => {
         );
       },
     },
+    buildItemStageDesignDetailsColumn(),
     buildItemStageProductNotesColumn(),
     buildItemStageAllNotesColumn(),
     {

@@ -31,7 +31,9 @@ function withParsedImageUrls(purchase) {
 }
 
 function normGroup(g) {
-  return String(g || '').trim().toLowerCase();
+  return String(g || '')
+    .trim()
+    .toLowerCase();
 }
 
 async function nextPurchaseBillNumber(trx, shopId) {
@@ -40,7 +42,9 @@ async function nextPurchaseBillNumber(trx, shopId) {
 }
 
 async function assertPaymentAccountGroup(trx, shopId, accountId, allowedGroups, label) {
-  const id = String(accountId || '').trim().slice(0, 80);
+  const id = String(accountId || '')
+    .trim()
+    .slice(0, 80);
   if (!id) throw badRequest(`${label} is required`);
   const pa = await trx('payment_accounts').where({ shop_id: shopId, id, is_active: true }).first();
   if (!pa) throw badRequest(`Invalid ${label}`);
@@ -63,7 +67,8 @@ async function restorePurchaseItemInventory(trx, shopId, items, options = {}) {
         .first('id', 'qty');
       if (!row) continue;
       const nextQty = Number(row.qty || 0) - qty;
-      if (nextQty < 0) throw badRequest('Cannot restore purchase: accessory stock would go negative');
+      if (nextQty < 0)
+        throw badRequest('Cannot restore purchase: accessory stock would go negative');
       await trx('accessories')
         .where({ id: item.accessory_id, shop_id: shopId })
         .update({ qty: nextQty, updated_at: trx.fn.now() });
@@ -101,9 +106,7 @@ async function receivePurchaseItemInventory(trx, shopId, items, options = {}) {
         .where({ id: item.product_id, shop_id: shopId, is_active: true })
         .first('id');
       if (!row) throw badRequest('Product not found for inventory update');
-      await trx('products')
-        .where({ id: item.product_id, shop_id: shopId })
-        .increment('qty', qty);
+      await trx('products').where({ id: item.product_id, shop_id: shopId }).increment('qty', qty);
     }
   }
 }
@@ -119,12 +122,22 @@ async function loadPurchaseItemsWithCatalog(db, purchaseId) {
 
 async function assertPurchaseAdvancePayment(trx, shopId, data) {
   const advanceAmt = round2(Number(data.advance || 0));
-  const advAcc = data.advance_account_id ? String(data.advance_account_id).trim().slice(0, 80) : null;
+  const advAcc = data.advance_account_id
+    ? String(data.advance_account_id).trim().slice(0, 80)
+    : null;
   if (advanceAmt > 0 && !advAcc) {
-    throw badRequest('Advance payment account is required when advance amount is greater than zero');
+    throw badRequest(
+      'Advance payment account is required when advance amount is greater than zero'
+    );
   }
   if (advanceAmt > 0 && advAcc) {
-    await assertPaymentAccountGroup(trx, shopId, advAcc, ['Bank Accounts', 'Cash Accounts'], 'Advance account');
+    await assertPaymentAccountGroup(
+      trx,
+      shopId,
+      advAcc,
+      ['Bank Accounts', 'Cash Accounts'],
+      'Advance account'
+    );
   }
   return { advanceAmt, advAcc };
 }
@@ -256,7 +269,7 @@ export async function getPurchaseById(shopId, purchaseId) {
   if (!row) return null;
   const items = await loadPurchaseItemsWithCatalog(knex, purchaseId);
   const payments = await loadPurchasePayments(knex, shopId, purchaseId);
-  return { ...row, items, payments };
+  return withParsedImageUrls({ ...row, items, payments });
 }
 
 export async function listPurchases(shopId, query) {
@@ -269,13 +282,14 @@ export async function listPurchases(shopId, query) {
     qb.andWhereRaw('p.total_amount > p.advance');
   }
 
-  return paginate(qb, {
+  const result = await paginate(qb, {
     page: query.page,
     per_page: query.per_page,
     search: query.search,
     sort: query.sort || '-p.purchase_date',
     search_fields: ['p.purchase_number', 'va.name'],
   });
+  return { ...result, data: (result.data || []).map(withParsedImageUrls) };
 }
 
 export async function createPurchase(shopId, data, userId) {
@@ -363,7 +377,8 @@ export async function updatePurchase(shopId, purchaseId, data, userId) {
     );
 
     const updateAccessoryStock = data.update_accessory_stock !== false;
-    const oldUpdateAccessoryStock = existing.update_accessory_stock !== 0 && existing.update_accessory_stock !== false;
+    const oldUpdateAccessoryStock =
+      existing.update_accessory_stock !== 0 && existing.update_accessory_stock !== false;
 
     const oldItems = await trx('purchase_items').where({ purchase_id: purchaseId });
     await restorePurchaseItemInventory(trx, shopId, oldItems, {
@@ -371,28 +386,30 @@ export async function updatePurchase(shopId, purchaseId, data, userId) {
     });
     await trx('purchase_items').where({ purchase_id: purchaseId }).delete();
 
-    await trx('purchases').where({ id: purchaseId }).update({
-      purchase_date: data.purchase_date,
-      vendor_account_id: vendorAccountId,
-      purchase_account_id: purchaseAccountId,
-      terms_days: Math.max(0, Math.floor(Number(data.terms_days) || 0)),
-      update_accessory_stock: updateAccessoryStock,
-      remark: data.remark || null,
-      discount_type: data.discount_type || 'flat',
-      discount_value: round2(data.discount_value),
-      discount_amount: round2(data.discount_amount),
-      subtotal: round2(data.subtotal),
-      cgst_total: round2(data.cgst_total),
-      sgst_total: round2(data.sgst_total),
-      igst_total: round2(data.igst_total),
-      tax_total: round2(data.tax_total),
-      net_amount: round2(data.net_amount),
-      total_amount: round2(data.total_amount),
-      advance: round2(data.advance),
-      advance_account_id: data.advance_account_id || null,
-      image_urls: serializeImageUrls(data.image_urls),
-      updated_at: trx.fn.now(),
-    });
+    await trx('purchases')
+      .where({ id: purchaseId })
+      .update({
+        purchase_date: data.purchase_date,
+        vendor_account_id: vendorAccountId,
+        purchase_account_id: purchaseAccountId,
+        terms_days: Math.max(0, Math.floor(Number(data.terms_days) || 0)),
+        update_accessory_stock: updateAccessoryStock,
+        remark: data.remark || null,
+        discount_type: data.discount_type || 'flat',
+        discount_value: round2(data.discount_value),
+        discount_amount: round2(data.discount_amount),
+        subtotal: round2(data.subtotal),
+        cgst_total: round2(data.cgst_total),
+        sgst_total: round2(data.sgst_total),
+        igst_total: round2(data.igst_total),
+        tax_total: round2(data.tax_total),
+        net_amount: round2(data.net_amount),
+        total_amount: round2(data.total_amount),
+        advance: round2(data.advance),
+        advance_account_id: data.advance_account_id || null,
+        image_urls: serializeImageUrls(data.image_urls),
+        updated_at: trx.fn.now(),
+      });
 
     const newItemRows = mapItemRows(purchaseId, shopId, data.items);
     if (newItemRows.length) await trx('purchase_items').insert(newItemRows);
@@ -411,8 +428,11 @@ export async function cancelPurchase(shopId, purchaseId, userId) {
     if (purchase.status === 'cancelled') throw badRequest('Purchase already cancelled');
 
     const items = await trx('purchase_items').where({ purchase_id: purchaseId });
-    const hadAccessoryStock = purchase.update_accessory_stock !== 0 && purchase.update_accessory_stock !== false;
-    await restorePurchaseItemInventory(trx, shopId, items, { updateAccessoryStock: hadAccessoryStock });
+    const hadAccessoryStock =
+      purchase.update_accessory_stock !== 0 && purchase.update_accessory_stock !== false;
+    await restorePurchaseItemInventory(trx, shopId, items, {
+      updateAccessoryStock: hadAccessoryStock,
+    });
     await voidPurchasePayments(trx, shopId, purchaseId);
 
     await trx('purchases').where({ id: purchaseId }).update({
@@ -428,7 +448,8 @@ export async function recordPurchasePayment(shopId, purchaseId, data, userId) {
   return knex.transaction(async (trx) => {
     const purchase = await trx('purchases').where({ id: purchaseId, shop_id: shopId }).first();
     if (!purchase) throw notFound('Purchase not found');
-    if (purchase.status === 'cancelled') throw badRequest('Cancelled purchase cannot accept payments');
+    if (purchase.status === 'cancelled')
+      throw badRequest('Cancelled purchase cannot accept payments');
 
     const amount = round2(Number(data.amount || 0));
     if (amount <= 0) throw badRequest('Amount must be greater than zero');
@@ -488,8 +509,11 @@ export async function deletePurchase(shopId, purchaseId) {
 
     if (purchase.status !== 'cancelled') {
       const items = await trx('purchase_items').where({ purchase_id: purchaseId });
-      const hadAccessoryStock = purchase.update_accessory_stock !== 0 && purchase.update_accessory_stock !== false;
-      await restorePurchaseItemInventory(trx, shopId, items, { updateAccessoryStock: hadAccessoryStock });
+      const hadAccessoryStock =
+        purchase.update_accessory_stock !== 0 && purchase.update_accessory_stock !== false;
+      await restorePurchaseItemInventory(trx, shopId, items, {
+        updateAccessoryStock: hadAccessoryStock,
+      });
       await voidPurchasePayments(trx, shopId, purchaseId);
     }
 

@@ -18,9 +18,10 @@ const splitRanges = (text) =>
     .map((v) => v.trim())
     .filter(Boolean);
 const options = [
-  { value: 'inherit', label: 'Inherit shop policy' },
-  { value: 'anywhere', label: 'No additional shop restriction' },
-  { value: 'restricted', label: 'Custom shop IP allowlist' },
+  { value: 'inherit', label: 'Use shop default' },
+  { value: 'restricted', label: 'Shop WiFi + shop data' },
+  { value: 'registered_device', label: 'Allow mobile data' },
+  { value: 'anywhere', label: 'Allow other hotspot / WiFi' },
 ];
 
 export default function ShopIpPolicies() {
@@ -156,9 +157,19 @@ export default function ShopIpPolicies() {
                     <div className="mb-3 flex flex-wrap justify-between gap-2">
                       <strong>{user.name}</strong>
                       <span
-                        className={`text-xs ${user.effective.allowed ? 'text-green-700' : 'text-red-700'}`}
+                        className={`text-xs ${
+                          user.mode === 'registered_device'
+                            ? 'text-brand'
+                            : user.effective.allowed
+                              ? 'text-green-700'
+                              : 'text-red-700'
+                        }`}
                       >
-                        {user.effective.allowed ? 'Current IP allowed' : 'Current IP denied'}
+                        {user.mode === 'registered_device'
+                          ? 'Mobile data on approved device'
+                          : user.effective.allowed
+                            ? 'Current IP allowed'
+                            : 'Current IP denied'}
                       </span>
                     </div>
                     <Select
@@ -167,6 +178,13 @@ export default function ShopIpPolicies() {
                       options={options}
                       onChange={(e) => patch({ mode: e.target.value })}
                     />
+                    {row.mode === 'registered_device' && (
+                      <p className="mt-2 text-xs text-gray-600">
+                        {user.approved_device_count > 0
+                          ? `${user.approved_device_count} approved device${user.approved_device_count === 1 ? '' : 's'}. Manage them in Settings → Login User Device.`
+                          : 'No approved device yet. Approve one in Settings → Login User Device before saving this mode.'}
+                      </p>
+                    )}
                     {row.mode === 'restricted' && (
                       <Input
                         label="Allowed IP addresses / CIDR ranges, separated by commas"

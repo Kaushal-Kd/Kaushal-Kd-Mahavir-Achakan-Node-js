@@ -64,7 +64,7 @@ export const gstInvoiceIssueSchema = z
   .object({
     idempotency_key: z.string().uuid(),
     max_amount: money.refine((v) => v > 0, 'Amount limit must be positive'),
-    invoices: z.array(gstInvoiceAllocationSchema).min(1).max(100),
+    invoices: z.array(gstInvoiceAllocationSchema).min(1).max(20),
   })
   .strict()
   .superRefine((v, ctx) => {

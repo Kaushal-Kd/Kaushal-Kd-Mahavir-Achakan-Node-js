@@ -7,6 +7,7 @@ const PrintTokenTypeModal = ({
   isOpen,
   onClose,
   onChooseProduct,
+  onChooseAllProducts,
   onChooseAccessories,
   onChooseBoth,
   onChooseBill,
@@ -20,11 +21,7 @@ const PrintTokenTypeModal = ({
   requireExplicitClose = false,
 }) => {
   const isDownload = mode === 'download';
-  const title = isDownload
-    ? 'Download tokens'
-    : showBill
-      ? 'Print documents'
-      : 'Print token';
+  const title = isDownload ? 'Download tokens' : showBill ? 'Print documents' : 'Print token';
   const prompt = isDownload
     ? 'What do you want to download?'
     : showBill
@@ -46,7 +43,12 @@ const PrintTokenTypeModal = ({
           </Button>
           {showProduct ? (
             <Button variant="primary" onClick={onChooseProduct} loading={loading}>
-              Product
+              Product-wise
+            </Button>
+          ) : null}
+          {showProduct && onChooseAllProducts ? (
+            <Button variant="primary" onClick={onChooseAllProducts} loading={loading}>
+              All Products
             </Button>
           ) : null}
           {showAccessories ? (
@@ -89,6 +91,7 @@ PrintTokenTypeModal.propTypes = {
   isOpen: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onChooseProduct: PropTypes.func.isRequired,
+  onChooseAllProducts: PropTypes.func,
   onChooseAccessories: PropTypes.func.isRequired,
   onChooseBoth: PropTypes.func,
   onChooseBill: PropTypes.func,

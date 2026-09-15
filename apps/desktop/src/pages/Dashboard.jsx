@@ -357,14 +357,16 @@ const REMINDER_CELL = 'px-3 py-1.5 whitespace-nowrap overflow-hidden text-ellips
 
 const RemindersCard = () => {
   const qc = useQueryClient();
+  const shopId = useShopStore((s) => s.selectedShopId);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleRow, setRescheduleRow] = useState(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleTime, setRescheduleTime] = useState('');
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['reminders'],
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ['reminders', shopId],
     queryFn: () => remindersApi.list(),
+    enabled: Boolean(shopId),
     refetchOnMount: 'always',
   });
 
@@ -478,7 +480,12 @@ const RemindersCard = () => {
           <Skeleton className="h-9 w-full" />
         </div>
       ) : isError ? (
-        <div className="text-sm text-gray-500 py-6 text-center">Could not load reminders.</div>
+        <div className="py-6 text-center space-y-2">
+          <div className="text-sm text-gray-500">Could not load reminders.</div>
+          <Button type="button" variant="secondary" size="sm" loading={isFetching} onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
       ) : reminders.length === 0 ? (
         <div className="text-sm text-gray-500 py-6 text-center">No due reminders right now.</div>
       ) : (

@@ -4,6 +4,7 @@ import {
   accessoryRentableQty,
   formatAccessoryQtyExceededMessage,
   formatAccessorySpareMessage,
+  naturalSortKey,
 } from '@wrs/shared';
 
 import knex from '../../db/knex.js';
@@ -175,16 +176,16 @@ export async function listAccessories(shopId, query) {
   }
 
   qb.select('a.*');
-  const searchBy = String(query.search_by || 'all')
-    .trim()
-    .toLowerCase();
-  const searchFields =
-    searchBy === 'code' ? ['a.code'] : searchBy === 'name' ? ['a.name'] : ['a.name', 'a.code'];
+  const searchFields = ['a.name', 'a.code'];
+  const sort =
+    query.sort === 'code_natural'
+      ? 'a.natural_code_sort_key,a.code,a.name'
+      : 'a.name,a.natural_code_sort_key,a.code';
   const result = await paginate(qb, {
     page: query.page,
     per_page: query.per_page,
     search: query.search,
-    sort: query.sort || 'a.name',
+    sort,
     search_fields: searchFields,
   });
 
@@ -765,6 +766,7 @@ export async function createAccessory(shopId, data) {
     ...rest,
     category_id,
     code,
+    natural_code_sort_key: naturalSortKey(code),
     id,
     shop_id: shopId,
   });
@@ -782,6 +784,7 @@ export async function updateAccessory(shopId, id, data) {
   }
   if (rawCode !== undefined) {
     payload.code = normalizeAccessoryCodeInput(rawCode);
+    payload.natural_code_sort_key = naturalSortKey(payload.code);
   }
   delete payload.id;
   assertAccessorySpareQty(payload, existing);

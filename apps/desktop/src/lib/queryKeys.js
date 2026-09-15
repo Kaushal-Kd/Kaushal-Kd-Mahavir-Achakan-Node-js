@@ -85,7 +85,7 @@ export const queryKeys = {
     availabilityCart: ['drafts', 'availability_cart'],
   },
   users: {
-    dropdown: ['users', 'dropdown'],
+    dropdown: (shopId) => ['users', 'dropdown', shopId || 'none'],
   },
   categories: {
     product: ['categories', 'product'],

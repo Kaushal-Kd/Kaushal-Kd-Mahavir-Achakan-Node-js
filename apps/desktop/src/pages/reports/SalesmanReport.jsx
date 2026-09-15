@@ -254,7 +254,8 @@ const SalesmanReport = () => {
             {formatCurrency(r.commission_amount)}
             {!r._is_total && r.commission_basis ? (
               <div className="text-[10px] font-normal text-gray-400">
-                {formatCurrency(r.commission_rate)} / {r.commission_basis}
+                Earned on first delivery
+                {r.commission_sources?.length ? ` · ${r.commission_sources.join(', ')}` : ''}
               </div>
             ) : null}
           </div>

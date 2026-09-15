@@ -61,8 +61,86 @@ export function calculateSalesmanCommission(basis, rate, bookingCount, productQt
   return 0;
 }
 
+function positiveRate(value) {
+  return Math.max(0, Number(value || 0));
+}
+
+/** Calculate fixed additive commission entries from bookings earned on first delivery. */
+export function calculateDeliveredCommissionEntries({
+  orders,
+  productLines,
+  memberships,
+  categoryRates,
+}) {
+  const membershipByUser = new Map(memberships.map((row) => [row.user_id, row]));
+  const categoryRateByUser = new Map(
+    categoryRates.map((row) => [`${row.user_id}|${row.category_id}`, row])
+  );
+  const byRecipientDate = new Map();
+
+  const add = (userId, earnedDate, amount, source) => {
+    const value = round2(positiveRate(amount));
+    if (!userId || !earnedDate || value <= 0) return;
+    const membership = membershipByUser.get(userId);
+    const key = `${userId}|${earnedDate}`;
+    if (!byRecipientDate.has(key)) {
+      byRecipientDate.set(key, {
+        sales_person_id: userId,
+        salesman_name: membership?.user_name || 'Unassigned',
+        bill_date: earnedDate,
+        commission_amount: 0,
+        commission_sources: new Set(),
+      });
+    }
+    const entry = byRecipientDate.get(key);
+    entry.commission_amount = round2(entry.commission_amount + value);
+    entry.commission_sources.add(source);
+  };
+
+  for (const order of orders) {
+    const earnedDate = normalizeSqlDateToIso(order.first_delivered_at);
+    const ownerId = order.sales_person_id || null;
+    const ownerMembership = membershipByUser.get(ownerId);
+    add(ownerId, earnedDate, ownerMembership?.self_booking_commission_rate, 'self booking');
+    const managerId = ownerMembership?.manager_user_id || null;
+    const managerMembership = membershipByUser.get(managerId);
+    add(managerId, earnedDate, managerMembership?.managed_booking_commission_rate, 'team booking');
+  }
+
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+  for (const line of productLines) {
+    const order = orderById.get(line.order_id);
+    if (!order) continue;
+    const earnedDate = normalizeSqlDateToIso(order.first_delivered_at);
+    const ownerId = line.sales_person_id || order.sales_person_id || null;
+    const ownerMembership = membershipByUser.get(ownerId);
+    const selfCategory = categoryRateByUser.get(`${ownerId}|${line.category_id}`);
+    const selfRate = positiveRate(selfCategory?.self_rate)
+      ? selfCategory.self_rate
+      : ownerMembership?.self_product_commission_rate;
+    add(ownerId, earnedDate, positiveRate(selfRate) * Number(line.qty || 0), 'self product');
+
+    const managerId = ownerMembership?.manager_user_id || null;
+    const managerMembership = membershipByUser.get(managerId);
+    const managerCategory = categoryRateByUser.get(`${managerId}|${line.category_id}`);
+    const managedRate = positiveRate(managerCategory?.managed_rate)
+      ? managerCategory.managed_rate
+      : managerMembership?.managed_product_commission_rate;
+    add(managerId, earnedDate, positiveRate(managedRate) * Number(line.qty || 0), 'team product');
+  }
+
+  return [...byRecipientDate.values()].map((entry) => ({
+    ...entry,
+    commission_sources: [...entry.commission_sources].sort(),
+  }));
+}
+
 export function allocateSalesmanBillDiscount(discount, selectedGross, orderGross) {
-  return round2(Number(orderGross) > 0 ? Number(discount || 0) * Number(selectedGross || 0) / Number(orderGross) : 0);
+  return round2(
+    Number(orderGross) > 0
+      ? (Number(discount || 0) * Number(selectedGross || 0)) / Number(orderGross)
+      : 0
+  );
 }
 
 function resolveRange(query) {
@@ -76,6 +154,80 @@ const COMMISSION_EARNED_STATUSES = new Set([
   'returned',
   'closed',
 ]);
+
+const FIRST_DELIVERY_SQL = `NULLIF(LEAST(
+  COALESCE(o.delivered_at, '9999-12-31 23:59:59'),
+  COALESCE((SELECT MIN(delivery_item.delivered_at) FROM order_items delivery_item
+    WHERE delivery_item.order_id = o.id AND delivery_item.delivered_at IS NOT NULL), '9999-12-31 23:59:59'),
+  COALESCE((SELECT MIN(delivery_accessory.delivered_at) FROM order_accessories delivery_accessory
+    WHERE delivery_accessory.order_id = o.id AND delivery_accessory.delivered_at IS NOT NULL), '9999-12-31 23:59:59')
+), '9999-12-31 23:59:59')`;
+
+async function getDeliveredCommissionEntries(shopId, range, query) {
+  const orderQuery = knex('orders as o')
+    .where({ 'o.shop_id': shopId, 'o.is_deleted': false })
+    .whereIn('o.status', [...COMMISSION_EARNED_STATUSES])
+    .whereRaw(`DATE(${FIRST_DELIVERY_SQL}) BETWEEN ? AND ?`, [range.from, range.to])
+    .select('o.id', 'o.sales_person_id', knex.raw(`${FIRST_DELIVERY_SQL} as first_delivered_at`));
+
+  if (query.category_id) {
+    orderQuery.whereExists(function matchingCategory() {
+      this.select(1)
+        .from('order_items as category_line')
+        .leftJoin('products as category_product', function joinProduct() {
+          this.on('category_product.id', 'category_line.product_id').andOn(
+            'category_product.shop_id',
+            'category_line.shop_id'
+          );
+        })
+        .whereRaw('category_line.order_id = o.id AND category_line.shop_id = o.shop_id');
+      if (query.category_id === 'none') this.whereNull('category_product.category_id');
+      else this.where('category_product.category_id', query.category_id);
+    });
+  }
+
+  const orders = await orderQuery;
+  if (!orders.length) return [];
+  const productLineQuery = knex('order_items as oi')
+    .leftJoin('products as p', function joinProduct() {
+      this.on('p.id', 'oi.product_id').andOn('p.shop_id', 'oi.shop_id');
+    })
+    .where('oi.shop_id', shopId)
+    .whereIn(
+      'oi.order_id',
+      orders.map((order) => order.id)
+    )
+    .whereNotNull('oi.product_id')
+    .select('oi.order_id', 'oi.sales_person_id', 'oi.qty', 'p.category_id');
+  if (query.category_id === 'none') productLineQuery.whereNull('p.category_id');
+  else if (query.category_id) productLineQuery.where('p.category_id', query.category_id);
+
+  const [productLines, memberships, categoryRates] = await Promise.all([
+    productLineQuery,
+    knex('users_shops as us')
+      .leftJoin('users as u', 'u.id', 'us.user_id')
+      .where('us.shop_id', shopId)
+      .select(
+        'us.user_id',
+        'us.manager_user_id',
+        'us.self_booking_commission_rate',
+        'us.self_product_commission_rate',
+        'us.managed_booking_commission_rate',
+        'us.managed_product_commission_rate',
+        knex.raw("COALESCE(NULLIF(TRIM(u.name), ''), u.email, 'Unassigned') as user_name")
+      ),
+    knex('commission_category_rates').where('shop_id', shopId).select('*'),
+  ]);
+  const entries = calculateDeliveredCommissionEntries({
+    orders,
+    productLines,
+    memberships,
+    categoryRates,
+  });
+  if (!query.sales_person_id) return entries;
+  if (query.sales_person_id === 'none') return [];
+  return entries.filter((entry) => entry.sales_person_id === query.sales_person_id);
+}
 
 async function getBookingSalesmanReport(shopId, range, query) {
   const qb = knex('order_items as oi')
@@ -280,40 +432,14 @@ async function getBookingSalesmanReport(shopId, range, query) {
     }
   }
 
-  const eligibleBookings = await knex('orders as o')
-    .leftJoin('users as u', 'u.id', 'o.sales_person_id')
-    .where({ 'o.shop_id': shopId, 'o.is_deleted': false })
-    .whereIn('o.status', [...COMMISSION_EARNED_STATUSES])
-    .whereBetween('o.booking_date', [range.from, range.to])
-    .modify((qb) => {
-      if (query.sales_person_id === 'none') qb.whereNull('o.sales_person_id');
-      else if (query.sales_person_id) qb.andWhere('o.sales_person_id', query.sales_person_id);
-      if (query.category_id) qb.whereExists(function matchingCategory() {
-        this.select(1).from('order_items as category_line')
-          .join('products as category_product', function joinProduct() {
-            this.on('category_product.id', 'category_line.product_id').andOn('category_product.shop_id', 'category_line.shop_id');
-          })
-          .whereRaw('category_line.order_id = o.id AND category_line.shop_id = o.shop_id');
-        if (query.category_id === 'none') this.whereNull('category_product.category_id');
-        else this.where('category_product.category_id', query.category_id);
-      });
-    })
-    .select(
-      'o.id',
-      'o.booking_date',
-      'o.sales_person_id',
-      knex.raw("COALESCE(NULLIF(TRIM(u.name), ''), u.email, 'Unassigned') as salesman_name")
-    );
-
-  for (const order of eligibleBookings) {
-    const billDate = normalizeSqlDateToIso(order.booking_date);
-    const salesPersonId = order.sales_person_id || null;
-    const groupKey = `${salesPersonId || ''}|${billDate}`;
+  const commissionEntries = await getDeliveredCommissionEntries(shopId, range, query);
+  for (const entry of commissionEntries) {
+    const groupKey = `${entry.sales_person_id}|${entry.bill_date}`;
     if (!byGroup.has(groupKey)) {
       byGroup.set(groupKey, {
-        sales_person_id: salesPersonId,
-        salesman_name: String(order.salesman_name || 'Unassigned').trim() || 'Unassigned',
-        bill_date: billDate,
+        sales_person_id: entry.sales_person_id,
+        salesman_name: entry.salesman_name,
+        bill_date: entry.bill_date,
         order_ids: new Set(),
         product_count: 0,
         product_amount: 0,
@@ -321,35 +447,16 @@ async function getBookingSalesmanReport(shopId, range, query) {
         accessory_amount: 0,
         item_discount: 0,
         bill_discount: 0,
-        commission_product_qty: 0,
-        commission_booking_order_ids: new Set(),
       });
     }
     const group = byGroup.get(groupKey);
-    group.order_ids.add(order.id);
-    if (salesPersonId) group.commission_booking_order_ids.add(order.id);
+    group.commission_amount = round2(
+      Number(group.commission_amount || 0) + Number(entry.commission_amount || 0)
+    );
+    group.commission_sources = entry.commission_sources;
   }
 
-  const salesmanIds = [
-    ...new Set([...byGroup.values()].map((g) => g.sales_person_id).filter(Boolean)),
-  ];
-  const commissionRows = salesmanIds.length
-    ? await knex('users_shops')
-        .where({ shop_id: shopId })
-        .whereIn('user_id', salesmanIds)
-        .select('user_id', 'commission_basis', 'commission_rate')
-    : [];
-  const commissionBySalesman = new Map(commissionRows.map((row) => [row.user_id, row]));
-
   const rows = [...byGroup.values()].map((g) => {
-    const commission = commissionBySalesman.get(g.sales_person_id);
-    const rate = Number(commission?.commission_rate || 0);
-    const commissionAmount = calculateSalesmanCommission(
-      commission?.commission_basis,
-      rate,
-      g.commission_booking_order_ids.size,
-      g.commission_product_qty
-    );
     return {
       sales_person_id: g.sales_person_id,
       salesman_name: g.salesman_name || 'Unassigned',
@@ -364,9 +471,10 @@ async function getBookingSalesmanReport(shopId, range, query) {
       total_amount: round2(
         g.product_amount + g.accessory_amount - g.item_discount - g.bill_discount
       ),
-      commission_basis: commission?.commission_basis || null,
-      commission_rate: round2(rate),
-      commission_amount: round2(commissionAmount),
+      commission_basis: g.commission_sources?.length ? 'delivery' : null,
+      commission_rate: 0,
+      commission_sources: g.commission_sources || [],
+      commission_amount: round2(g.commission_amount || 0),
     };
   });
 

@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 
 import {
   buildProductCode,
+  naturalSortKey,
   normalizeProductCode,
   productCodeNumberFromStored,
 } from '@wrs/shared';
@@ -13,7 +14,11 @@ export const ACCESSORY_CODE_FORMAT_KEY = 'config.accessory_code';
 const DEFAULT_CODE_FORMAT = { default_prefix: 'ACC', padding: 4, by_category: {} };
 
 function normalizeCodeFormatPrefix(value) {
-  return String(value ?? '').trim().replace(/\s+/g, '').toUpperCase().slice(0, 40);
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, '')
+    .toUpperCase()
+    .slice(0, 40);
 }
 
 function parseJSONSafe(value) {
@@ -135,7 +140,13 @@ export async function backfillMissingAccessoryCodes(shopId) {
       next = max + 1;
     }
     const code = normalizeProductCode(buildProductCode(prefix, next, fmt.padding, ''));
-    await knex('accessories').where({ id: row.id }).update({ code, updated_at: knex.fn.now() });
+    await knex('accessories')
+      .where({ id: row.id })
+      .update({
+        code,
+        natural_code_sort_key: naturalSortKey(code),
+        updated_at: knex.fn.now(),
+      });
     nextByKey.set(key, next + 1);
     updated += 1;
   }
@@ -172,7 +183,11 @@ async function repairDuplicateAccessoryCodes(shopId) {
         const generated = await generateNextAccessoryCode(shopId, row.category_id || null);
         await knex('accessories')
           .where({ id: row.id })
-          .update({ code: generated.code, updated_at: knex.fn.now() });
+          .update({
+            code: generated.code,
+            natural_code_sort_key: naturalSortKey(generated.code),
+            updated_at: knex.fn.now(),
+          });
         repaired += 1;
       }
     }
@@ -340,13 +355,16 @@ export async function getAccessoryCodeFormat(shopId) {
 }
 
 export async function updateAccessoryCodeFormat(shopId, data) {
-  const byCategoryIn = data?.by_category && typeof data.by_category === 'object' ? data.by_category : {};
+  const byCategoryIn =
+    data?.by_category && typeof data.by_category === 'object' ? data.by_category : {};
   const by_category = {};
   for (const [catId, val] of Object.entries(byCategoryIn)) {
     by_category[String(catId)] = normalizeCodeFormatPrefix(val);
   }
   const payload = {
-    default_prefix: normalizeCodeFormatPrefix(data?.default_prefix ?? DEFAULT_CODE_FORMAT.default_prefix),
+    default_prefix: normalizeCodeFormatPrefix(
+      data?.default_prefix ?? DEFAULT_CODE_FORMAT.default_prefix
+    ),
     padding: Math.max(1, Math.min(10, Number(data?.padding) || DEFAULT_CODE_FORMAT.padding)),
     by_category,
   };

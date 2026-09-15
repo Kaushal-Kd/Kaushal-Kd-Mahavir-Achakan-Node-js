@@ -76,10 +76,9 @@ const CATALOG_ACTIVE_OPTS = [
   { value: 'all', label: 'All' },
 ];
 
-const SEARCH_BY_OPTS = [
-  { value: 'all', label: 'Code or name' },
-  { value: 'code', label: 'Code only' },
-  { value: 'name', label: 'Name only' },
+const SORT_OPTS = [
+  { value: 'name_asc', label: 'Name A–Z' },
+  { value: 'code_natural', label: 'Code order' },
 ];
 
 const ACCESSORY_LIST_DEFAULT_HIDDEN = [
@@ -98,7 +97,7 @@ const ACCESSORY_LIST_DEFAULT_HIDDEN = [
 
 const AccessoryList = () => {
   const [search, setSearch] = useState('');
-  const [searchBy, setSearchBy] = useState('all');
+  const [sortMode, setSortMode] = useState('name_asc');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(DEFAULT_TABLE_PER_PAGE);
   const [outOrdersAccessory, setOutOrdersAccessory] = useState(null);
@@ -124,7 +123,8 @@ const AccessoryList = () => {
     loading,
     close,
   } = useAdminDelete({
-    deleteFn: (row, admin_password) => accessoriesApi.remove(row.id, { admin_password, mode: catalogDeleteModeForRow(row) }),
+    deleteFn: (row, admin_password) =>
+      accessoriesApi.remove(row.id, { admin_password, mode: catalogDeleteModeForRow(row) }),
     onSuccess: async (res) => {
       toast.success(
         res?.data?.mode === 'permanently_deleted'
@@ -150,10 +150,13 @@ const AccessoryList = () => {
   const isDamagedFilter = categoryId === '__damaged__';
 
   const buildFetchParams = useCallback(() => {
-    const p = { include_active_count: '1', catalog_active: catalogActiveFilter };
+    const p = {
+      include_active_count: '1',
+      catalog_active: catalogActiveFilter,
+      sort: sortMode,
+    };
     if (search.trim()) {
       p.search = search.trim();
-      p.search_by = searchBy;
     }
     if (isLowStockFilter) p.low_stock = '1';
     else if (isDamagedFilter) p.damaged = '1';
@@ -163,7 +166,7 @@ const AccessoryList = () => {
     return p;
   }, [
     search,
-    searchBy,
+    sortMode,
     isLowStockFilter,
     isDamagedFilter,
     categoryId,
@@ -179,7 +182,7 @@ const AccessoryList = () => {
       'accessories',
       {
         search,
-        searchBy,
+        sortMode,
         page,
         perPage,
         categoryId,
@@ -193,12 +196,15 @@ const AccessoryList = () => {
   });
 
   const accFiltersClear =
-    !typeFilter && !orderStatusFilter && catalogActiveFilter === 'active' && searchBy === 'all';
+    !typeFilter &&
+    !orderStatusFilter &&
+    catalogActiveFilter === 'active' &&
+    sortMode === 'name_asc';
   const clearAccFilters = () => {
     setTypeFilter('');
     setOrderStatusFilter('');
     setCatalogActiveFilter('active');
-    setSearchBy('all');
+    setSortMode('name_asc');
     setPage(1);
   };
 
@@ -206,13 +212,13 @@ const AccessoryList = () => {
     () =>
       JSON.stringify({
         search,
-        searchBy,
+        sortMode,
         categoryId,
         typeFilter,
         orderStatusFilter,
         catalogActiveFilter,
       }),
-    [search, searchBy, categoryId, typeFilter, orderStatusFilter, catalogActiveFilter]
+    [search, sortMode, categoryId, typeFilter, orderStatusFilter, catalogActiveFilter]
   );
 
   useEffect(() => {
@@ -744,13 +750,7 @@ const AccessoryList = () => {
             <Search size={14} className="text-gray-400 shrink-0" />
             <input
               className="flex-1 min-w-[8rem] outline-none text-xs"
-              placeholder={
-                searchBy === 'code'
-                  ? 'Search code…'
-                  : searchBy === 'name'
-                    ? 'Search name…'
-                    : 'Search code or name…'
-              }
+              placeholder="Search code or name…"
               value={search}
               onChange={(e) => {
                 setPage(1);
@@ -759,14 +759,14 @@ const AccessoryList = () => {
             />
             <select
               className="h-7 rounded border border-gray-200 bg-white px-1.5 text-[11px] text-gray-700"
-              value={searchBy}
-              aria-label="Search accessories by"
+              value={sortMode}
+              aria-label="Sort accessories"
               onChange={(e) => {
                 setPage(1);
-                setSearchBy(e.target.value);
+                setSortMode(e.target.value);
               }}
             >
-              {SEARCH_BY_OPTS.map((option) => (
+              {SORT_OPTS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>

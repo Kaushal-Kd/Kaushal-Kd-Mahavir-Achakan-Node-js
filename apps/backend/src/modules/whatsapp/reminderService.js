@@ -1,9 +1,4 @@
-import {
-  addDays,
-  normalizeSqlDateToIso,
-  parseYesNo,
-  todayIndiaISODate,
-} from '@wrs/shared';
+import { normalizeSqlDateToIso, parseYesNo, todayIndiaISODate } from '@wrs/shared';
 import { normalizeWhatsAppRecipient } from '@wrs/shared/utils/whatsappRecipient.js';
 import { v4 as uuid } from 'uuid';
 
@@ -14,6 +9,7 @@ import {
   canReactivateDeliveryReminder,
   deliveryReminderCancellationReason,
   deliveryReminderScheduledAt,
+  shiftIsoCalendarDate,
 } from './reminderEligibility.js';
 import {
   UNCERTAIN_REMINDER_MESSAGE,
@@ -40,7 +36,7 @@ async function settingMap(shopId) {
 }
 
 async function ensureTomorrowJobs() {
-  const tomorrow = normalizeSqlDateToIso(addDays(todayIndiaISODate(), 1));
+  const tomorrow = shiftIsoCalendarDate(todayIndiaISODate(), 1);
   const shops = await knex('shops').where({ is_active: true }).select('id');
   for (const shop of shops) {
     const settings = await settingMap(shop.id);
@@ -61,13 +57,15 @@ async function ensureTomorrowJobs() {
         .first();
       if (exists) {
         if (exists.status === 'pending' || canReactivateDeliveryReminder(exists)) {
-          await knex('whatsapp_scheduled_messages').where({ id: exists.id, status: exists.status }).update({
-            scheduled_for: scheduledFor,
-            ...(canReactivateDeliveryReminder(exists)
-              ? { status: 'pending', next_attempt_at: null, last_error: null }
-              : {}),
-            updated_at: knex.fn.now(),
-          });
+          await knex('whatsapp_scheduled_messages')
+            .where({ id: exists.id, status: exists.status })
+            .update({
+              scheduled_for: scheduledFor,
+              ...(canReactivateDeliveryReminder(exists)
+                ? { status: 'pending', next_attempt_at: null, last_error: null }
+                : {}),
+              updated_at: knex.fn.now(),
+            });
         }
         continue;
       }
@@ -107,7 +105,12 @@ async function loadReminderOrder(job) {
 }
 
 function reminderPhone(order) {
-  return [order.customer_whatsapp, order.customer_phone1, order.customer_phone2, order.pickup_number]
+  return [
+    order.customer_whatsapp,
+    order.customer_phone1,
+    order.customer_phone2,
+    order.pickup_number,
+  ]
     .map(normalizeWhatsAppRecipient)
     .find(Boolean);
 }
@@ -132,7 +135,10 @@ async function processJob(job, sendMessage) {
     knex('shops').where({ id: job.shop_id, is_active: true }).first('id'),
   ]);
   if (!activeShop) {
-    await finishReminderAttempt(knex, job, { status: 'cancelled', last_error: 'Shop is no longer active' });
+    await finishReminderAttempt(knex, job, {
+      status: 'cancelled',
+      last_error: 'Shop is no longer active',
+    });
     return;
   }
   if (!parseYesNo(settings[ENABLED_KEY], 'No')) {
@@ -166,31 +172,42 @@ async function processJob(job, sendMessage) {
   let cancellationBeforeDispatch = null;
   let deferredUntil = null;
   try {
-    const result = await sendMessage(job.shop_id, null, {
-      template_key: REMINDER_TEMPLATE,
-      phone,
-      order_id: order.id,
-    }, {
-      beforeDispatch: async ({ logId }) => {
-        const [currentOrder, currentSettings, shop] = await Promise.all([
-          loadReminderOrder(job), settingMap(job.shop_id),
-          knex('shops').where({ id: job.shop_id, is_active: true }).first('id'),
-        ]);
-        cancellationBeforeDispatch = !shop ? 'Shop is no longer active'
-          : !parseYesNo(currentSettings[ENABLED_KEY], 'No') ? 'Automatic reminders were disabled before dispatch'
-            : deliveryReminderCancellationReason(job, currentOrder, todayIndiaISODate());
-        if (!cancellationBeforeDispatch && reminderPhone(currentOrder) !== phone) {
-          cancellationBeforeDispatch = 'Customer WhatsApp number changed before dispatch';
-        }
-        if (cancellationBeforeDispatch) throw new Error(cancellationBeforeDispatch);
-        const currentScheduledFor = deliveryReminderScheduledAt(deliveryDate, currentSettings[TIME_KEY]);
-        if (currentScheduledFor.getTime() > Date.now()) {
-          deferredUntil = currentScheduledFor;
-          throw new Error('Automatic reminder time changed before dispatch');
-        }
-        await markReminderDispatch(knex, job, logId);
+    const result = await sendMessage(
+      job.shop_id,
+      null,
+      {
+        template_key: REMINDER_TEMPLATE,
+        phone,
+        order_id: order.id,
       },
-    });
+      {
+        beforeDispatch: async ({ logId }) => {
+          const [currentOrder, currentSettings, shop] = await Promise.all([
+            loadReminderOrder(job),
+            settingMap(job.shop_id),
+            knex('shops').where({ id: job.shop_id, is_active: true }).first('id'),
+          ]);
+          cancellationBeforeDispatch = !shop
+            ? 'Shop is no longer active'
+            : !parseYesNo(currentSettings[ENABLED_KEY], 'No')
+              ? 'Automatic reminders were disabled before dispatch'
+              : deliveryReminderCancellationReason(job, currentOrder, todayIndiaISODate());
+          if (!cancellationBeforeDispatch && reminderPhone(currentOrder) !== phone) {
+            cancellationBeforeDispatch = 'Customer WhatsApp number changed before dispatch';
+          }
+          if (cancellationBeforeDispatch) throw new Error(cancellationBeforeDispatch);
+          const currentScheduledFor = deliveryReminderScheduledAt(
+            deliveryDate,
+            currentSettings[TIME_KEY]
+          );
+          if (currentScheduledFor.getTime() > Date.now()) {
+            deferredUntil = currentScheduledFor;
+            throw new Error('Automatic reminder time changed before dispatch');
+          }
+          await markReminderDispatch(knex, job, logId);
+        },
+      }
+    );
     await finishReminderAttempt(knex, job, {
       status: 'sent',
       sent_at: knex.fn.now(),
@@ -201,29 +218,40 @@ async function processJob(job, sendMessage) {
   } catch (error) {
     if (deferredUntil) {
       await finishReminderAttempt(knex, job, {
-        status: 'pending', scheduled_for: deferredUntil, next_attempt_at: deferredUntil,
+        status: 'pending',
+        scheduled_for: deferredUntil,
+        next_attempt_at: deferredUntil,
         last_error: 'Waiting for the updated automatic reminder time',
       });
       return;
     }
     if (cancellationBeforeDispatch) {
-      await finishReminderAttempt(knex, job, { status: 'cancelled', last_error: cancellationBeforeDispatch });
+      await finishReminderAttempt(knex, job, {
+        status: 'cancelled',
+        last_error: cancellationBeforeDispatch,
+      });
       return;
     }
     const attempts = Number(job.attempt_count || 1);
     const message = error?.message || 'Reminder send failed';
-    const stored = await knex('whatsapp_scheduled_messages').where({ id: job.id, lease_token: job.lease_token }).first();
+    const stored = await knex('whatsapp_scheduled_messages')
+      .where({ id: job.id, lease_token: job.lease_token })
+      .first();
     const log = stored?.message_log_id
-      ? await knex('whatsapp_message_logs').where({ id: stored.message_log_id }).first('status') : null;
+      ? await knex('whatsapp_message_logs').where({ id: stored.message_log_id }).first('status')
+      : null;
     const status = failedReminderOutcome({
-      dispatched: Boolean(stored?.dispatch_started_at), logStatus: log?.status, temporary: temporaryError(message),
+      dispatched: Boolean(stored?.dispatch_started_at),
+      logStatus: log?.status,
+      temporary: temporaryError(message),
     });
     const delayMinutes = Math.min(60, 2 ** Math.min(attempts, 6));
     await finishReminderAttempt(knex, job, {
       status,
       attempt_count: attempts,
       next_attempt_at: status === 'pending' ? new Date(Date.now() + delayMinutes * 60_000) : null,
-      last_error: status === 'uncertain' ? UNCERTAIN_REMINDER_MESSAGE : status === 'sent' ? null : message,
+      last_error:
+        status === 'uncertain' ? UNCERTAIN_REMINDER_MESSAGE : status === 'sent' ? null : message,
       ...(status === 'sent' ? { sent_at: knex.fn.now() } : {}),
       updated_at: knex.fn.now(),
     });
@@ -248,9 +276,13 @@ export async function runWhatsAppReminderPass({ sendMessage = sendWhatsAppMessag
 
 export function startWhatsAppReminderWorker() {
   if (workerTimer) return workerTimer;
-  runWhatsAppReminderPass().catch((error) => console.warn('[whatsapp] reminder pass failed:', error?.message || error));
+  runWhatsAppReminderPass().catch((error) =>
+    console.warn('[whatsapp] reminder pass failed:', error?.message || error)
+  );
   workerTimer = setInterval(() => {
-    runWhatsAppReminderPass().catch((error) => console.warn('[whatsapp] reminder pass failed:', error?.message || error));
+    runWhatsAppReminderPass().catch((error) =>
+      console.warn('[whatsapp] reminder pass failed:', error?.message || error)
+    );
   }, WORK_INTERVAL_MS);
   workerTimer.unref?.();
   return workerTimer;

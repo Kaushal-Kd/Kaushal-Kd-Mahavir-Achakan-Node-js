@@ -18,13 +18,17 @@ export const productsApi = {
   checkCodeNumberTaken: (params) => api.get('/products/code-number-taken', { params }).then(unwrap),
   categoryCounts: () => api.get('/products/category-counts').then(unwrap),
   checkAvailability: (params) => api.get('/products/availability', { params }).then(unwrap),
-  checkSellAvailability: (params) => api.get('/products/sell-availability', { params }).then(unwrap),
+  checkSellAvailability: (params) =>
+    api.get('/products/sell-availability', { params }).then(unwrap),
   availabilityList: (params) => api.get('/products/availability-list', { params }).then(unwrap),
-  bookingAvailability: (params) => api.get('/products/booking-availability', { params }).then(unwrap),
+  visualSearchStatus: () => api.get('/products/visual-search/status').then(unwrap),
+  visualSearch: (imageDataUrl) =>
+    api.post('/products/visual-search', { image_data_url: imageDataUrl }).then(unwrap),
+  bookingAvailability: (params) =>
+    api.get('/products/booking-availability', { params }).then(unwrap),
   pendingWashing: () => api.get('/products/pending-washing').then(unwrap),
   inventory: (params) => api.get('/products/inventory', { params }).then(unwrap),
-  rentalHistory: (id, params) =>
-    api.get(`/products/${id}/rental-history`, { params }).then(unwrap),
+  rentalHistory: (id, params) => api.get(`/products/${id}/rental-history`, { params }).then(unwrap),
   saleHistory: (id, params) => api.get(`/products/${id}/sale-history`, { params }).then(unwrap),
   getAccessoryMapping: (id) => api.get(`/products/${id}/accessory-mapping`).then(unwrap),
   updateAccessoryMapping: (id, payload) =>

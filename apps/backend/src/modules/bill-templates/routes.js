@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
 import knex from '../../db/knex.js';
+import { requireShopAdministrator } from '../../lib/requireShopAdministrator.js';
 import { notFound } from '../../utils/errors.js';
 import { validate } from '../../utils/validate.js';
 
@@ -122,6 +123,7 @@ export default async function billTemplateRoutes(fastify) {
   });
 
   fastify.post('/', async (request) => {
+    await requireShopAdministrator(knex, request.shopId, request.authUser.id);
     const body = validate(createTemplateSchema, request.body || {});
     const id = uuid();
     const insert = {
@@ -147,6 +149,7 @@ export default async function billTemplateRoutes(fastify) {
   });
 
   fastify.put('/:id', async (request) => {
+    await requireShopAdministrator(knex, request.shopId, request.authUser.id);
     const { id } = request.params;
     const body = validate(templateWriteSchema, request.body || {});
     const existing = await knex('bill_templates').where({ shop_id: request.shopId, id }).first();
@@ -168,6 +171,7 @@ export default async function billTemplateRoutes(fastify) {
   });
 
   fastify.post('/:id/default', async (request) => {
+    await requireShopAdministrator(knex, request.shopId, request.authUser.id);
     const { id } = request.params;
     const existing = await knex('bill_templates').where({ shop_id: request.shopId, id }).first();
     if (!existing) throw notFound('Template not found');

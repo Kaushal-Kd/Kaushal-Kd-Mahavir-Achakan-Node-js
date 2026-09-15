@@ -1,5 +1,5 @@
 import { accessoryGroupNotes } from './accessoryRemarksDisplay.js';
-import { pdfSafeText } from '../utils/tablePdf.js';
+import { pdfSafeText } from '../utils/pdfSafeText.js';
 
 /**
  * @typedef {'product' | 'accessory' | 'note' | 'comma'} SlipTextSegment
@@ -41,17 +41,27 @@ export function resolveSlipCustomerName(order, row) {
  * @returns {object}
  */
 export function enrichSlipOrderForTokens(order) {
-  const customer = order?.customer;
+  if (!order || typeof order !== 'object') {
+    return {
+      customer_name: '',
+      customer_phone: '',
+      customer_address: '',
+      order_number: '',
+      pickup_name: '',
+      pickup_number: '',
+    };
+  }
+  const customer = order.customer;
   return {
     ...order,
     customer_name: resolveSlipCustomerName(order),
     customer_phone: customer?.phone1 || order.customer_phone || order.pickup_number || '',
     customer_address: resolveSlipOrderAddress(order),
-    order_number: order?.order_number || '',
-    pickup_date: order?.pickup_date,
-    return_date: order?.return_date,
-    pickup_name: order?.pickup_name || '',
-    pickup_number: order?.pickup_number || '',
+    order_number: order.order_number || '',
+    pickup_date: order.pickup_date,
+    return_date: order.return_date,
+    pickup_name: order.pickup_name || '',
+    pickup_number: order.pickup_number || '',
   };
 }
 
@@ -139,8 +149,8 @@ export function resolveSlipProductCode(item, row) {
  * @param {object} [row]
  * @returns {string}
  */
-export function resolveSlipProductCatalogNotes(item, row) {
-  return String(item?.product_catalog_notes || row?.product_catalog_notes || '').trim();
+export function resolveSlipProductBookingNotes(item, row) {
+  return String(item?.tailor_notes || item?.product_note || row?.tailor_notes || '').trim();
 }
 
 /**
@@ -152,7 +162,7 @@ export function buildProductTokenSlipFields(target) {
   const item = Array.isArray(target?.items) ? target.items[0] : null;
   const address = pdfSafeText(resolveSlipOrderAddress(target));
   const productCode = pdfSafeText(resolveSlipProductCode(item, target));
-  const catalogNotes = pdfSafeText(resolveSlipProductCatalogNotes(item, target));
+  const bookingNotes = pdfSafeText(resolveSlipProductBookingNotes(item, target));
 
   return [
     { label: 'Address', value: address || '—', wrap: true },
@@ -160,7 +170,7 @@ export function buildProductTokenSlipFields(target) {
     { label: 'Pickup date', value: formatSlipDate(target?.pickup_date) || '—' },
     { label: 'Return Date', value: formatSlipDate(target?.return_date) || '—' },
     { label: 'Product code', value: productCode || '—' },
-    { label: 'Product remarks', value: catalogNotes || '—', wrap: true },
+    { label: 'Product notes', value: bookingNotes || '—', wrap: true },
   ];
 }
 

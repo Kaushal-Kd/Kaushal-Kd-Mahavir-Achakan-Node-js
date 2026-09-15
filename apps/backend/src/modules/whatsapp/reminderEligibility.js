@@ -1,4 +1,4 @@
-import { addDays, normalizeSqlDateToIso } from '@wrs/shared';
+import { normalizeSqlDateToIso } from '@wrs/shared';
 
 export const DELIVERY_REMINDER_ORDER_STATUSES = ['in_preparation'];
 
@@ -6,9 +6,17 @@ export function isDeliveryReminderOrderStatus(status) {
   return DELIVERY_REMINDER_ORDER_STATUSES.includes(String(status || '').trim());
 }
 
+export function shiftIsoCalendarDate(value, days) {
+  const iso = normalizeSqlDateToIso(value);
+  if (!iso) return null;
+  const [year, month, day] = iso.split('-').map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + Number(days || 0)));
+  return shifted.toISOString().slice(0, 10);
+}
+
 export function deliveryReminderCancellationReason(job, order, today) {
   const deliveryDate = normalizeSqlDateToIso(job.delivery_date);
-  if (!deliveryDate || deliveryDate !== normalizeSqlDateToIso(addDays(today, 1))) {
+  if (!deliveryDate || deliveryDate !== shiftIsoCalendarDate(today, 1)) {
     return 'Reminder is not for tomorrow delivery';
   }
   if (!order || !isDeliveryReminderOrderStatus(order.status)) {
@@ -25,8 +33,9 @@ export function canReactivateDeliveryReminder(job) {
 }
 
 export function deliveryReminderScheduledAt(deliveryDate, time) {
-  const previousDate = normalizeSqlDateToIso(addDays(deliveryDate, -1));
+  const previousDate = shiftIsoCalendarDate(deliveryDate, -1);
   const validTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(time || '').trim())
-    ? String(time).trim() : '10:00';
+    ? String(time).trim()
+    : '10:00';
   return new Date(`${previousDate}T${validTime}:00+05:30`);
 }

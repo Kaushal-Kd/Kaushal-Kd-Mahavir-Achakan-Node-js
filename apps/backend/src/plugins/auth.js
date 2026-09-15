@@ -26,6 +26,7 @@ async function authPlugin(fastify) {
   });
 
   fastify.decorateRequest('ipAccess', null);
+  fastify.decorateRequest('sessionDeviceId', null);
 
   fastify.decorate('authenticate', async (request) => {
     try {
@@ -40,8 +41,9 @@ async function authPlugin(fastify) {
         .where({ id: sessionId, user_id: sub, status: 'active' })
         .whereNull('revoked_at')
         .where('expires_at', '>', knex.fn.now())
-        .first('id');
+        .first('id', 'device_id');
       if (!session) throw unauthorized('Device session revoked or expired');
+      request.sessionDeviceId = session.device_id;
       const now = Date.now();
       if (now - (sessionTouchAt.get(sessionId) || 0) > 60_000) {
         sessionTouchAt.set(sessionId, now);
@@ -67,7 +69,13 @@ async function authPlugin(fastify) {
       if (!allowed) throw forbidden('You do not have access to this shop');
       await hydrateShopPermissions(knex, user, headerShopId);
       request.shopId = headerShopId;
-      request.ipAccess = await assertShopIpAccess(knex, headerShopId, user.id, request.ip);
+      request.ipAccess = await assertShopIpAccess(
+        knex,
+        headerShopId,
+        user.id,
+        request.ip,
+        request.sessionDeviceId
+      );
     }
   });
 
@@ -87,7 +95,13 @@ async function authPlugin(fastify) {
     if (!allowed) throw forbidden('You do not have access to this shop');
     await hydrateShopPermissions(knex, request.authUser, shopId);
     request.shopId = shopId;
-    request.ipAccess = await assertShopIpAccess(knex, shopId, request.authUser.id, request.ip);
+    request.ipAccess = await assertShopIpAccess(
+      knex,
+      shopId,
+      request.authUser.id,
+      request.ip,
+      request.sessionDeviceId
+    );
   });
 
   fastify.decorate('requirePermission', (moduleName, action) => async (request) => {

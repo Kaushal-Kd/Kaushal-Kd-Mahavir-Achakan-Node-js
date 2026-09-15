@@ -31,6 +31,7 @@ import BookingLogsActionButton from '../../components/booking/BookingLogsActionB
 import BookingLogsModal from '../../components/booking/BookingLogsModal.jsx';
 import DeleteBookingModal from '../../components/booking/DeleteBookingModal.jsx';
 import PrintTokenTypeModal from '../../components/booking/PrintTokenTypeModal.jsx';
+import ProductTokenSelectionModal from '../../components/booking/ProductTokenSelectionModal.jsx';
 import CompactOrderFilters from '../../components/list/CompactOrderFilters.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -174,6 +175,7 @@ const BookingList = () => {
   const [printLoadingId, setPrintLoadingId] = useState(null);
   const [tokenPrintTarget, setTokenPrintTarget] = useState(null);
   const [tokenPrintLoading, setTokenPrintLoading] = useState(false);
+  const [productTokenSelectionOrder, setProductTokenSelectionOrder] = useState(null);
   const [editUnlockTarget, setEditUnlockTarget] = useState(null);
   const [editUnlockError, setEditUnlockError] = useState('');
   const [reconcileUnlockTarget, setReconcileUnlockTarget] = useState(null);
@@ -281,7 +283,12 @@ const BookingList = () => {
     setTokenPrintLoading(true);
     try {
       const { data: order } = await ordersApi.get(orderId);
-      if (kind === 'product') {
+      if (kind === 'product-wise') {
+        setTokenPrintTarget(null);
+        setProductTokenSelectionOrder(order);
+        return;
+      }
+      if (kind === 'product-all') {
         await printBookingProductTokens(order);
       } else {
         await printBookingAccessoryTokens(order);
@@ -289,6 +296,19 @@ const BookingList = () => {
       setTokenPrintTarget(null);
     } catch (err) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not print token');
+    } finally {
+      setTokenPrintLoading(false);
+    }
+  };
+
+  const printSelectedProductTokens = async (itemIds) => {
+    if (!productTokenSelectionOrder) return;
+    setTokenPrintLoading(true);
+    try {
+      await printBookingProductTokens(productTokenSelectionOrder, itemIds);
+      setProductTokenSelectionOrder(null);
+    } catch (err) {
+      toast.error(err?.message || 'Could not print selected product tokens');
     } finally {
       setTokenPrintLoading(false);
     }
@@ -877,10 +897,18 @@ const BookingList = () => {
       <PrintTokenTypeModal
         isOpen={Boolean(tokenPrintTarget)}
         onClose={closeTokenPrintModal}
-        onChooseProduct={() => runTokenPrint('product')}
+        onChooseProduct={() => runTokenPrint('product-wise')}
+        onChooseAllProducts={() => runTokenPrint('product-all')}
         onChooseAccessories={() => runTokenPrint('accessory')}
         loading={tokenPrintLoading}
         orderLabel={tokenPrintTarget?.order_number || tokenPrintTarget?.bill_no || ''}
+      />
+      <ProductTokenSelectionModal
+        isOpen={Boolean(productTokenSelectionOrder)}
+        order={productTokenSelectionOrder}
+        onClose={() => !tokenPrintLoading && setProductTokenSelectionOrder(null)}
+        onConfirm={printSelectedProductTokens}
+        loading={tokenPrintLoading}
       />
 
       <BookingLogsModal

@@ -18,12 +18,12 @@ export default async function ipWhitelistRoutes(fastify) {
 
   fastify.get('/shop', { onRequest: [fastify.requireShop] }, async (r) => ({
     ok: true,
-    data: await getShopIpPolicies(r.shopId, r.authUser.id, r.ip),
+    data: await getShopIpPolicies(r.shopId, r.authUser.id, r.ip, r.sessionDeviceId),
   }));
   fastify.post('/shop/:shopId/commands', { onRequest: [fastify.requireShop] }, async (r) => {
     if (validate(z.string().uuid(), r.params.shopId) !== r.shopId)
       throw forbidden('Shop context does not match the requested policy');
-    const data = await applyShopIpCommand(r.shopId, r.authUser.id, r.ip, r.body);
+    const data = await applyShopIpCommand(r.shopId, r.authUser.id, r.ip, r.body, r.sessionDeviceId);
     if (!data.replayed)
       await r.audit('ip_whitelist', 'UPDATE_SHOP', {
         id: r.shopId,

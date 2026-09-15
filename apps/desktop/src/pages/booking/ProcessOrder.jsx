@@ -15,9 +15,11 @@ import OrderChecklistPanel, {
   CHECKLIST_STAGES,
 } from '../../components/booking/OrderChecklistPanel.jsx';
 import PrintTokenTypeModal from '../../components/booking/PrintTokenTypeModal.jsx';
+import ProductTokenSelectionModal from '../../components/booking/ProductTokenSelectionModal.jsx';
 import AdminPasswordModal from '../../components/ui/AdminPasswordModal.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
+import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
 import { useWhatsAppOutbound } from '../../contexts/WhatsAppOutboundContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Skeleton from '../../components/ui/Skeleton.jsx';
@@ -32,6 +34,7 @@ import {
   applyConditionPatchWithStageEffects,
   countReceivedBulkSkipped,
   diffStageUpdates,
+  getBulkAccessoryQuantityWarnings,
   isOrderFullyAtStage,
   stageUpdatesIncludeNewDelivered,
   stageUpdatesIncludeNewReceived,
@@ -43,7 +46,13 @@ import {
   conditionDraftIsDirty,
   needsConditionConfirmOnSave,
 } from '../../lib/orderConditionDraft.js';
-import { MIXED_DELIVERY_CONDITION_MESSAGE, prepareChecklistCombinedReview, saveChecklistDraft, shouldSendChecklistWhatsApp, useChecklistDraftState } from '../../lib/orderChecklistSave.js';
+import {
+  MIXED_DELIVERY_CONDITION_MESSAGE,
+  prepareChecklistCombinedReview,
+  saveChecklistDraft,
+  shouldSendChecklistWhatsApp,
+  useChecklistDraftState,
+} from '../../lib/orderChecklistSave.js';
 import { runReturnMissingWhatsAppFlow } from '../../lib/returnMissingWhatsAppFlow.js';
 import {
   getBookingTokenAvailability,
@@ -61,7 +70,6 @@ import { securityAccountsApi } from '../../lib/api/securityAccounts.js';
 import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
 import { toast } from '../../stores/uiStore.js';
 import { printBill } from '../../utils/printBill.js';
-import { buildWhatsAppTransactionPdf } from '../../utils/whatsappTransactionPdf.js';
 import ReplacementRequirementsPanel from './ReplacementRequirementsPanel.jsx';
 
 import PaymentsPanel from './PaymentsPanel.jsx';
@@ -108,6 +116,7 @@ const ProcessOrder = () => {
   const [combinedModalPreview, setCombinedModalPreview] = useState({ lines: [], total: 0 });
   const [adminPasswordOpen, setAdminPasswordOpen] = useState(false);
   const [adminPasswordError, setAdminPasswordError] = useState('');
+  const [pendingBulkAction, setPendingBulkAction] = useState(null);
   const [pendingConditionRows] = useState(() => new Set());
   const [cancelOpen, setCancelOpen] = useState(false);
   const [settlementOpen, setSettlementOpen] = useState(false);
@@ -126,6 +135,7 @@ const ProcessOrder = () => {
   const tokenPromptOpenedRef = useRef(false);
   const [tokenDownloadOrder, setTokenDownloadOrder] = useState(() => readTokenDownloadPrompt(id));
   const [tokenDownloadLoading, setTokenDownloadLoading] = useState(false);
+  const [productTokenSelectionOrder, setProductTokenSelectionOrder] = useState(null);
 
   useEffect(() => {
     const shouldPrompt =
@@ -179,10 +189,29 @@ const ProcessOrder = () => {
     try {
       const order = await resolveTokenDownloadOrder();
       if (!order) return;
-      if (kind === 'product') await printBookingProductTokens(order);
+      if (kind === 'product-wise') {
+        setProductTokenSelectionOrder(order);
+        setTokenDownloadOrder(null);
+        clearTokenDownloadPrompt();
+        return;
+      }
+      if (kind === 'product-all') await printBookingProductTokens(order);
       else await printBookingAccessoryTokens(order);
     } catch (err) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not print tokens');
+    } finally {
+      setTokenDownloadLoading(false);
+    }
+  };
+
+  const printSelectedProductTokens = async (itemIds) => {
+    if (!productTokenSelectionOrder) return;
+    setTokenDownloadLoading(true);
+    try {
+      await printBookingProductTokens(productTokenSelectionOrder, itemIds);
+      setProductTokenSelectionOrder(null);
+    } catch (err) {
+      toast.error(err?.message || 'Could not print selected product tokens');
     } finally {
       setTokenDownloadLoading(false);
     }
@@ -245,23 +274,43 @@ const ProcessOrder = () => {
   });
 
   const checklist = useChecklistCommand(id);
-  const { draftOrder, stageDraft, setStageDraft, conditionDraft, setConditionDraft, resetDrafts, refreshDrafts, refreshError, locked } =
-    useChecklistDraftState(data, checklist.pendingEntry, { scopeKey: id, refetch: refetchOrder });
+  const {
+    draftOrder,
+    stageDraft,
+    setStageDraft,
+    conditionDraft,
+    setConditionDraft,
+    resetDrafts,
+    refreshDrafts,
+    refreshError,
+    locked,
+  } = useChecklistDraftState(data, checklist.pendingEntry, { scopeKey: id, refetch: refetchOrder });
   const saveStageMut = useMutation({
-    mutationFn: ({ updates, combinedCharge, admin_password }) => saveChecklistDraft({
-      submit: checklist.submit, order: draftOrder, stageDraft, conditionDraft,
-      stageUpdates: updates, combinedCharge, adminPassword: admin_password,
-    }),
+    mutationFn: ({ updates, combinedCharge, admin_password }) =>
+      saveChecklistDraft({
+        submit: checklist.submit,
+        order: draftOrder,
+        stageDraft,
+        conditionDraft,
+        stageUpdates: updates,
+        combinedCharge,
+        adminPassword: admin_password,
+      }),
     onSuccess: async (result) => {
       setAdminPasswordOpen(false);
       setAdminPasswordError('');
       pendingStageUpdatesRef.current = null;
       setCombinedChargeOpen(false);
       if (result.queued) {
-        toast.info('Checklist saved on this device; awaiting sync. Resolve any failed action in Pending sync items.');
+        toast.info(
+          'Checklist saved on this device; awaiting sync. Resolve any failed action in Pending sync items.'
+        );
         return;
       }
-      if (result.order) { queryClient.setQueryData(['order', id], result.order); resetDrafts(result.order); }
+      if (result.order) {
+        queryClient.setQueryData(['order', id], result.order);
+        resetDrafts(result.order);
+      }
       await invalidateOrderDomain(queryClient, { orderId: id });
       toast.success('Checklist stages saved');
       const stageDraftAfter = pendingWaStageDraftRef.current;
@@ -269,15 +318,22 @@ const ProcessOrder = () => {
       pendingWaStageDraftRef.current = null;
       pendingWaOrderRef.current = null;
       const customerForWa = orderSnapshot?.customer || customerDetailsQuery.data?.data || null;
-      if (shouldSendChecklistWhatsApp(result)) await runStageTemplateWhatsApp(wa, {
-        order: orderSnapshot,
-        stageDraftAfter,
-        orderId: id,
-        customer: customerForWa,
-        actionLabel: 'Checklist stages saved',
-        excludeDelivered: true,
-      });
-      if (shouldSendChecklistWhatsApp(result)) await runReturnMissingWhatsAppFlow({ wa, orderBefore: orderSnapshot, orderAfter: result.order, orderId: id });
+      if (shouldSendChecklistWhatsApp(result))
+        await runStageTemplateWhatsApp(wa, {
+          order: orderSnapshot,
+          stageDraftAfter,
+          orderId: id,
+          customer: customerForWa,
+          actionLabel: 'Checklist stages saved',
+          excludeDelivered: true,
+        });
+      if (shouldSendChecklistWhatsApp(result))
+        await runReturnMissingWhatsAppFlow({
+          wa,
+          orderBefore: orderSnapshot,
+          orderAfter: result.order,
+          orderId: id,
+        });
     },
     onError: (e) => {
       if (pendingStageUpdatesRef.current) {
@@ -329,7 +385,14 @@ const ProcessOrder = () => {
   const handleConditionDraftChange = (itemType, rowId, patch) => {
     if (locked) return;
     const { conditionDraft: nextCondition, stageDraft: nextStage } =
-      applyConditionPatchWithStageEffects(draftOrder, stageDraft, conditionDraft, itemType, rowId, patch);
+      applyConditionPatchWithStageEffects(
+        draftOrder,
+        stageDraft,
+        conditionDraft,
+        itemType,
+        rowId,
+        patch
+      );
     setConditionDraft(nextCondition);
     setStageDraft(nextStage);
   };
@@ -358,7 +421,8 @@ const ProcessOrder = () => {
       mode="print"
       requireExplicitClose
       onClose={closeTokenDownloadModal}
-      onChooseProduct={() => runTokenPrint('product')}
+      onChooseProduct={() => runTokenPrint('product-wise')}
+      onChooseAllProducts={() => runTokenPrint('product-all')}
       onChooseAccessories={() => runTokenPrint('accessory')}
       onChooseBill={runBillPrint}
       loading={tokenDownloadLoading}
@@ -369,12 +433,23 @@ const ProcessOrder = () => {
     />
   );
 
+  const productTokenSelectionModal = (
+    <ProductTokenSelectionModal
+      isOpen={Boolean(productTokenSelectionOrder)}
+      order={productTokenSelectionOrder}
+      onClose={() => !tokenDownloadLoading && setProductTokenSelectionOrder(null)}
+      onConfirm={printSelectedProductTokens}
+      loading={tokenDownloadLoading}
+    />
+  );
+
   if (isLoading) {
     return (
       <>
         <PageHeader title="Order" description="Loading..." />
         <Skeleton className="h-40" />
         {tokenDownloadModal}
+        {productTokenSelectionModal}
       </>
     );
   }
@@ -401,6 +476,7 @@ const ProcessOrder = () => {
           </div>
         </div>
         {tokenDownloadModal}
+        {productTokenSelectionModal}
       </>
     );
   }
@@ -457,6 +533,11 @@ const ProcessOrder = () => {
       toast.error(v.message);
       return;
     }
+    const quantityWarnings = getBulkAccessoryQuantityWarnings(draftOrder, stageDraft, next, field);
+    if (quantityWarnings.length) {
+      setPendingBulkAction({ field, next, rows: quantityWarnings });
+      return;
+    }
     setStageDraft(next);
     if (skippedReceived > 0) {
       toast.info(`Received not applied to ${skippedReceived} line(s) — line is Missing.`);
@@ -482,7 +563,10 @@ const ProcessOrder = () => {
       return;
     }
     if (stageUpdatesIncludeNewDelivered(updates)) {
-      if (isConditionDirty) { toast.warning(MIXED_DELIVERY_CONDITION_MESSAGE); return; }
+      if (isConditionDirty) {
+        toast.warning(MIXED_DELIVERY_CONDITION_MESSAGE);
+        return;
+      }
       openDeliverySettlement(updates, stageDraft);
       return;
     }
@@ -532,7 +616,8 @@ const ProcessOrder = () => {
 
     const draftStageUpdates = diffStageUpdates(draftOrder, stageDraft, conditionDraft);
     if (stageUpdatesIncludeNewDelivered(draftStageUpdates) && hasConditionChanges) {
-      toast.warning(MIXED_DELIVERY_CONDITION_MESSAGE); return;
+      toast.warning(MIXED_DELIVERY_CONDITION_MESSAGE);
+      return;
     }
     if (stageUpdatesIncludeNewReceived(draftStageUpdates)) {
       openReturnSettlement(
@@ -543,7 +628,11 @@ const ProcessOrder = () => {
       return;
     }
 
-    if (hasConditionChanges && (draftOrder.pending_checklist_combined_charge || needsConditionConfirmOnSave(draftOrder, conditionDraft))) {
+    if (
+      hasConditionChanges &&
+      (draftOrder.pending_checklist_combined_charge ||
+        needsConditionConfirmOnSave(draftOrder, conditionDraft))
+    ) {
       openCombinedChargeModal();
       return;
     }
@@ -557,9 +646,9 @@ const ProcessOrder = () => {
       return;
     }
     await finishSaveAfterConditions({
-        amount: combinedModalPreview.total,
-        accountId: combinedModalAccountId,
-        remarks: combinedModalRemarks,
+      amount: combinedModalPreview.total,
+      accountId: combinedModalAccountId,
+      remarks: combinedModalRemarks,
     });
   };
 
@@ -569,6 +658,7 @@ const ProcessOrder = () => {
 
   const resendTransactionWhatsApp = async (templateKey, kind) => {
     const fresh = await ordersApi.get(order.id).then((response) => response.data);
+    const { buildWhatsAppTransactionPdf } = await import('../../utils/whatsappTransactionPdf.js');
     await wa.runOutbound({
       templateKey,
       orderId: order.id,
@@ -789,7 +879,8 @@ const ProcessOrder = () => {
                 variant="secondary"
                 onClick={() => bulkCheck(s.key)}
                 disabled={
-                  saveStageMut.isPending || locked ||
+                  saveStageMut.isPending ||
+                  locked ||
                   order.status === 'cancelled' ||
                   allRows.length === 0 ||
                   !stageDraft
@@ -806,10 +897,7 @@ const ProcessOrder = () => {
               variant="ghost"
               onClick={handleResetStages}
               disabled={
-                order.status === 'cancelled' ||
-                !isAnythingDirty ||
-                saveStageMut.isPending ||
-                locked
+                order.status === 'cancelled' || !isAnythingDirty || saveStageMut.isPending || locked
               }
             >
               Reset changes
@@ -825,11 +913,36 @@ const ProcessOrder = () => {
             </Button>
           </div>
         </div>
-        {locked ? <div role="status" className="mb-3 space-y-2 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
-          <p>{refreshError || (checklist.pendingEntry ? 'This checklist is awaiting sync. The saved draft is shown below; further edits are locked until the action is confirmed or removed in Pending sync items.' : 'Refreshing the confirmed checklist before further edits.')} {checklist.pendingEntry?.error || checklist.pendingEntry?.blockedReason || ''}</p>
-          {checklist.pendingEntry?.payload?.combined_assessment ? <p>Pending assessment: {formatCurrency(Number(checklist.pendingEntry.payload.combined_assessment.amount))}. {checklist.pendingEntry.payload.combined_assessment.remarks}</p> : null}
-          {refreshError ? <Button size="sm" variant="secondary" onClick={() => void refreshDrafts()}>Refresh checklist</Button> : null}
-        </div> : !checklist.isOnline ? <p className="mb-3 text-sm text-yellow-800">Offline changes will be saved on this device and validated during sync.</p> : null}
+        {locked ? (
+          <div
+            role="status"
+            className="mb-3 space-y-2 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800"
+          >
+            <p>
+              {refreshError ||
+                (checklist.pendingEntry
+                  ? 'This checklist is awaiting sync. The saved draft is shown below; further edits are locked until the action is confirmed or removed in Pending sync items.'
+                  : 'Refreshing the confirmed checklist before further edits.')}{' '}
+              {checklist.pendingEntry?.error || checklist.pendingEntry?.blockedReason || ''}
+            </p>
+            {checklist.pendingEntry?.payload?.combined_assessment ? (
+              <p>
+                Pending assessment:{' '}
+                {formatCurrency(Number(checklist.pendingEntry.payload.combined_assessment.amount))}.{' '}
+                {checklist.pendingEntry.payload.combined_assessment.remarks}
+              </p>
+            ) : null}
+            {refreshError ? (
+              <Button size="sm" variant="secondary" onClick={() => void refreshDrafts()}>
+                Refresh checklist
+              </Button>
+            ) : null}
+          </div>
+        ) : !checklist.isOnline ? (
+          <p className="mb-3 text-sm text-yellow-800">
+            Offline changes will be saved on this device and validated during sync.
+          </p>
+        ) : null}
         <OrderChecklistPanel
           order={draftOrder}
           stageDraft={stageDraft}
@@ -880,7 +993,11 @@ const ProcessOrder = () => {
         stageUpdates={deliveryStageUpdates}
         stageDraftAfter={deliveryStageDraftAfter}
         onClose={closeDeliverySettlement}
-        onSuccess={async () => { closeDeliverySettlement(); const result = await refetchOrder(); if (result.data) resetDrafts(result.data); }}
+        onSuccess={async () => {
+          closeDeliverySettlement();
+          const result = await refetchOrder();
+          if (result.data) resetDrafts(result.data);
+        }}
       />
       <ReturnSettlementModal
         isOpen={returnSettlementOpen}
@@ -889,7 +1006,11 @@ const ProcessOrder = () => {
         stageDraftAfter={returnStageDraftAfter}
         conditionUpdates={returnConditionUpdates}
         onClose={closeReturnSettlement}
-        onSuccess={async () => { closeReturnSettlement(); const result = await refetchOrder(); if (result.data) resetDrafts(result.data); }}
+        onSuccess={async () => {
+          closeReturnSettlement();
+          const result = await refetchOrder();
+          if (result.data) resetDrafts(result.data);
+        }}
       />
       <SettlementModal
         isOpen={settlementOpen}
@@ -917,7 +1038,32 @@ const ProcessOrder = () => {
         onConfirm={handleAdminPasswordConfirm}
       />
 
+      <ConfirmDialog
+        isOpen={Boolean(pendingBulkAction)}
+        onClose={() => setPendingBulkAction(null)}
+        onConfirm={() => {
+          setStageDraft(pendingBulkAction.next);
+          setPendingBulkAction(null);
+        }}
+        title={`Confirm bulk ${pendingBulkAction?.field === 'delivered' ? 'delivery' : 'prepare'}`}
+        message={
+          <div className="space-y-2">
+            <p>This action marks the full quantity of these accessories:</p>
+            <ul className="max-h-48 list-disc overflow-y-auto pl-5">
+              {(pendingBulkAction?.rows || []).map((row) => (
+                <li key={row.id}>
+                  {row.label} — quantity {row.qty}
+                </li>
+              ))}
+            </ul>
+            <p className="font-medium">Check the physical quantity before continuing.</p>
+          </div>
+        }
+        confirmLabel="Confirm full quantity"
+      />
+
       {tokenDownloadModal}
+      {productTokenSelectionModal}
     </>
   );
 };

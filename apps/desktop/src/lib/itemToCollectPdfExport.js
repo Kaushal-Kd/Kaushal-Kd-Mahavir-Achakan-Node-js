@@ -3,7 +3,7 @@ import { formatDate, ITEM_LINE_STATUS_LABELS } from '@wrs/shared';
 import {
   buildItemStageAllNotesPdfLines,
   formatItemStageAllNotes,
-  formatItemStageProductNoteForPdf,
+  formatItemStageProductCatalogNotes,
   formatItemStageProductRemarks,
 } from './itemStageNotes.js';
 
@@ -48,10 +48,16 @@ export const ITEM_TO_COLLECT_PDF_EXPORT_COLUMNS = [
     get: (r) => r.product_code || '',
   },
   {
-    key: 'product_remarks',
-    header: 'Product remarks',
+    key: 'design_details',
+    header: 'Design Detail',
     width: 28,
-    get: formatItemStageProductNoteForPdf,
+    get: formatItemStageProductCatalogNotes,
+  },
+  {
+    key: 'product_notes',
+    header: 'Product notes',
+    width: 28,
+    get: (r) => String(r.tailor_notes ?? '').trim(),
   },
   {
     key: 'delivery_date',

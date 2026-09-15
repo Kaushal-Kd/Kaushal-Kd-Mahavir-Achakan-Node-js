@@ -33,37 +33,38 @@ export async function listSecurityTransactions(shopId, query) {
   if (q.from) scopeQb.andWhere('pm.payment_date', '>=', q.from);
   if (q.to) scopeQb.andWhere('pm.payment_date', '<=', q.to);
 
-  const rowsQb = scopeQb
-    .clone()
-    .andWhere('pm.category', q.view === 'return' ? 'deposit_refund' : 'deposit')
-    .select(
-      'pm.id',
-      'pm.order_id',
-      'pm.payment_date',
-      'pm.created_at',
-      'pm.amount',
-      'pm.category',
-      'pm.payment_type',
-      'pm.notes',
-      'pm.transaction_id',
-      'pm.security_account_id',
-      'sa.name as security_account_name',
-      'o.order_number',
-      'o.bill_no',
-      'o.status as order_status',
-      'o.pickup_name',
-      'c.id as customer_id',
-      'c.name as customer_name',
-      'c.phone1 as customer_phone',
-      'c.address as customer_address',
-      knex.raw('? AS charge_amount', [
-        retainedConditionAllocationExpression(knex, 'pm.order_id', {
-          securityAccountId: q.security_account_id,
-          from: q.from,
-          to: q.to,
-        }),
-      ])
-    );
+  const rowsQb = scopeQb.clone();
+  if (q.view !== 'all') {
+    rowsQb.andWhere('pm.category', q.view === 'return' ? 'deposit_refund' : 'deposit');
+  }
+  rowsQb.select(
+    'pm.id',
+    'pm.order_id',
+    'pm.payment_date',
+    'pm.created_at',
+    'pm.amount',
+    'pm.category',
+    'pm.payment_type',
+    'pm.notes',
+    'pm.transaction_id',
+    'pm.security_account_id',
+    'sa.name as security_account_name',
+    'o.order_number',
+    'o.bill_no',
+    'o.status as order_status',
+    'o.pickup_name',
+    'c.id as customer_id',
+    'c.name as customer_name',
+    'c.phone1 as customer_phone',
+    'c.address as customer_address',
+    knex.raw('? AS charge_amount', [
+      retainedConditionAllocationExpression(knex, 'pm.order_id', {
+        securityAccountId: q.security_account_id,
+        from: q.from,
+        to: q.to,
+      }),
+    ])
+  );
 
   const totalsQb = scopeQb
     .clone()

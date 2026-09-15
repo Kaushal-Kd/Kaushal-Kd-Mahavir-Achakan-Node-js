@@ -2,18 +2,12 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 import { drawPdfRichLinesInCell } from './pdfRichText.js';
+import { pdfSafeText } from './pdfSafeText.js';
+
+export { pdfSafeText };
 
 const BLACK = [0, 0, 0];
 const WHITE = [255, 255, 255];
-
-/** Strip symbols/fonts that break jsPDF built-in fonts (e.g. ₹ → spacing glitches). */
-export function pdfSafeText(value) {
-  return String(value ?? '')
-    .replace(/\u20B9/g, '')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    .replace(/\u00A0/g, ' ')
-    .trim();
-}
 
 /**
  * @param {Array<{ width?: number, richGet?: (row: object) => unknown }>} columns

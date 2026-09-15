@@ -9,19 +9,39 @@ import { barcodeToDataUrl } from './barcodePdf.js';
 import { pdfSafeText, printJsPdfDoc } from './tablePdf.js';
 
 const BLACK = [0, 0, 0];
-const MARGIN = 10;
-const SLIP_PAD = 4;
-const FONT_SIZE = 9;
-const LINE_H = 5;
 const GAP_ROW = 6;
 const COL_GAP = 5;
-const SLIPS_PER_ROW = 2;
-const BARCODE_LABEL_H = LINE_H;
 const BARCODE_MAX_WIDTH_MM = 42;
 const BARCODE_MAX_HEIGHT_MM = 14;
 const BARCODE_GAP = 2;
 /** Extra space (mm) between bold label and value — label width is measured in bold. */
 const LABEL_VALUE_GAP = 2;
+
+const DEFAULT_TOKEN_LAYOUT = Object.freeze({
+  widthMm: 92,
+  minHeightMm: 0,
+  fontSize: 9,
+  pageMarginMm: 10,
+  slipPaddingMm: 4,
+});
+
+function clampedNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+export function normalizeTokenLayout(settings = {}) {
+  const fontSize = clampedNumber(settings.fontSize, DEFAULT_TOKEN_LAYOUT.fontSize, 6, 18);
+  return {
+    widthMm: clampedNumber(settings.widthMm, DEFAULT_TOKEN_LAYOUT.widthMm, 50, 190),
+    minHeightMm: clampedNumber(settings.minHeightMm, DEFAULT_TOKEN_LAYOUT.minHeightMm, 0, 280),
+    fontSize,
+    lineHeightMm: Math.max(3.5, Number((fontSize * 0.56).toFixed(3))),
+    pageMarginMm: clampedNumber(settings.pageMarginMm, DEFAULT_TOKEN_LAYOUT.pageMarginMm, 3, 25),
+    slipPaddingMm: clampedNumber(settings.slipPaddingMm, DEFAULT_TOKEN_LAYOUT.slipPaddingMm, 2, 10),
+  };
+}
 
 /**
  * @param {object} target
@@ -36,7 +56,9 @@ function isAccessorySlip(target) {
  * @returns {Array<{ label: string, value?: string, wrap?: boolean, richSegments?: Array<{ category: string, name: string }> }>}
  */
 function buildTokenSlipFields(target) {
-  return isAccessorySlip(target) ? buildAccessoryTokenSlipFields(target) : buildProductTokenSlipFields(target);
+  return isAccessorySlip(target)
+    ? buildAccessoryTokenSlipFields(target)
+    : buildProductTokenSlipFields(target);
 }
 
 /**
@@ -45,9 +67,9 @@ function buildTokenSlipFields(target) {
  * @param {string} label
  * @returns {number}
  */
-function labelValueOffset(doc, label) {
+function labelValueOffset(doc, label, layout) {
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(FONT_SIZE);
+  doc.setFontSize(layout.fontSize);
   return doc.getTextWidth(`${label}:`) + LABEL_VALUE_GAP;
 }
 
@@ -86,9 +108,9 @@ function flattenAccessorySegments(segments) {
  * @param {number} maxWidth
  * @returns {number}
  */
-function measureRichPartsHeight(doc, parts, maxWidth) {
-  if (!parts.length) return LINE_H;
-  doc.setFontSize(FONT_SIZE);
+function measureRichPartsHeight(doc, parts, maxWidth, layout) {
+  if (!parts.length) return layout.lineHeightMm;
+  doc.setFontSize(layout.fontSize);
   let lines = 1;
   let x = 0;
   for (const part of parts) {
@@ -101,7 +123,7 @@ function measureRichPartsHeight(doc, parts, maxWidth) {
       x += w;
     }
   }
-  return lines * LINE_H;
+  return lines * layout.lineHeightMm;
 }
 
 /**
@@ -112,14 +134,14 @@ function measureRichPartsHeight(doc, parts, maxWidth) {
  * @param {Array<{ text: string, bold: boolean }>} parts
  * @returns {number}
  */
-function drawRichParts(doc, x, y, maxWidth, parts) {
+function drawRichParts(doc, x, y, maxWidth, parts, layout) {
   if (!parts.length) {
     doc.setFont('helvetica', 'normal');
     doc.text('—', x, y);
-    return y + LINE_H;
+    return y + layout.lineHeightMm;
   }
 
-  doc.setFontSize(FONT_SIZE);
+  doc.setFontSize(layout.fontSize);
   doc.setTextColor(...BLACK);
   let cursorX = x;
   let cursorY = y;
@@ -128,14 +150,14 @@ function drawRichParts(doc, x, y, maxWidth, parts) {
     doc.setFont('helvetica', part.bold ? 'bold' : 'normal');
     const w = doc.getTextWidth(part.text);
     if (cursorX > x && cursorX + w > x + maxWidth) {
-      cursorY += LINE_H;
+      cursorY += layout.lineHeightMm;
       cursorX = x;
     }
     doc.text(part.text, cursorX, cursorY);
     cursorX += w;
   }
 
-  return cursorY + LINE_H;
+  return cursorY + layout.lineHeightMm;
 }
 
 /**
@@ -144,24 +166,22 @@ function drawRichParts(doc, x, y, maxWidth, parts) {
  * @param {number} innerWidth
  * @returns {number}
  */
-function measureFieldsHeight(doc, fields, innerWidth) {
+function measureFieldsHeight(doc, fields, innerWidth, layout) {
   let h = 0;
   for (const field of fields) {
-    doc.setFontSize(FONT_SIZE);
-    const valueX = labelValueOffset(doc, field.label);
+    doc.setFontSize(layout.fontSize);
+    const valueX = labelValueOffset(doc, field.label, layout);
     const maxW = innerWidth - valueX;
 
     if (field.richSegments) {
       const parts = flattenAccessorySegments(field.richSegments);
-      h += measureRichPartsHeight(doc, parts, maxW);
+      h += measureRichPartsHeight(doc, parts, maxW, layout);
       continue;
     }
 
     const maxFieldW = field.wrap ? maxW : innerWidth;
-    const lines = field.wrap
-      ? wrapPlain(doc, field.value || '—', maxFieldW).length || 1
-      : 1;
-    h += lines * LINE_H;
+    const lines = field.wrap ? wrapPlain(doc, field.value || '—', maxFieldW).length || 1 : 1;
+    h += lines * layout.lineHeightMm;
   }
   return h;
 }
@@ -172,10 +192,10 @@ function measureFieldsHeight(doc, fields, innerWidth) {
  * @param {number} innerWidth
  * @returns {number}
  */
-function measureBarcodeBlockHeight(target, barcode, innerWidth) {
+function measureBarcodeBlockHeight(target, barcode, innerWidth, layout) {
   if (isAccessorySlip(target)) return 0;
-  let h = BARCODE_LABEL_H;
-  if (!barcode?.dataUrl) return h + LINE_H;
+  let h = layout.lineHeightMm;
+  if (!barcode?.dataUrl) return h + layout.lineHeightMm;
   const aspect = barcode.widthPx / barcode.heightPx;
   let imgW = Math.min(BARCODE_MAX_WIDTH_MM, innerWidth);
   let imgH = imgW / aspect;
@@ -194,13 +214,13 @@ function measureBarcodeBlockHeight(target, barcode, innerWidth) {
  * @param {{ dataUrl: string, widthPx: number, heightPx: number } | null} barcode
  * @returns {number}
  */
-function measureSlipHeight(doc, target, innerWidth, barcode) {
+function measureSlipHeight(doc, target, innerWidth, barcode, layout) {
   const fields = buildTokenSlipFields(target);
   return (
-    SLIP_PAD * 2 +
+    layout.slipPaddingMm * 2 +
     2 +
-    measureFieldsHeight(doc, fields, innerWidth) +
-    measureBarcodeBlockHeight(target, barcode, innerWidth)
+    measureFieldsHeight(doc, fields, innerWidth, layout) +
+    measureBarcodeBlockHeight(target, barcode, innerWidth, layout)
   );
 }
 
@@ -211,20 +231,20 @@ function measureSlipHeight(doc, target, innerWidth, barcode) {
  * @param {number} innerWidth
  * @param {Array<{ label: string, value?: string, wrap?: boolean, richSegments?: Array<{ category: string, name: string }> }>} fields
  */
-function drawFields(doc, x, y, innerWidth, fields) {
-  doc.setFontSize(FONT_SIZE);
+function drawFields(doc, x, y, innerWidth, fields, layout) {
+  doc.setFontSize(layout.fontSize);
   doc.setTextColor(...BLACK);
 
   for (const field of fields) {
     doc.setFont('helvetica', 'bold');
     doc.text(`${field.label}:`, x, y);
-    const labelW = labelValueOffset(doc, field.label);
+    const labelW = labelValueOffset(doc, field.label, layout);
     const valueX = x + labelW;
     const valueMaxW = innerWidth - labelW;
 
     if (field.richSegments) {
       const parts = flattenAccessorySegments(field.richSegments);
-      y = drawRichParts(doc, valueX, y, valueMaxW, parts);
+      y = drawRichParts(doc, valueX, y, valueMaxW, parts, layout);
       continue;
     }
 
@@ -235,16 +255,16 @@ function drawFields(doc, x, y, innerWidth, fields) {
       const valueLines = wrapPlain(doc, display, valueMaxW);
       if (!valueLines.length) {
         doc.text('—', valueX, y);
-        y += LINE_H;
+        y += layout.lineHeightMm;
       } else {
         valueLines.forEach((line) => {
           doc.text(line, valueX, y);
-          y += LINE_H;
+          y += layout.lineHeightMm;
         });
       }
     } else {
       doc.text(display, valueX, y);
-      y += LINE_H;
+      y += layout.lineHeightMm;
     }
   }
 
@@ -259,16 +279,16 @@ function drawFields(doc, x, y, innerWidth, fields) {
  * @param {{ dataUrl: string, widthPx: number, heightPx: number } | null} barcode
  * @returns {number}
  */
-function drawBarcodeBlock(doc, x, y, innerWidth, barcode) {
+function drawBarcodeBlock(doc, x, y, innerWidth, barcode, layout) {
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(FONT_SIZE);
+  doc.setFontSize(layout.fontSize);
   doc.text('PRODUCT BARCODE:', x, y);
-  y += BARCODE_LABEL_H;
+  y += layout.lineHeightMm;
 
   if (!barcode?.dataUrl) {
     doc.setFont('helvetica', 'normal');
     doc.text('—', x, y);
-    return y + LINE_H;
+    return y + layout.lineHeightMm;
   }
 
   const aspect = barcode.widthPx / barcode.heightPx;
@@ -292,19 +312,20 @@ function drawBarcodeBlock(doc, x, y, innerWidth, barcode) {
  * @param {number} slipWidth
  * @returns {number} slip height
  */
-function drawSlip(doc, target, barcode, x, startY, slipWidth) {
-  const innerWidth = slipWidth - SLIP_PAD * 2;
-  const slipHeight = measureSlipHeight(doc, target, innerWidth, barcode);
+function drawSlip(doc, target, barcode, x, startY, slipWidth, layout) {
+  const innerWidth = slipWidth - layout.slipPaddingMm * 2;
+  const measuredHeight = measureSlipHeight(doc, target, innerWidth, barcode, layout);
+  const slipHeight = Math.max(measuredHeight, layout.minHeightMm);
   const fields = buildTokenSlipFields(target);
 
   doc.setDrawColor(...BLACK);
   doc.setLineWidth(0.25);
   doc.rect(x, startY, slipWidth, slipHeight);
 
-  let y = startY + SLIP_PAD + 3;
-  y = drawFields(doc, x + SLIP_PAD, y, innerWidth, fields);
+  let y = startY + layout.slipPaddingMm + 3;
+  y = drawFields(doc, x + layout.slipPaddingMm, y, innerWidth, fields, layout);
   if (!isAccessorySlip(target)) {
-    drawBarcodeBlock(doc, x + SLIP_PAD, y, innerWidth, barcode);
+    drawBarcodeBlock(doc, x + layout.slipPaddingMm, y, innerWidth, barcode, layout);
   }
 
   return slipHeight;
@@ -333,32 +354,38 @@ async function prepareSlipRows(targets) {
  * @param {Array<{ target: object, barcode: { dataUrl: string, widthPx: number, heightPx: number } | null }>} prepared
  * @returns {import('jspdf').jsPDF | null}
  */
-function buildDeliverySlipPdfDocFromPrepared(prepared) {
+function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
   if (!prepared.length) return null;
 
+  const layout = normalizeTokenLayout(settings);
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   const pageH = doc.internal.pageSize.getHeight();
   const pageW = doc.internal.pageSize.getWidth();
-  const slipWidth = (pageW - MARGIN * 2 - COL_GAP) / SLIPS_PER_ROW;
-  const innerWidth = slipWidth - SLIP_PAD * 2;
+  const usableWidth = pageW - layout.pageMarginMm * 2;
+  const slipsPerRow = Math.max(
+    1,
+    Math.min(3, Math.floor((usableWidth + COL_GAP) / (layout.widthMm + COL_GAP))) || 1
+  );
+  const slipWidth = Math.min(layout.widthMm, usableWidth);
+  const innerWidth = slipWidth - layout.slipPaddingMm * 2;
 
-  let y = MARGIN;
+  let y = layout.pageMarginMm;
 
-  for (let i = 0; i < prepared.length; i += SLIPS_PER_ROW) {
-    const rowSlips = prepared.slice(i, i + SLIPS_PER_ROW);
+  for (let i = 0; i < prepared.length; i += slipsPerRow) {
+    const rowSlips = prepared.slice(i, i + slipsPerRow);
     const heights = rowSlips.map(({ target, barcode }) =>
-      measureSlipHeight(doc, target, innerWidth, barcode)
+      Math.max(measureSlipHeight(doc, target, innerWidth, barcode, layout), layout.minHeightMm)
     );
     const rowH = Math.max(...heights, 0) + GAP_ROW;
 
-    if (y + rowH > pageH - MARGIN && y > MARGIN) {
+    if (y + rowH > pageH - layout.pageMarginMm && y > layout.pageMarginMm) {
       doc.addPage();
-      y = MARGIN;
+      y = layout.pageMarginMm;
     }
 
     rowSlips.forEach(({ target, barcode }, col) => {
-      const x = MARGIN + col * (slipWidth + COL_GAP);
-      drawSlip(doc, target, barcode, x, y, slipWidth);
+      const x = layout.pageMarginMm + col * (slipWidth + COL_GAP);
+      drawSlip(doc, target, barcode, x, y, slipWidth, layout);
     });
 
     y += rowH;
@@ -371,26 +398,26 @@ function buildDeliverySlipPdfDocFromPrepared(prepared) {
  * @param {object[]} orders — per-product slip targets
  * @returns {Promise<import('jspdf').jsPDF | null>}
  */
-export async function buildDeliverySlipPdfDoc(orders) {
+export async function buildDeliverySlipPdfDoc(orders, settings = {}) {
   const prepared = await prepareSlipRows(orders);
-  return buildDeliverySlipPdfDocFromPrepared(prepared);
+  return buildDeliverySlipPdfDocFromPrepared(prepared, settings);
 }
 
 /**
  * @param {object} target — accessory token slip target
  * @returns {Promise<import('jspdf').jsPDF | null>}
  */
-export async function buildAccessoryTokenSlipPdfDoc(target) {
+export async function buildAccessoryTokenSlipPdfDoc(target, settings = {}) {
   if (!target) return null;
-  return buildDeliverySlipPdfDocFromPrepared([{ target, barcode: null }]);
+  return buildDeliverySlipPdfDocFromPrepared([{ target, barcode: null }], settings);
 }
 
 /**
  * @param {string} filename
  * @param {object[]} orders — per-product slip targets
  */
-export async function downloadDeliverySlipPdf(filename, orders) {
-  const doc = await buildDeliverySlipPdfDoc(orders);
+export async function downloadDeliverySlipPdf(filename, orders, settings = {}) {
+  const doc = await buildDeliverySlipPdfDoc(orders, settings);
   if (!doc) return;
 
   const safeName = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
@@ -401,8 +428,8 @@ export async function downloadDeliverySlipPdf(filename, orders) {
  * @param {string} filename
  * @param {object} target — accessory token slip target from buildAccessoryTokenSlipTarget
  */
-export async function downloadAccessoryTokenSlipPdf(filename, target) {
-  const doc = await buildAccessoryTokenSlipPdfDoc(target);
+export async function downloadAccessoryTokenSlipPdf(filename, target, settings = {}) {
+  const doc = await buildAccessoryTokenSlipPdfDoc(target, settings);
   if (!doc) return;
 
   const safeName = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
@@ -413,8 +440,8 @@ export async function downloadAccessoryTokenSlipPdf(filename, target) {
  * @param {object[]} orders — per-product slip targets
  * @param {string} [title]
  */
-export async function printDeliverySlipPdf(orders, title = 'Print slips') {
-  const doc = await buildDeliverySlipPdfDoc(orders);
+export async function printDeliverySlipPdf(orders, title = 'Print slips', settings = {}) {
+  const doc = await buildDeliverySlipPdfDoc(orders, settings);
   if (!doc) return;
   printJsPdfDoc(doc, title);
 }
@@ -423,8 +450,8 @@ export async function printDeliverySlipPdf(orders, title = 'Print slips') {
  * @param {object} target — accessory token slip target from buildAccessoryTokenSlipTarget
  * @param {string} [title]
  */
-export async function printAccessoryTokenSlipPdf(target, title = 'Accessory token') {
-  const doc = await buildAccessoryTokenSlipPdfDoc(target);
+export async function printAccessoryTokenSlipPdf(target, title = 'Accessory token', settings = {}) {
+  const doc = await buildAccessoryTokenSlipPdfDoc(target, settings);
   if (!doc) return;
   printJsPdfDoc(doc, title);
 }

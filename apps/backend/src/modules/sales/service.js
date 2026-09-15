@@ -117,16 +117,22 @@ async function loadSaleItemsWithCatalog(db, saleId) {
 
 async function assertSaleAdvancePayment(trx, shopId, data) {
   const advanceAmt = round2(Number(data.advance || 0));
-  const advAcc = data.advance_account_id ? String(data.advance_account_id).trim().slice(0, 80) : null;
+  const advAcc = data.advance_account_id
+    ? String(data.advance_account_id).trim().slice(0, 80)
+    : null;
   if (advanceAmt > 0 && !advAcc) {
-    throw badRequest('Advance payment account is required when advance amount is greater than zero');
+    throw badRequest(
+      'Advance payment account is required when advance amount is greater than zero'
+    );
   }
   if (advanceAmt > 0 && advAcc) {
     const pa = await trx('payment_accounts')
       .where({ shop_id: shopId, id: advAcc, is_active: true })
       .first();
     if (!pa) throw badRequest('Invalid advance payment account');
-    const group = String(pa.account_group || '').trim().toLowerCase();
+    const group = String(pa.account_group || '')
+      .trim()
+      .toLowerCase();
     if (group !== 'bank accounts' && group !== 'cash accounts') {
       throw badRequest('Advance payment account must be a bank or cash account');
     }
@@ -164,15 +170,23 @@ async function voidSaleAdvancePayments(trx, shopId, saleId) {
     .update({ is_deleted: true, deleted_at: trx.fn.now() });
 }
 
-async function resolveSalesPersonId(trx, shopId, salesPersonId) {
-  const candidate = salesPersonId || null;
-  if (!candidate) return null;
+async function findActiveShopMemberId(trx, shopId, userId) {
+  if (!userId) return null;
   const row = await trx('users as u')
     .join('users_shops as us', 'us.user_id', 'u.id')
-    .where({ 'us.shop_id': shopId, 'u.id': candidate, 'u.is_active': true })
+    .where({ 'us.shop_id': shopId, 'u.id': userId, 'u.is_active': true })
     .first('u.id');
-  if (!row) throw badRequest('Invalid salesman for this shop');
-  return candidate;
+  return row?.id || null;
+}
+
+async function resolveSalesPersonId(trx, shopId, salesPersonId, fallbackUserId = null) {
+  const requested = salesPersonId || null;
+  if (requested) {
+    const memberId = await findActiveShopMemberId(trx, shopId, requested);
+    if (!memberId) throw badRequest('Invalid salesman for this shop');
+    return memberId;
+  }
+  return findActiveShopMemberId(trx, shopId, fallbackUserId);
 }
 
 function buildBaseQuery(shopId) {
@@ -184,7 +198,9 @@ function buildBaseQuery(shopId) {
       's.*',
       knex.raw('u.name as created_by_name'),
       knex.raw('sp.name as sales_person_name'),
-      knex.raw('(SELECT COALESCE(SUM(si.qty), 0) FROM sale_items si WHERE si.sale_id = s.id) as total_qty')
+      knex.raw(
+        '(SELECT COALESCE(SUM(si.qty), 0) FROM sale_items si WHERE si.sale_id = s.id) as total_qty'
+      )
     );
 }
 
@@ -252,14 +268,12 @@ export async function createSale(shopId, data, userId) {
     const saleNumber = buildSaleNumber({ prefix, sequence: billNo });
 
     const id = uuid();
-    const billType = data.bill_type || (Number(data.tax_total || 0) > 0 ? 'gst' : 'kaccha');
-    if (billType === 'gst' && !String(shopRow?.gstin || '').trim()) {
-      throw badRequest('Configure the shop GSTIN before creating a GST Sale');
-    }
+    const billType = 'kaccha';
     const salesPersonId = await resolveSalesPersonId(
       trx,
       shopId,
-      data.sales_person_id || userId || null
+      data.sales_person_id || null,
+      userId
     );
     await trx('sales').insert({
       id,
@@ -312,7 +326,9 @@ export async function createSale(shopId, data, userId) {
     }));
     if (itemRows.length) await trx('sale_items').insert(itemRows);
 
-    await assertSellProductLinesAvailable(shopId, { items: saleItemsToSellAssertLines(data.items) });
+    await assertSellProductLinesAvailable(shopId, {
+      items: saleItemsToSellAssertLines(data.items),
+    });
     await consumeSaleItemInventory(trx, shopId, data.items || []);
     await syncSaleAdvancePayment(trx, shopId, id, data, userId);
 
@@ -326,7 +342,7 @@ export async function updateSale(shopId, saleId, data, userId) {
     if (!existing) throw notFound('Sale not found');
     await assertNoIssuedGstInvoice(trx, shopId, saleId, 'sale');
     if (existing.status === 'cancelled') throw badRequest('Cannot edit cancelled sale');
-    const billType = data.bill_type || existing.bill_type || (Number(data.tax_total || 0) > 0 ? 'gst' : 'kaccha');
+    const billType = existing.bill_type || 'kaccha';
     if (billType === 'gst') {
       const shop = await trx('shops').where({ id: shopId }).select('gstin').first();
       if (!String(shop?.gstin || '').trim()) {
@@ -339,28 +355,30 @@ export async function updateSale(shopId, saleId, data, userId) {
     await trx('sale_items').where({ sale_id: saleId }).delete();
 
     const salesPersonId = await resolveSalesPersonId(trx, shopId, data.sales_person_id ?? null);
-    await trx('sales').where({ id: saleId }).update({
-      bill_type: billType,
-      sale_date: data.sale_date,
-      customer_name: data.customer_name,
-      contact_no: data.contact_no || null,
-      address: data.address || null,
-      sales_person_id: salesPersonId,
-      remark: data.remark || null,
-      discount_type: data.discount_type || 'flat',
-      discount_value: round2(data.discount_value),
-      discount_amount: round2(data.discount_amount),
-      subtotal: round2(data.subtotal),
-      cgst_total: round2(data.cgst_total),
-      sgst_total: round2(data.sgst_total),
-      igst_total: round2(data.igst_total),
-      tax_total: round2(data.tax_total),
-      net_amount: round2(data.net_amount),
-      total_amount: round2(data.total_amount),
-      advance: round2(data.advance),
-      advance_account_id: data.advance_account_id || null,
-      updated_at: trx.fn.now(),
-    });
+    await trx('sales')
+      .where({ id: saleId })
+      .update({
+        bill_type: billType,
+        sale_date: data.sale_date,
+        customer_name: data.customer_name,
+        contact_no: data.contact_no || null,
+        address: data.address || null,
+        sales_person_id: salesPersonId,
+        remark: data.remark || null,
+        discount_type: data.discount_type || 'flat',
+        discount_value: round2(data.discount_value),
+        discount_amount: round2(data.discount_amount),
+        subtotal: round2(data.subtotal),
+        cgst_total: round2(data.cgst_total),
+        sgst_total: round2(data.sgst_total),
+        igst_total: round2(data.igst_total),
+        tax_total: round2(data.tax_total),
+        net_amount: round2(data.net_amount),
+        total_amount: round2(data.total_amount),
+        advance: round2(data.advance),
+        advance_account_id: data.advance_account_id || null,
+        updated_at: trx.fn.now(),
+      });
 
     const newItemRows = (data.items || []).map((item) => ({
       id: uuid(),
@@ -385,7 +403,9 @@ export async function updateSale(shopId, saleId, data, userId) {
     }));
     if (newItemRows.length) await trx('sale_items').insert(newItemRows);
 
-    await assertSellProductLinesAvailable(shopId, { items: saleItemsToSellAssertLines(data.items) });
+    await assertSellProductLinesAvailable(shopId, {
+      items: saleItemsToSellAssertLines(data.items),
+    });
     await consumeSaleItemInventory(trx, shopId, data.items || []);
     await syncSaleAdvancePayment(trx, shopId, saleId, data, userId);
 
@@ -422,13 +442,17 @@ export async function recordSalePayment(shopId, saleId, data, userId) {
     const amount = round2(Number(data.amount || 0));
     if (amount <= 0) throw badRequest('Amount must be greater than zero');
 
-    const payAcc = String(data.payment_account_id || '').trim().slice(0, 80);
+    const payAcc = String(data.payment_account_id || '')
+      .trim()
+      .slice(0, 80);
     if (!payAcc) throw badRequest('Payment account is required');
     const account = await trx('payment_accounts')
       .where({ shop_id: shopId, id: payAcc, is_active: true })
       .first();
     if (!account) throw badRequest('Invalid payment account');
-    const group = String(account.account_group || '').trim().toLowerCase();
+    const group = String(account.account_group || '')
+      .trim()
+      .toLowerCase();
     if (group !== 'bank accounts' && group !== 'cash accounts') {
       throw badRequest('Payment account must be a bank or cash account');
     }

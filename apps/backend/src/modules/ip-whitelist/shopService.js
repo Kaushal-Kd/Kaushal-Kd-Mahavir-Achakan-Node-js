@@ -21,33 +21,74 @@ export function combineShopIpAccess(global, shop) {
   };
 }
 
-export async function resolveShopIpAccess(db, shopId, userId, clientIp) {
+export function evaluateShopAccess({
+  role,
+  userMode,
+  userAllowedRanges,
+  shopEnabled,
+  shopAllowedRanges,
+  clientIp,
+  deviceApproved,
+}) {
+  if (role === 'super_admin') {
+    return {
+      allowed: true,
+      restricted: false,
+      effective_mode: 'super_admin_bypass',
+      allowed_ranges: [],
+    };
+  }
+  if (userMode === 'registered_device') {
+    return {
+      allowed: Boolean(deviceApproved),
+      restricted: true,
+      effective_mode: 'registered_device',
+      allowed_ranges: [],
+    };
+  }
+  return evaluateIpAccess({
+    role,
+    clientIp,
+    globalEnabled: shopEnabled,
+    globalAllowedRanges: shopAllowedRanges,
+    userMode,
+    userAllowedRanges,
+  });
+}
+
+export async function resolveShopIpAccess(db, shopId, userId, clientIp, deviceId = null) {
   const global = await resolveIpAccess(userId, clientIp, db);
   const user = await db('users').where({ id: userId }).first('role');
   const config = await db('shop_ip_policies').where({ shop_id: shopId }).first();
   const policy = await db('shop_user_ip_policies')
     .where({ shop_id: shopId, user_id: userId })
     .first();
+  const approvedDevice = deviceId
+    ? await db('shop_approved_devices')
+        .where({ shop_id: shopId, user_id: userId, device_id: deviceId })
+        .first('device_id')
+    : null;
   return combineShopIpAccess(
     global,
-    evaluateIpAccess({
+    evaluateShopAccess({
       role: user?.role,
       clientIp,
-      globalEnabled: Boolean(config?.enabled),
-      globalAllowedRanges: ranges(config?.allowed_ranges),
+      shopEnabled: Boolean(config?.enabled),
+      shopAllowedRanges: ranges(config?.allowed_ranges),
       userMode: policy?.mode || 'inherit',
       userAllowedRanges: ranges(policy?.allowed_ranges),
+      deviceApproved: Boolean(approvedDevice),
     })
   );
 }
 
-export async function assertShopIpAccess(db, shopId, userId, clientIp) {
-  const result = await resolveShopIpAccess(db, shopId, userId, clientIp);
+export async function assertShopIpAccess(db, shopId, userId, clientIp, deviceId = null) {
+  const result = await resolveShopIpAccess(db, shopId, userId, clientIp, deviceId);
   if (!result.allowed) throw ipAccessDenied(clientIp);
   return result;
 }
 
-export async function getShopIpPolicies(shopId, actorId, clientIp) {
+export async function getShopIpPolicies(shopId, actorId, clientIp, deviceId = null) {
   await requireShopAdministrator(knex, shopId, actorId);
   const config = await knex('shop_ip_policies').where({ shop_id: shopId }).first();
   const members = await knex('users as u')
@@ -70,13 +111,27 @@ export async function getShopIpPolicies(shopId, actorId, clientIp) {
         ...member,
         mode: member.mode || 'inherit',
         allowed_ranges: ranges(member.allowed_ranges),
-        effective: await resolveShopIpAccess(knex, shopId, member.id, clientIp),
+        approved_device_count: Number(
+          (
+            await knex('shop_approved_devices')
+              .where({ shop_id: shopId, user_id: member.id })
+              .count({ count: '*' })
+              .first()
+          )?.count || 0
+        ),
+        effective: await resolveShopIpAccess(
+          knex,
+          shopId,
+          member.id,
+          clientIp,
+          member.id === actorId ? deviceId : null
+        ),
       }))
     ),
   };
 }
 
-export async function applyShopIpCommand(shopId, actorId, clientIp, payload) {
+export async function applyShopIpCommand(shopId, actorId, clientIp, payload, deviceId = null) {
   const body = validate(shopIpCommandSchema, payload);
   const hash = createHash('sha256').update(JSON.stringify(body)).digest('hex');
   const actor = await requireShopAdministrator(knex, shopId, actorId);
@@ -123,6 +178,16 @@ export async function applyShopIpCommand(shopId, actorId, clientIp, payload) {
         .first('u.role');
       if (!target || target.role === 'super_admin')
         throw forbidden('Select a non-super-admin member of this shop');
+      if (body.policy.mode === 'registered_device') {
+        const approved = await trx('shop_approved_devices')
+          .where({ shop_id: shopId, user_id: body.policy.user_id })
+          .first('device_id');
+        if (!approved) {
+          throw badRequest(
+            'Approve at least one device in Login User Device before enabling mobile-data access'
+          );
+        }
+      }
       const value = {
         shop_id: shopId,
         user_id: body.policy.user_id,
@@ -136,7 +201,7 @@ export async function applyShopIpCommand(shopId, actorId, clientIp, payload) {
     }
     if (
       actor.role !== 'super_admin' &&
-      !(await resolveShopIpAccess(trx, shopId, actorId, clientIp)).allowed
+      !(await resolveShopIpAccess(trx, shopId, actorId, clientIp, deviceId)).allowed
     )
       throw conflict(
         'This change would block your current connection. Add your current IP or ask a Super Admin to make the change.'

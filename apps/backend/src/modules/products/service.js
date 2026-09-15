@@ -10,6 +10,7 @@ import {
   classifyProductSearchTerm,
   normalizeProductCode,
   normalizeProductName,
+  naturalSortKey,
   parseProductCode,
   productCodeNumberFromStored,
   resolveFullProductCode,
@@ -320,6 +321,7 @@ export async function createProduct(shopId, data) {
   await assertProductCodeNumberAvailable(shopId, data);
   const id = uuid();
   const payload = toDBRow({ ...data, id, shop_id: shopId });
+  payload.natural_code_sort_key = naturalSortKey(payload.code);
   await knex('products').insert(payload);
   return getProduct(shopId, id);
 }
@@ -329,6 +331,7 @@ export async function updateProduct(shopId, id, data) {
   await assertProductCodeNumberAvailable(shopId, { ...existing, ...data }, id);
   const payload = toDBRow({ ...data, id, shop_id: shopId });
   delete payload.id;
+  if (payload.code !== undefined) payload.natural_code_sort_key = naturalSortKey(payload.code);
   payload.updated_at = knex.fn.now();
   await knex('products').where({ id, shop_id: shopId }).update(payload);
   const after = await getProduct(shopId, id);
@@ -554,21 +557,44 @@ export async function bulkHardDeleteProductsByCode(shopId, input) {
 export async function hardDeleteProductsByIds(shopId, ids) {
   const uniqueIds = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
   if (!uniqueIds.length) throw badRequest('No products selected');
-  return knex.transaction(async (trx) => {
-    const rows = await trx('products').where({ shop_id: shopId }).whereIn('id', uniqueIds)
-      .orderBy('id').forUpdate().select('*');
-    const blockers = await catalogPermanentDeleteBlockers(trx, shopId, 'product', rows);
-    const products = rows.filter((row) => !blockers.has(row.id));
-    const blocked = rows.filter((row) => blockers.has(row.id)).map((row) => ({
-      id: row.id, code: row.code, name: row.name, reason: blockers.get(row.id),
-    }));
-    let deleted = 0;
-    if (products.length) {
-      deleted = await trx('products').where({ shop_id: shopId, is_active: false })
-        .whereIn('id', products.map((row) => row.id)).del();
-    }
-    return { deleted, skipped_blocked: blocked.length, skipped_not_found: uniqueIds.length - rows.length, products, blocked };
-  }, { isolationLevel: 'read committed' });
+  return knex.transaction(
+    async (trx) => {
+      const rows = await trx('products')
+        .where({ shop_id: shopId })
+        .whereIn('id', uniqueIds)
+        .orderBy('id')
+        .forUpdate()
+        .select('*');
+      const blockers = await catalogPermanentDeleteBlockers(trx, shopId, 'product', rows);
+      const products = rows.filter((row) => !blockers.has(row.id));
+      const blocked = rows
+        .filter((row) => blockers.has(row.id))
+        .map((row) => ({
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          reason: blockers.get(row.id),
+        }));
+      let deleted = 0;
+      if (products.length) {
+        deleted = await trx('products')
+          .where({ shop_id: shopId, is_active: false })
+          .whereIn(
+            'id',
+            products.map((row) => row.id)
+          )
+          .del();
+      }
+      return {
+        deleted,
+        skipped_blocked: blocked.length,
+        skipped_not_found: uniqueIds.length - rows.length,
+        products,
+        blocked,
+      };
+    },
+    { isolationLevel: 'read committed' }
+  );
 }
 
 function parseBulkDeleteCodesFromCsv(csvText) {
@@ -1705,6 +1731,16 @@ export async function listProductSaleHistory(shopId, productId, query) {
  * For the "check availability" grid: return every active product with its
  * booked-vs-free qty for the given date range.
  */
+function parseVisualProductIds(value) {
+  return String(value || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    )
+    .slice(0, 50);
+}
+
 export async function listProductAvailability(shopId, params) {
   const from = params.from;
   const to = params.to;
@@ -1734,6 +1770,15 @@ export async function listProductAvailability(shopId, params) {
     .leftJoin(overlapSub.as('bk'), 'bk.product_id', 'p.id')
     .leftJoin(washingSub, 'ws.product_id', 'p.id')
     .where({ 'p.shop_id': shopId, 'p.is_active': true });
+
+  const visualProductIds = parseVisualProductIds(params.product_ids);
+  if (params.product_ids && visualProductIds.length === 0) {
+    throw badRequest('Visual product selection is invalid');
+  }
+  if (visualProductIds.length) {
+    qb.whereIn('p.id', visualProductIds);
+    qb.orderByRaw(`FIELD(p.id, ${visualProductIds.map(() => '?').join(', ')})`, visualProductIds);
+  }
 
   if (params.category_id === 'none') qb.whereNull('p.category_id');
   else if (params.category_id) qb.andWhere('p.category_id', params.category_id);
@@ -1806,7 +1851,7 @@ export async function listProductAvailability(shopId, params) {
   const { data: rows, meta } = await paginate(qb, {
     page,
     per_page: perPage,
-    sort: 'p.name',
+    sort: 'p.natural_code_sort_key,p.code,p.name',
   });
 
   return {
@@ -1852,6 +1897,10 @@ export async function searchBookingAvailability(shopId, params = {}) {
   if (from > to) throw badRequest('from must be on or before to');
 
   const search = String(params.search || '').trim();
+  const visualProductIds = parseVisualProductIds(params.product_ids);
+  if (params.product_ids && visualProductIds.length === 0) {
+    throw badRequest('Visual product selection is invalid');
+  }
   const perPage = Math.min(100, Math.max(1, Number(params.per_page) || 20));
 
   const overlap = knex('order_items as oi')
@@ -1934,10 +1983,15 @@ export async function searchBookingAvailability(shopId, params = {}) {
     qb.andWhere('p.category_id', String(params.category_id).trim());
   }
 
+  if (visualProductIds.length) {
+    qb.whereIn('p.id', visualProductIds);
+    qb.orderByRaw(`FIELD(p.id, ${visualProductIds.map(() => '?').join(', ')})`, visualProductIds);
+  }
+
   if (search) {
     applyProductSearchFilter(qb, search, 'p');
     applyProductSearchRanking(qb, search, 'p');
-  } else {
+  } else if (!visualProductIds.length) {
     qb.orderBy('p.name');
   }
 

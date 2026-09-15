@@ -39,15 +39,30 @@ import {
 } from '../credit-notes/helpers.js';
 import { recomputeOrderPayment } from '../payments/recomputeOrderPayment.js';
 import { insertOrderPayment } from '../payments/orderStatusAtPayment.js';
-import { applyBookingEditPaymentsWithTrx, getOrdinarySecurityNet } from '../payments/bookingEditSettlement.js';
+import {
+  applyBookingEditPaymentsWithTrx,
+  getOrdinarySecurityNet,
+} from '../payments/bookingEditSettlement.js';
 import { assertLedgerRefs } from '../payments/ledgerRefs.js';
-import { syncChecklistSecurityCharge, syncCombinedChecklistSecurityCharge } from '../security-charges/service.js';
-import { createOrUpdateConditionAssessmentWithTrx, fundConditionChargeWithTrx, assertNoHeldConditionFundsForDeletion } from '../security-charges/ledgerService.js';
+import {
+  syncChecklistSecurityCharge,
+  syncCombinedChecklistSecurityCharge,
+} from '../security-charges/service.js';
+import {
+  createOrUpdateConditionAssessmentWithTrx,
+  fundConditionChargeWithTrx,
+  assertNoHeldConditionFundsForDeletion,
+} from '../security-charges/ledgerService.js';
 import { assertSettlementReplay } from './settlementCommand.js';
 import { lockOrderInventory } from './orderInventoryLock.js';
 import { assertDeliveryLineVersion } from './stageLineVersion.js';
 import { readChecklistStateToken, attachChecklistStateTokens } from './checklistState.js';
-import { recordDamagedProductReplacements, syncReplacementRequirementsForOrder, assertOrderItemReplacementAllowed, listOrderReplacementRequirements } from '../order-replacements/service.js';
+import {
+  recordDamagedProductReplacements,
+  syncReplacementRequirementsForOrder,
+  assertOrderItemReplacementAllowed,
+  listOrderReplacementRequirements,
+} from '../order-replacements/service.js';
 import { shouldQueueAccessoryForWashing } from '../washing-queue/rules.js';
 import {
   assertRentAccessoryLinesAvailable,
@@ -1513,7 +1528,12 @@ export async function getOrder(shopId, id) {
   }
   await attachOrderItemsLineAvailability(shopId, order, items);
   const orderPayload = { ...order, items, accessories, payments, customer: customer || null };
-  orderPayload.checklist_state_token = await readChecklistStateToken(knex, shopId, id, orderPayload);
+  orderPayload.checklist_state_token = await readChecklistStateToken(
+    knex,
+    shopId,
+    id,
+    orderPayload
+  );
   orderPayload.security_held_amount = await getSecurityHeld(knex, id);
   orderPayload.ordinary_security_net = await getOrdinarySecurityNet(knex, shopId, id);
   orderPayload.replacement_requirements = await listOrderReplacementRequirements(knex, shopId, id);
@@ -1529,13 +1549,7 @@ export async function getOrder(shopId, id) {
 export async function createOrder(shopId, data, userId) {
   return orderTransaction(async (trx) => {
     await lockOrderInventory(trx, shopId, null, data.items || []);
-    const billType = data.bill_type || (data.gst_enabled !== false ? 'gst' : 'kaccha');
-    if (billType === 'gst') {
-      const gstShop = await trx('shops').where({ id: shopId }).select('gstin').first();
-      if (!String(gstShop?.gstin || '').trim()) {
-        throw badRequest('Configure the shop GSTIN before creating a GST Booking');
-      }
-    }
+    const billType = 'kaccha';
     const billNo = await nextBillNumber(trx, shopId);
     const shopRow = await trx('shops')
       .where({ id: shopId })
@@ -1650,40 +1664,50 @@ export async function createOrder(shopId, data, userId) {
 
     const advanceAmt = round2(Number(data.advance_amount || 0));
     if (advanceAmt > 0) {
-      await insertOrderPayment(trx, shopId, {
-        id: uuid(),
-        shop_id: shopId,
-        order_id: id,
-        customer_id: data.customer_id || null,
-        received_by: userId || null,
-        payment_type: 'cash',
-        category: 'advance',
-        amount: advanceAmt,
-        payment_date: data.booking_date,
-        transaction_id: null,
-        notes: null,
-        payment_account_id: advAcc,
-        security_account_id: null,
-      }, 'booking');
+      await insertOrderPayment(
+        trx,
+        shopId,
+        {
+          id: uuid(),
+          shop_id: shopId,
+          order_id: id,
+          customer_id: data.customer_id || null,
+          received_by: userId || null,
+          payment_type: 'cash',
+          category: 'advance',
+          amount: advanceAmt,
+          payment_date: data.booking_date,
+          transaction_id: null,
+          notes: null,
+          payment_account_id: advAcc,
+          security_account_id: null,
+        },
+        'booking'
+      );
     }
 
     const depositAmt = round2(Number(data.deposit_amount || 0));
     if (data.paid_security_amt && depositAmt > 0) {
-      await insertOrderPayment(trx, shopId, {
-        id: uuid(),
-        shop_id: shopId,
-        order_id: id,
-        customer_id: data.customer_id || null,
-        received_by: userId || null,
-        payment_type: 'cash',
-        category: 'deposit',
-        amount: depositAmt,
-        payment_date: data.booking_date,
-        transaction_id: null,
-        notes: null,
-        payment_account_id: null,
-        security_account_id: secAcc,
-      }, 'booking');
+      await insertOrderPayment(
+        trx,
+        shopId,
+        {
+          id: uuid(),
+          shop_id: shopId,
+          order_id: id,
+          customer_id: data.customer_id || null,
+          received_by: userId || null,
+          payment_type: 'cash',
+          category: 'deposit',
+          amount: depositAmt,
+          payment_date: data.booking_date,
+          transaction_id: null,
+          notes: null,
+          payment_account_id: null,
+          security_account_id: secAcc,
+        },
+        'booking'
+      );
     }
 
     const applyCreditAmt = round2(Number(data.apply_credit_amount || 0));
@@ -1751,20 +1775,36 @@ export async function updateOrder(shopId, orderId, data, userId) {
     await lockOrderInventory(trx, shopId, orderId, data.items || []);
     const { admin_password: _secret, ...command } = data;
     if (data.idempotency_key) {
-      const previous = await trx('sync_queue').where({ id: data.idempotency_key }).forUpdate().first();
+      const previous = await trx('sync_queue')
+        .where({ id: data.idempotency_key })
+        .forUpdate()
+        .first();
       if (previous) {
-        assertSettlementReplay(previous, { shopId, orderId, userId, entity: 'order_edit', payload: command });
-        return { ...await getOrderWithTrx(trx, shopId, orderId), command_replayed: true };
+        assertSettlementReplay(previous, {
+          shopId,
+          orderId,
+          userId,
+          entity: 'order_edit',
+          payload: command,
+        });
+        return { ...(await getOrderWithTrx(trx, shopId, orderId)), command_replayed: true };
       }
-      await trx('sync_queue').insert({ id: data.idempotency_key, shop_id: shopId, user_id: userId || null,
-        entity: 'order_edit', entity_id: orderId, op: 'update', status: 'processing',
-        payload: JSON.stringify({ request: command }), retry_count: 0 });
+      await trx('sync_queue').insert({
+        id: data.idempotency_key,
+        shop_id: shopId,
+        user_id: userId || null,
+        entity: 'order_edit',
+        entity_id: orderId,
+        op: 'update',
+        status: 'processing',
+        payload: JSON.stringify({ request: command }),
+        retry_count: 0,
+      });
     }
     const existingOrder = await trx('orders').where({ id: orderId, shop_id: shopId }).first();
     if (!existingOrder) throw notFound('Order not found');
     await assertNoIssuedGstInvoice(trx, shopId, orderId);
-    const billType =
-      data.bill_type || existingOrder.bill_type || (data.gst_enabled !== false ? 'gst' : 'kaccha');
+    const billType = existingOrder.bill_type || 'kaccha';
     if (billType === 'gst') {
       const gstShop = await trx('shops').where({ id: shopId }).select('gstin').first();
       if (!String(gstShop?.gstin || '').trim()) {
@@ -1845,19 +1885,31 @@ export async function updateOrder(shopId, orderId, data, userId) {
         'missing_qty'
       );
     const dbItemById = new Map(dbItems.map((row) => [row.id, row]));
-    const expectedProductLines = new Map((data.expected_product_lines || []).map((row) => [row.item_id, row]));
+    const expectedProductLines = new Map(
+      (data.expected_product_lines || []).map((row) => [row.item_id, row])
+    );
     for (const before of dbItems.filter((row) => !incomingItemIds.has(row.id))) {
-      if (Number(before.replacement_version || 0) === 0 && !expectedProductLines.has(before.id)) continue;
+      if (Number(before.replacement_version || 0) === 0 && !expectedProductLines.has(before.id))
+        continue;
       const expected = expectedProductLines.get(before.id);
-      if (!expected || expected.expected_product_id !== before.product_id || expected.expected_line_version !== Number(before.replacement_version || 0)) {
-        throw conflict('A product selected for removal changed. Refresh and review before removing it.');
+      if (
+        !expected ||
+        expected.expected_product_id !== before.product_id ||
+        expected.expected_line_version !== Number(before.replacement_version || 0)
+      ) {
+        throw conflict(
+          'A product selected for removal changed. Refresh and review before removing it.'
+        );
       }
     }
     for (const item of productItems) {
       const before = dbItemById.get(item.id);
       if (!before) continue;
       if (Number(before.replacement_version || 0) > 0 || item.expected_line_version !== undefined) {
-        if (item.expected_product_id !== before.product_id || item.expected_line_version !== Number(before.replacement_version || 0)) {
+        if (
+          item.expected_product_id !== before.product_id ||
+          item.expected_line_version !== Number(before.replacement_version || 0)
+        ) {
           throw conflict('A booking product changed. Refresh before editing this booking.');
         }
       }
@@ -2039,7 +2091,8 @@ export async function updateOrder(shopId, orderId, data, userId) {
           itemUpdate.prepared_at = null;
           itemUpdate.delivered_at = null;
           itemUpdate.received_at = null;
-          itemUpdate.replacement_version = Number(dbItemById.get(item.id)?.replacement_version || 0) + 1;
+          itemUpdate.replacement_version =
+            Number(dbItemById.get(item.id)?.replacement_version || 0) + 1;
         }
         if (isReconcile) {
           itemUpdate.prepared_at = null;
@@ -2180,19 +2233,34 @@ export async function updateOrder(shopId, orderId, data, userId) {
 
     if (data.edit_settlement) {
       const depositAmount = data.edit_settlement.deposit_amount;
-      if (depositAmount !== undefined && Math.abs(Number(existingOrder.deposit_amount || 0) - data.edit_settlement.expected_deposit_amount) > 0.009) {
+      if (
+        depositAmount !== undefined &&
+        Math.abs(
+          Number(existingOrder.deposit_amount || 0) - data.edit_settlement.expected_deposit_amount
+        ) > 0.009
+      ) {
         throw conflict('Security Amount changed; refresh the booking');
       }
       if (depositAmount !== undefined) {
-        await trx('orders').where({ id: orderId, shop_id: shopId }).update({ deposit_amount: depositAmount });
+        await trx('orders')
+          .where({ id: orderId, shop_id: shopId })
+          .update({ deposit_amount: depositAmount });
       }
       await applyBookingEditPaymentsWithTrx(trx, shopId, orderId, data.edit_settlement, userId);
       if (data.edit_settlement.security_net !== undefined || depositAmount !== undefined) {
         const currentDeposit = depositAmount ?? Number(existingOrder.deposit_amount || 0);
         const net = await getOrdinarySecurityNet(trx, shopId, orderId);
-        await updateOrderSecurityStatusWithTrx(trx, shopId, orderId, {
-          status: net > 0 ? 'paid' : 'unpaid', deposit_amount: currentDeposit,
-        }, userId, { hydrate: false });
+        await updateOrderSecurityStatusWithTrx(
+          trx,
+          shopId,
+          orderId,
+          {
+            status: net > 0 ? 'paid' : 'unpaid',
+            deposit_amount: currentDeposit,
+          },
+          userId,
+          { hydrate: false }
+        );
       }
     }
 
@@ -2228,7 +2296,9 @@ export async function updateOrder(shopId, orderId, data, userId) {
     });
     if (data.idempotency_key) {
       await trx('sync_queue').where({ id: data.idempotency_key, shop_id: shopId }).update({
-        status: 'synced', synced_at: trx.fn.now(), error: null,
+        status: 'synced',
+        synced_at: trx.fn.now(),
+        error: null,
       });
     }
     return getOrderWithTrx(trx, shopId, orderId);
@@ -2504,7 +2574,14 @@ export async function updateOrderStatusFlag(
   });
 }
 
-export async function bulkUpdateOrderStatusFlag(shopId, orderId, field, value, userId, expectedItems = []) {
+export async function bulkUpdateOrderStatusFlag(
+  shopId,
+  orderId,
+  field,
+  value,
+  userId,
+  expectedItems = []
+) {
   const normalizedField = normalizeStageField(String(field || '').trim());
   if (!Object.prototype.hasOwnProperty.call(DEFAULT_STAGE_FLAGS, normalizedField)) {
     throw badRequest('Invalid stage field');
@@ -2566,7 +2643,12 @@ export async function bulkUpdateOrderStatusFlag(shopId, orderId, field, value, u
           ? normalizeAccessoryStageFlags(row.stage_flags)
           : normalizeStageFlags(row.stage_flags);
       if (nextValue !== Boolean(flags[normalizedField])) {
-        assertDeliveryLineVersion(row, { ...expectedById.get(row.id), item_type: itemTypeNorm, field: normalizedField, value: nextValue });
+        assertDeliveryLineVersion(row, {
+          ...expectedById.get(row.id),
+          item_type: itemTypeNorm,
+          field: normalizedField,
+          value: nextValue,
+        });
       }
       const isAllowed = canBulkStageTransition(normalizedField, nextValue, flags, itemTypeNorm);
       if (!isAllowed) {
@@ -2980,175 +3062,196 @@ export async function updateItemCondition(
   userId,
   opts = {}
 ) {
-  return orderTransaction((trx) => updateItemConditionWithTrx(trx, shopId, orderId, itemId, itemType, patch, userId, opts));
+  return orderTransaction((trx) =>
+    updateItemConditionWithTrx(trx, shopId, orderId, itemId, itemType, patch, userId, opts)
+  );
 }
 
-async function updateItemConditionWithTrx(trx, shopId, orderId, itemId, itemType, patch, userId, opts = {}) {
+async function updateItemConditionWithTrx(
+  trx,
+  shopId,
+  orderId,
+  itemId,
+  itemType,
+  patch,
+  userId,
+  opts = {}
+) {
   const skipLineSecuritySync = !!opts.skipLineSecuritySync;
-    await lockOrderInventory(trx, shopId, orderId);
-    const table = itemType === 'accessory' ? 'order_accessories' : 'order_items';
-    const row = await trx(table).where({ id: itemId, order_id: orderId, shop_id: shopId }).first();
-    if (!row) throw notFound('Item not found');
-    assertDeliveryLineVersion(row, { ...patch, item_type: itemType });
-    const orderRow = await trx('orders')
-      .where({ id: orderId, shop_id: shopId })
-      .select('order_number', 'customer_id', 'advance_account_id')
-      .first();
-    if (!orderRow) throw notFound('Order not found');
+  await lockOrderInventory(trx, shopId, orderId);
+  const table = itemType === 'accessory' ? 'order_accessories' : 'order_items';
+  const row = await trx(table).where({ id: itemId, order_id: orderId, shop_id: shopId }).first();
+  if (!row) throw notFound('Item not found');
+  assertDeliveryLineVersion(row, { ...patch, item_type: itemType });
+  const orderRow = await trx('orders')
+    .where({ id: orderId, shop_id: shopId })
+    .select('order_number', 'customer_id', 'advance_account_id')
+    .first();
+  if (!orderRow) throw notFound('Order not found');
 
-    const allowed = {};
-    if (patch.damaged !== undefined) allowed.damaged = !!patch.damaged;
-    if (patch.missing !== undefined) allowed.missing = !!patch.missing;
-    if (allowed.damaged === true && allowed.missing === true) {
-      throw badRequest('Damage and Missing cannot be selected together');
+  const allowed = {};
+  if (patch.damaged !== undefined) allowed.damaged = !!patch.damaged;
+  if (patch.missing !== undefined) allowed.missing = !!patch.missing;
+  if (allowed.damaged === true && allowed.missing === true) {
+    throw badRequest('Damage and Missing cannot be selected together');
+  }
+  if (allowed.damaged === true) allowed.missing = false;
+  if (allowed.missing === true) allowed.damaged = false;
+  if (patch.damage_charge !== undefined) allowed.damage_charge = Number(patch.damage_charge) || 0;
+  if (
+    itemType === 'accessory' &&
+    (patch.condition_qty !== undefined ||
+      allowed.damaged !== undefined ||
+      allowed.missing !== undefined)
+  ) {
+    const condition =
+      (allowed.missing ?? row.missing)
+        ? 'missing'
+        : (allowed.damaged ?? row.damaged)
+          ? 'damage'
+          : 'normal';
+    const conditionQty = requestedAccessoryConditionQuantity(row, condition, patch.condition_qty);
+    allowed.damaged_qty = condition === 'damage' ? conditionQty : 0;
+    allowed.missing_qty = condition === 'missing' ? conditionQty : 0;
+  }
+  if (patch.damage_account_id !== undefined) {
+    const acc = patch.damage_account_id
+      ? String(patch.damage_account_id).trim().slice(0, 80)
+      : null;
+    if (acc) {
+      const pa = await trx('payment_accounts')
+        .where({ shop_id: shopId, id: acc, is_active: true })
+        .first();
+      if (!pa) throw badRequest('Invalid damage charge account');
     }
-    if (allowed.damaged === true) allowed.missing = false;
-    if (allowed.missing === true) allowed.damaged = false;
-    if (patch.damage_charge !== undefined) allowed.damage_charge = Number(patch.damage_charge) || 0;
-    if (itemType === 'accessory' && (patch.condition_qty !== undefined || allowed.damaged !== undefined || allowed.missing !== undefined)) {
-      const condition =
-        (allowed.missing ?? row.missing)
-          ? 'missing'
-          : (allowed.damaged ?? row.damaged)
-            ? 'damage'
-            : 'normal';
-      const conditionQty = requestedAccessoryConditionQuantity(row, condition, patch.condition_qty);
-      allowed.damaged_qty = condition === 'damage' ? conditionQty : 0;
-      allowed.missing_qty = condition === 'missing' ? conditionQty : 0;
-    }
-    if (patch.damage_account_id !== undefined) {
-      const acc = patch.damage_account_id
-        ? String(patch.damage_account_id).trim().slice(0, 80)
-        : null;
-      if (acc) {
-        const pa = await trx('payment_accounts')
-          .where({ shop_id: shopId, id: acc, is_active: true })
-          .first();
-        if (!pa) throw badRequest('Invalid damage charge account');
-      }
-      allowed.damage_account_id = acc;
-    }
-    if (
-      allowed.damage_charge !== undefined &&
-      Number(allowed.damage_charge) <= 0 &&
-      allowed.damage_account_id === undefined
-    ) {
-      allowed.damage_account_id = null;
-    }
-    if (Object.keys(allowed).length === 0) {
-      const orderHeader = await selectOrderHeaderSlice(
-        trx,
-        shopId,
-        orderId,
-        ORDER_HEADER_FOR_CHECKLIST_CONDITION
-      );
-      return { order: orderHeader, lines: [] };
-    }
-
-    const prevCharge = Number(row.damage_charge || 0);
-    const nextCharge =
-      allowed.damage_charge !== undefined ? Number(allowed.damage_charge || 0) : prevCharge;
-
-    const writePatch = { ...allowed, updated_at: trx.fn.now() };
-    await trx(table).where({ id: itemId }).update(writePatch);
-
-    if (itemType === 'accessory') {
-      await applyDamagedAccessoryHoldDelta(trx, shopId, [
-        { before: row, after: { ...row, ...allowed } },
-      ]);
-    }
-
-    if (allowed.damaged !== undefined || allowed.missing !== undefined || allowed.damaged_qty !== undefined || allowed.missing_qty !== undefined) {
-      const flags =
-        itemType === 'accessory'
-          ? normalizeAccessoryStageFlags(row.stage_flags)
-          : normalizeStageFlags(row.stage_flags);
-      if (flags.received) {
-        if (itemType === 'accessory') {
-          await syncAccessoryWashingQueue(trx, shopId, orderId, itemId, true);
-        } else {
-          await syncWashingQueue(trx, shopId, orderId, itemId, true);
-        }
-      }
-    }
-
-    let stageLines = [];
-    if ((allowed.missing ?? row.missing) && lineBlocksReceivedForDb({ ...row, ...allowed })) {
-      if (itemType === 'item') {
-        stageLines = await cascadeClearReceivedForProductMissing(trx, shopId, orderId, itemId);
-      } else {
-        const line = await clearReceivedFlagsOnRow(
-          trx,
-          shopId,
-          orderId,
-          { ...row, ...allowed },
-          'order_accessories'
-        );
-        if (line) stageLines = [line];
-      }
-      if (stageLines.length) await propagateOrderStatus(trx, shopId, orderId);
-    }
-
-    if (
-      !skipLineSecuritySync &&
-      (allowed.damage_charge !== undefined ||
-        allowed.damaged !== undefined ||
-        allowed.missing !== undefined ||
-        allowed.damaged_qty !== undefined ||
-        allowed.missing_qty !== undefined)
-    ) {
-      const accountForCharge =
-        allowed.damage_account_id !== undefined ? allowed.damage_account_id : row.damage_account_id;
-      const conditionKind =
-        (allowed.missing ?? row.missing)
-          ? 'missing'
-          : (allowed.damaged ?? row.damaged)
-            ? 'damage'
-            : null;
-      await syncChecklistSecurityCharge(trx, {
-        shopId,
-        orderId,
-        customerId: orderRow.customer_id || null,
-        itemType,
-        itemId,
-        amount: conditionKind ? nextCharge : 0,
-        paymentAccountId: accountForCharge,
-        conditionKind,
-        userId,
-      });
-    }
-
-    if (allowed.damaged !== undefined || allowed.missing !== undefined) {
-      if (itemType !== 'accessory' && allowed.damaged === true) {
-        await recordDamagedProductReplacements(trx, shopId, orderId, [itemId], userId);
-      }
-      await propagateOrderStatus(trx, shopId, orderId);
-    }
-
-    await trx('order_edit_logs').insert({
-      id: uuid(),
-      order_id: orderId,
-      shop_id: shopId,
-      user_id: userId || null,
-      order_number: orderRow?.order_number || null,
-      change_summary: `Condition update on ${itemType} ${itemId}: ${JSON.stringify(allowed)}`,
-    });
-
-    if (opts.hydrate === false) return null;
-
+    allowed.damage_account_id = acc;
+  }
+  if (
+    allowed.damage_charge !== undefined &&
+    Number(allowed.damage_charge) <= 0 &&
+    allowed.damage_account_id === undefined
+  ) {
+    allowed.damage_account_id = null;
+  }
+  if (Object.keys(allowed).length === 0) {
     const orderHeader = await selectOrderHeaderSlice(
       trx,
       shopId,
       orderId,
       ORDER_HEADER_FOR_CHECKLIST_CONDITION
     );
-    const lineSlice = await buildConditionLineSlice(trx, shopId, orderId, itemType, itemId);
-    const lines = [...stageLines];
-    if (lineSlice) lines.push(lineSlice);
-    return {
-      order: orderHeader,
-      lines,
-    };
+    return { order: orderHeader, lines: [] };
+  }
+
+  const prevCharge = Number(row.damage_charge || 0);
+  const nextCharge =
+    allowed.damage_charge !== undefined ? Number(allowed.damage_charge || 0) : prevCharge;
+
+  const writePatch = { ...allowed, updated_at: trx.fn.now() };
+  await trx(table).where({ id: itemId }).update(writePatch);
+
+  if (itemType === 'accessory') {
+    await applyDamagedAccessoryHoldDelta(trx, shopId, [
+      { before: row, after: { ...row, ...allowed } },
+    ]);
+  }
+
+  if (
+    allowed.damaged !== undefined ||
+    allowed.missing !== undefined ||
+    allowed.damaged_qty !== undefined ||
+    allowed.missing_qty !== undefined
+  ) {
+    const flags =
+      itemType === 'accessory'
+        ? normalizeAccessoryStageFlags(row.stage_flags)
+        : normalizeStageFlags(row.stage_flags);
+    if (flags.received) {
+      if (itemType === 'accessory') {
+        await syncAccessoryWashingQueue(trx, shopId, orderId, itemId, true);
+      } else {
+        await syncWashingQueue(trx, shopId, orderId, itemId, true);
+      }
+    }
+  }
+
+  let stageLines = [];
+  if ((allowed.missing ?? row.missing) && lineBlocksReceivedForDb({ ...row, ...allowed })) {
+    if (itemType === 'item') {
+      stageLines = await cascadeClearReceivedForProductMissing(trx, shopId, orderId, itemId);
+    } else {
+      const line = await clearReceivedFlagsOnRow(
+        trx,
+        shopId,
+        orderId,
+        { ...row, ...allowed },
+        'order_accessories'
+      );
+      if (line) stageLines = [line];
+    }
+    if (stageLines.length) await propagateOrderStatus(trx, shopId, orderId);
+  }
+
+  if (
+    !skipLineSecuritySync &&
+    (allowed.damage_charge !== undefined ||
+      allowed.damaged !== undefined ||
+      allowed.missing !== undefined ||
+      allowed.damaged_qty !== undefined ||
+      allowed.missing_qty !== undefined)
+  ) {
+    const accountForCharge =
+      allowed.damage_account_id !== undefined ? allowed.damage_account_id : row.damage_account_id;
+    const conditionKind =
+      (allowed.missing ?? row.missing)
+        ? 'missing'
+        : (allowed.damaged ?? row.damaged)
+          ? 'damage'
+          : null;
+    await syncChecklistSecurityCharge(trx, {
+      shopId,
+      orderId,
+      customerId: orderRow.customer_id || null,
+      itemType,
+      itemId,
+      amount: conditionKind ? nextCharge : 0,
+      paymentAccountId: accountForCharge,
+      conditionKind,
+      userId,
+    });
+  }
+
+  if (allowed.damaged !== undefined || allowed.missing !== undefined) {
+    if (itemType !== 'accessory' && allowed.damaged === true) {
+      await recordDamagedProductReplacements(trx, shopId, orderId, [itemId], userId);
+    }
+    await propagateOrderStatus(trx, shopId, orderId);
+  }
+
+  await trx('order_edit_logs').insert({
+    id: uuid(),
+    order_id: orderId,
+    shop_id: shopId,
+    user_id: userId || null,
+    order_number: orderRow?.order_number || null,
+    change_summary: `Condition update on ${itemType} ${itemId}: ${JSON.stringify(allowed)}`,
+  });
+
+  if (opts.hydrate === false) return null;
+
+  const orderHeader = await selectOrderHeaderSlice(
+    trx,
+    shopId,
+    orderId,
+    ORDER_HEADER_FOR_CHECKLIST_CONDITION
+  );
+  const lineSlice = await buildConditionLineSlice(trx, shopId, orderId, itemType, itemId);
+  const lines = [...stageLines];
+  if (lineSlice) lines.push(lineSlice);
+  return {
+    order: orderHeader,
+    lines,
+  };
 }
 
 export async function applyChecklistCommand(shopId, orderId, input, userId) {
@@ -3157,49 +3260,105 @@ export async function applyChecklistCommand(shopId, orderId, input, userId) {
   try {
     return await orderTransaction(async (trx) => {
       await lockOrderInventory(trx, shopId, orderId);
-      const order = await trx('orders').where({ id: orderId, shop_id: shopId, is_deleted: false }).first();
+      const order = await trx('orders')
+        .where({ id: orderId, shop_id: shopId, is_deleted: false })
+        .first();
       if (!order) throw notFound('Order not found');
-      const previous = await trx('sync_queue').where({ id: body.idempotency_key }).forUpdate().first();
+      const previous = await trx('sync_queue')
+        .where({ id: body.idempotency_key })
+        .forUpdate()
+        .first();
       if (previous) {
-        assertSettlementReplay(previous, { shopId, orderId, userId, entity: 'checklist_command', payload: command });
+        assertSettlementReplay(previous, {
+          shopId,
+          orderId,
+          userId,
+          entity: 'checklist_command',
+          payload: command,
+        });
         return { order: await getOrderWithTrx(trx, shopId, orderId), replayed: true };
       }
-      if (order.status === 'cancelled') throw badRequest('Cancelled bookings cannot change checklist');
-      if (await readChecklistStateToken(trx, shopId, orderId) !== body.expected_state_token) {
-        throw conflict('Checklist or assessments changed. Refresh the booking and review this saved action.');
+      if (order.status === 'cancelled')
+        throw badRequest('Cancelled bookings cannot change checklist');
+      if ((await readChecklistStateToken(trx, shopId, orderId)) !== body.expected_state_token) {
+        throw conflict(
+          'Checklist or assessments changed. Refresh the booking and review this saved action.'
+        );
       }
-      await trx('sync_queue').insert({ id: body.idempotency_key, shop_id: shopId, user_id: userId || null,
-        entity: 'checklist_command', entity_id: orderId, op: 'update', status: 'processing',
-        payload: JSON.stringify({ request: command }), retry_count: 0 });
-      const existingCombined = await trx('security_charges').where({ shop_id: shopId, order_id: orderId, source: 'checklist' })
-        .whereNot('status', 'void').whereNull('item_id').first('id');
-      if (existingCombined && !body.combined_assessment && body.condition_updates.some((row) => row.damage_charge !== undefined)) {
-        throw badRequest('This booking has a combined assessment. Review its total explicitly before changing line charges.');
+      await trx('sync_queue').insert({
+        id: body.idempotency_key,
+        shop_id: shopId,
+        user_id: userId || null,
+        entity: 'checklist_command',
+        entity_id: orderId,
+        op: 'update',
+        status: 'processing',
+        payload: JSON.stringify({ request: command }),
+        retry_count: 0,
+      });
+      const existingCombined = await trx('security_charges')
+        .where({ shop_id: shopId, order_id: orderId, source: 'checklist' })
+        .whereNot('status', 'void')
+        .whereNull('item_id')
+        .first('id');
+      if (
+        existingCombined &&
+        !body.combined_assessment &&
+        body.condition_updates.some((row) => row.damage_charge !== undefined)
+      ) {
+        throw badRequest(
+          'This booking has a combined assessment. Review its total explicitly before changing line charges.'
+        );
       }
       for (const update of body.condition_updates) {
-        await updateItemConditionWithTrx(trx, shopId, orderId, update.item_id, update.item_type, update, userId,
-          { skipLineSecuritySync: Boolean(body.combined_assessment || existingCombined), hydrate: false });
+        await updateItemConditionWithTrx(
+          trx,
+          shopId,
+          orderId,
+          update.item_id,
+          update.item_type,
+          update,
+          userId,
+          {
+            skipLineSecuritySync: Boolean(body.combined_assessment || existingCombined),
+            hydrate: false,
+          }
+        );
       }
       if (body.combined_assessment) {
         if (body.combined_assessment.payment_account_id) {
-          await assertLedgerRefs(trx, shopId, { payment_account_id: body.combined_assessment.payment_account_id });
+          await assertLedgerRefs(trx, shopId, {
+            payment_account_id: body.combined_assessment.payment_account_id,
+          });
         }
-        await syncCombinedChecklistSecurityCharge(trx, { shopId, orderId, userId, customerId: order.customer_id,
-          amount: body.combined_assessment.amount, remarks: body.combined_assessment.remarks,
-          paymentAccountId: body.combined_assessment.payment_account_id });
+        await syncCombinedChecklistSecurityCharge(trx, {
+          shopId,
+          orderId,
+          userId,
+          customerId: order.customer_id,
+          amount: body.combined_assessment.amount,
+          remarks: body.combined_assessment.remarks,
+          paymentAccountId: body.combined_assessment.payment_account_id,
+        });
       }
       if (body.stage_updates.length) {
-        await batchUpdateOrderStatusFlagsWithTrx(trx, shopId, orderId, body.stage_updates, userId,
-          { max_updates: 500, admin_password: adminPassword, reject_skipped: true });
+        await batchUpdateOrderStatusFlagsWithTrx(trx, shopId, orderId, body.stage_updates, userId, {
+          max_updates: 500,
+          admin_password: adminPassword,
+          reject_skipped: true,
+        });
       }
       const saved = await getOrderWithTrx(trx, shopId, orderId);
       await trx('sync_queue').where({ id: body.idempotency_key, shop_id: shopId }).update({
-        status: 'synced', synced_at: trx.fn.now(), error: null,
+        status: 'synced',
+        synced_at: trx.fn.now(),
+        error: null,
       });
       return { order: saved, replayed: false };
     });
   } catch (error) {
-    if (error?.code === 'ER_DUP_ENTRY') throw conflict('Request key already used. Review the original saved action.');
+    if (error?.code === 'ER_DUP_ENTRY')
+      throw conflict('Request key already used. Review the original saved action.');
     throw error;
   }
 }
@@ -3428,9 +3587,13 @@ async function adjustOrderDiscountTotalWithTrx(
 ) {
   const T = round2(Number(requestedDiscountTotal));
   if (Number.isNaN(T) || T < 0) throw badRequest('Invalid discount total');
-  const existingOrder = await trx('orders').where({ id: orderId, shop_id: shopId }).forUpdate().first();
+  const existingOrder = await trx('orders')
+    .where({ id: orderId, shop_id: shopId })
+    .forUpdate()
+    .first();
   if (!existingOrder) throw notFound('Order not found');
-  if (T !== Number(existingOrder.discount_total)) await assertNoIssuedGstInvoice(trx, shopId, orderId);
+  if (T !== Number(existingOrder.discount_total))
+    await assertNoIssuedGstInvoice(trx, shopId, orderId);
   if (ORDER_EDIT_LOCKED_STATUSES.has(existingOrder.status)) {
     throw badRequest(`Order discount cannot be changed in status "${existingOrder.status}"`);
   }
@@ -3486,7 +3649,13 @@ export async function adjustOrderDiscountTotal(shopId, orderId, requestedDiscoun
 }
 
 async function replayedDeliverySettlement(trx, shopId, orderId, syncRow, payload, userId) {
-  const saved = assertSettlementReplay(syncRow, { shopId, orderId, userId, entity: 'delivery_settlement', payload });
+  const saved = assertSettlementReplay(syncRow, {
+    shopId,
+    orderId,
+    userId,
+    entity: 'delivery_settlement',
+    payload,
+  });
   return {
     order: await getOrderWithTrx(trx, shopId, orderId),
     payments: saved.payments || { security_payment_id: null, rent_payment_id: null },
@@ -3657,39 +3826,74 @@ async function applyReturnConditions(trx, shopId, orderId, rows, userId) {
     });
   }
   if (rows.length > 0) {
-    const damagedIds = rows.filter((row) => row.itemType === 'item' && row.condition === 'damage').map((row) => row.line.id);
-    if (damagedIds.length) await recordDamagedProductReplacements(trx, shopId, orderId, damagedIds, userId);
+    const damagedIds = rows
+      .filter((row) => row.itemType === 'item' && row.condition === 'damage')
+      .map((row) => row.line.id);
+    if (damagedIds.length)
+      await recordDamagedProductReplacements(trx, shopId, orderId, damagedIds, userId);
     await propagateOrderStatus(trx, shopId, orderId);
   }
 }
 
 async function postReturnConditionCharges(
   trx,
-  { shopId, order, rows, securityHeld, refundAmount, chargeAccountId, userId,
-    retainAmount = 0, collectAmount = 0, paymentDate, idempotencyKey }
+  {
+    shopId,
+    order,
+    rows,
+    securityHeld,
+    refundAmount,
+    chargeAccountId,
+    userId,
+    retainAmount = 0,
+    collectAmount = 0,
+    paymentDate,
+    idempotencyKey,
+  }
 ) {
   const retainedTotal = round2(Number(retainAmount || 0));
   const directTotal = round2(Number(collectAmount || 0));
   if (retainedTotal > securityHeld + 0.009 || refundAmount > securityHeld - retainedTotal + 0.009) {
-    throw badRequest('Security refund plus explicitly retained amount cannot exceed available security');
+    throw badRequest(
+      'Security refund plus explicitly retained amount cannot exceed available security'
+    );
   }
-  if (directTotal > 0) await assertBankOrCashAccount(trx, shopId, chargeAccountId, 'condition deposit account');
+  if (directTotal > 0)
+    await assertBankOrCashAccount(trx, shopId, chargeAccountId, 'condition deposit account');
   const assessments = [];
   for (const entry of rows) {
     if (entry.condition === 'normal') {
       const existing = await trx('security_charges')
-        .where({ shop_id: shopId, order_id: order.id, item_type: entry.itemType, item_id: entry.line.id })
-        .whereNot('status', 'void').first('id');
+        .where({
+          shop_id: shopId,
+          order_id: order.id,
+          item_type: entry.itemType,
+          item_id: entry.line.id,
+        })
+        .whereNot('status', 'void')
+        .first('id');
       if (!existing) continue;
     }
-    const quantityLabel = entry.itemType === 'accessory' && Number(entry.line.qty || 1) > 1
-      ? ` · Qty ${entry.conditionQty} of ${Number(entry.line.qty)}` : '';
-    const label = entry.condition === 'missing' ? 'Missing' : entry.condition === 'damage' ? 'Damage' : 'Condition cleared';
+    const quantityLabel =
+      entry.itemType === 'accessory' && Number(entry.line.qty || 1) > 1
+        ? ` · Qty ${entry.conditionQty} of ${Number(entry.line.qty)}`
+        : '';
+    const label =
+      entry.condition === 'missing'
+        ? 'Missing'
+        : entry.condition === 'damage'
+          ? 'Damage'
+          : 'Condition cleared';
     const charge = await createOrUpdateConditionAssessmentWithTrx(trx, {
-      shopId, userId, orderId: order.id, customerId: order.customer_id || null,
-      itemType: entry.itemType, itemId: entry.line.id,
+      shopId,
+      userId,
+      orderId: order.id,
+      customerId: order.customer_id || null,
+      itemType: entry.itemType,
+      itemId: entry.line.id,
       conditionKind: entry.condition === 'normal' ? null : entry.condition,
-      amount: entry.chargeAmount, remarks: `${label} · ${entry.label}${quantityLabel}`,
+      amount: entry.chargeAmount,
+      remarks: `${label} · ${entry.label}${quantityLabel}`,
     });
     assessments.push(charge);
   }
@@ -3705,8 +3909,14 @@ async function postReturnConditionCharges(
     const collect = round2(Math.min(collectRemaining, charge.balances.uncollected - retain));
     if (retain > 0 || collect > 0) {
       await fundConditionChargeWithTrx(trx, {
-        shopId, userId, chargeId: charge.id, retainAmount: retain, collectAmount: collect,
-        paymentAccountId: chargeAccountId, paymentDate, idempotencyKey,
+        shopId,
+        userId,
+        chargeId: charge.id,
+        retainAmount: retain,
+        collectAmount: collect,
+        paymentAccountId: chargeAccountId,
+        paymentDate,
+        idempotencyKey,
       });
     }
     retainRemaining = round2(retainRemaining - retain);
@@ -3714,9 +3924,13 @@ async function postReturnConditionCharges(
   }
   return {
     total: round2(assessments.reduce((sum, charge) => sum + Number(charge.amount), 0)),
-    retained: retainedTotal, direct: directTotal, charge_ids: assessments.map((charge) => charge.id),
+    retained: retainedTotal,
+    direct: directTotal,
+    charge_ids: assessments.map((charge) => charge.id),
     income_entry_ids: [],
-    skipped_legacy_ids: assessments.filter((charge) => !charge.ledger_verified).map((charge) => charge.id),
+    skipped_legacy_ids: assessments
+      .filter((charge) => !charge.ledger_verified)
+      .map((charge) => charge.id),
   };
 }
 
@@ -3837,25 +4051,35 @@ export async function settleOrderDelivery(shopId, orderId, payload, userId) {
       };
       if (securityAmount > 0) {
         paymentIds.security_payment_id = uuid();
-        await insertOrderPayment(trx, shopId, {
-          ...paymentBase,
-          id: paymentIds.security_payment_id,
-          category: 'deposit',
-          amount: securityAmount,
-          payment_account_id: null,
-          security_account_id: payload.security_account_id,
-        }, 'delivery');
+        await insertOrderPayment(
+          trx,
+          shopId,
+          {
+            ...paymentBase,
+            id: paymentIds.security_payment_id,
+            category: 'deposit',
+            amount: securityAmount,
+            payment_account_id: null,
+            security_account_id: payload.security_account_id,
+          },
+          'delivery'
+        );
       }
       if (receiveAmount > 0) {
         paymentIds.rent_payment_id = uuid();
-        await insertOrderPayment(trx, shopId, {
-          ...paymentBase,
-          id: paymentIds.rent_payment_id,
-          category: receiveAmount >= balanceAfterDiscount ? 'final' : 'partial',
-          amount: receiveAmount,
-          payment_account_id: payload.payment_account_id,
-          security_account_id: null,
-        }, 'delivery');
+        await insertOrderPayment(
+          trx,
+          shopId,
+          {
+            ...paymentBase,
+            id: paymentIds.rent_payment_id,
+            category: receiveAmount >= balanceAfterDiscount ? 'final' : 'partial',
+            amount: receiveAmount,
+            payment_account_id: payload.payment_account_id,
+            security_account_id: null,
+          },
+          'delivery'
+        );
       }
 
       let stageResult = { order: null, lines: [], batch: { applied: 0 } };
@@ -3912,15 +4136,34 @@ export async function settleOrderReturn(shopId, orderId, payload, userId) {
       .first();
     if (!order) throw notFound('Order not found');
 
-    const previous = await trx('sync_queue').where({ id: payload.idempotency_key }).forUpdate().first();
+    const previous = await trx('sync_queue')
+      .where({ id: payload.idempotency_key })
+      .forUpdate()
+      .first();
     if (previous) {
-      const saved = assertSettlementReplay(previous, { shopId, orderId, userId, entity: 'return_settlement', payload });
-      return { ...saved.result, order: await getOrderWithTrx(trx, shopId, orderId), replayed: true };
+      const saved = assertSettlementReplay(previous, {
+        shopId,
+        orderId,
+        userId,
+        entity: 'return_settlement',
+        payload,
+      });
+      return {
+        ...saved.result,
+        order: await getOrderWithTrx(trx, shopId, orderId),
+        replayed: true,
+      };
     }
     await trx('sync_queue').insert({
-      id: payload.idempotency_key, shop_id: shopId, user_id: userId || null,
-      entity: 'return_settlement', entity_id: orderId, op: 'update', status: 'processing',
-      payload: JSON.stringify({ request: payload }), retry_count: 0,
+      id: payload.idempotency_key,
+      shop_id: shopId,
+      user_id: userId || null,
+      entity: 'return_settlement',
+      entity_id: orderId,
+      op: 'update',
+      status: 'processing',
+      payload: JSON.stringify({ request: payload }),
+      retry_count: 0,
     });
 
     await trx('payments')
@@ -3940,7 +4183,10 @@ export async function settleOrderReturn(shopId, orderId, payload, userId) {
     const receiveAmount = round2(Number(payload.receive_amount || 0));
     const refundAmount = round2(Number(payload.security_refund_amount || 0));
     if (
-      (receiveAmount > 0 || refundAmount > 0 || Number(payload.condition_collect_amount || 0) > 0 || Number(payload.condition_retain_amount || 0) > 0) &&
+      (receiveAmount > 0 ||
+        refundAmount > 0 ||
+        Number(payload.condition_collect_amount || 0) > 0 ||
+        Number(payload.condition_retain_amount || 0) > 0) &&
       !order.customer_id
     ) {
       throw badRequest('Add a customer before recording return payments');
@@ -4010,25 +4256,35 @@ export async function settleOrderReturn(shopId, orderId, payload, userId) {
     };
     if (refundAmount > 0) {
       paymentIds.refund_payment_id = uuid();
-      await insertOrderPayment(trx, shopId, {
-        ...paymentBase,
-        id: paymentIds.refund_payment_id,
-        category: 'deposit_refund',
-        amount: refundAmount,
-        payment_account_id: refundPaymentAccountId,
-        security_account_id: refundSecurityAccountId,
-      }, 'return');
+      await insertOrderPayment(
+        trx,
+        shopId,
+        {
+          ...paymentBase,
+          id: paymentIds.refund_payment_id,
+          category: 'deposit_refund',
+          amount: refundAmount,
+          payment_account_id: refundPaymentAccountId,
+          security_account_id: refundSecurityAccountId,
+        },
+        'return'
+      );
     }
     if (receiveAmount > 0) {
       paymentIds.rent_payment_id = uuid();
-      await insertOrderPayment(trx, shopId, {
-        ...paymentBase,
-        id: paymentIds.rent_payment_id,
-        category: receiveAmount >= pendingAmount ? 'final' : 'partial',
-        amount: receiveAmount,
-        payment_account_id: paymentAccountId,
-        security_account_id: null,
-      }, 'return');
+      await insertOrderPayment(
+        trx,
+        shopId,
+        {
+          ...paymentBase,
+          id: paymentIds.rent_payment_id,
+          category: receiveAmount >= pendingAmount ? 'final' : 'partial',
+          amount: receiveAmount,
+          payment_account_id: paymentAccountId,
+          security_account_id: null,
+        },
+        'return'
+      );
     }
 
     if (Number(workingOrder.deposit_amount || 0) > 0) {
@@ -4085,12 +4341,21 @@ export async function settleOrderReturn(shopId, orderId, payload, userId) {
       await recomputeOrderPayment(trx, shopId, orderId);
     }
 
-    const result = { payments: paymentIds, condition_charges: conditionCharges,
-      reminder_id: reminderId, stage: stageResult, replayed: false };
-    await trx('sync_queue').where({ id: payload.idempotency_key, shop_id: shopId }).update({
-      status: 'synced', synced_at: trx.fn.now(),
-      payload: JSON.stringify({ request: payload, result }), error: null,
-    });
+    const result = {
+      payments: paymentIds,
+      condition_charges: conditionCharges,
+      reminder_id: reminderId,
+      stage: stageResult,
+      replayed: false,
+    };
+    await trx('sync_queue')
+      .where({ id: payload.idempotency_key, shop_id: shopId })
+      .update({
+        status: 'synced',
+        synced_at: trx.fn.now(),
+        payload: JSON.stringify({ request: payload, result }),
+        error: null,
+      });
     return { ...result, order: await getOrderWithTrx(trx, shopId, orderId) };
   });
 }

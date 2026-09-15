@@ -14,10 +14,7 @@ const baseUserSchema = z.object({
     .optional()
     .nullable()
     .or(z.literal('')),
-  phone: z
-    .string()
-    .trim()
-    .regex(REGEX.PHONE_IN, 'Enter a valid 10-digit mobile number'),
+  phone: z.string().trim().regex(REGEX.PHONE_IN, 'Enter a valid 10-digit mobile number'),
   // Second mobile — optional, same 10-digit rule as `phone`. Neither number
   // The first mobile is mandatory because it is the login identity.
   phone2: z
@@ -62,8 +59,26 @@ export const createUserSchema = baseUserSchema
 
 export const updateUserSchema = baseUserSchema.partial().extend({ id: z.string().uuid() });
 
-/** Per-shop fixed commission configuration for a salesman. */
+const commissionRateSchema = z.coerce.number().finite().nonnegative().max(99999999.99);
+
+/** Per-shop fixed commission configuration for a salesman or manager. */
 export const salesmanCommissionSchema = z.object({
-  basis: z.enum(['booking', 'product']).nullable(),
-  rate: z.coerce.number().finite().nonnegative().max(99999999.99),
+  // Kept optional so an older offline desktop can still sync its former single-rate payload.
+  basis: z.enum(['booking', 'product']).nullable().optional(),
+  rate: commissionRateSchema.optional(),
+  manager_user_id: z.string().uuid().nullable().optional(),
+  self_booking_rate: commissionRateSchema.optional(),
+  self_product_rate: commissionRateSchema.optional(),
+  managed_booking_rate: commissionRateSchema.optional(),
+  managed_product_rate: commissionRateSchema.optional(),
+  category_rates: z
+    .array(
+      z.object({
+        category_id: z.string().uuid(),
+        self_rate: commissionRateSchema,
+        managed_rate: commissionRateSchema,
+      })
+    )
+    .max(200)
+    .optional(),
 });

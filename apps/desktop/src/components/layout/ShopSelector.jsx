@@ -3,6 +3,7 @@ import { Check, ChevronDown, Store } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../../lib/api.js';
+import { getApiErrorMessage } from '../../lib/apiError.js';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus.js';
 import { toast } from '../../stores/uiStore.js';
 import { useAuthStore } from '../../stores/authStore.js';
@@ -17,7 +18,6 @@ const ShopSelector = () => {
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
-  const [reloading, setReloading] = useState(false);
   const ref = useRef(null);
 
   useEffect(() => {
@@ -45,7 +45,6 @@ const ShopSelector = () => {
       return;
     }
     setOpen(false);
-    setReloading(true);
     try {
       const response = await api.post(
         '/auth/select-shop',
@@ -60,27 +59,17 @@ const ShopSelector = () => {
       if (currentUser && selectedShop?.shop_permissions) {
         setUser({ ...currentUser, permissions: selectedShop.shop_permissions });
       }
-      await queryClient.resetQueries();
+      queryClient.resetQueries();
     } catch (error) {
-      toast.error(error?.response?.data?.error?.message || 'Could not validate shop access');
-    } finally {
-      setReloading(false);
+      const unreachable = !error?.response;
+      toast.error(
+        unreachable
+          ? 'Server is not reachable. Keep npm run dev:backend running, then retry.'
+          : error?.response?.data?.error?.message ||
+              getApiErrorMessage(error, 'Could not switch shop')
+      );
     }
   };
-
-  if (reloading) {
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-surface/90">
-        <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-surface px-5 py-4 text-sm text-gray-700 shadow-pop">
-          <span
-            className="h-5 w-5 shrink-0 rounded-full border-2 border-brand border-t-transparent animate-spin"
-            aria-hidden
-          />
-          <span>Switching shop…</span>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative" ref={ref}>

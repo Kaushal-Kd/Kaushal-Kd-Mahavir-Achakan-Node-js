@@ -71,9 +71,9 @@ export default function ReplacementRequirementsPanel({ orderId, direction = 'tar
   );
   if (!rows.length) return null;
   return (
-    <section className="my-3 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-gray-900">
-      <h3 className="font-semibold">Alternate products required before delivery</h3>
-      <p className="mt-1 text-xs">Current return can be saved. Each affected future item must be replaced; repair alone does not release this requirement.</p>
+    <section className="my-3 rounded border border-red-300 bg-red-50 p-3 text-sm text-gray-900">
+      <h3 className="font-semibold">This product is damaged</h3>
+      <p className="mt-1 text-xs">Alternate products required before delivery. Current return can be saved. Each affected future item must be replaced; repair alone does not release this requirement.</p>
       {!online ? <p className="mt-1 text-xs font-medium">Offline: showing cached requirements. Changes require server confirmation before delivery.</p> : null}
       <ul className="mt-2 space-y-2">
         {rows.map((row) => (
@@ -81,6 +81,7 @@ export default function ReplacementRequirementsPanel({ orderId, direction = 'tar
             <div className="min-w-0">
               <Link to={`/booking/${row.target_order_id}`} className="font-medium text-brand underline">{row.order_number || 'Open booking'}</Link>
               <span> · {formatDate(row.pickup_date)} · {row.source_product_label}</span>
+              <p className="text-xs font-medium text-red-700">this product is damaged</p>
               {row.customer_name ? <p className="text-xs text-gray-600">{row.customer_name}</p> : null}
             </div>
             <Button size="sm" variant="secondary"

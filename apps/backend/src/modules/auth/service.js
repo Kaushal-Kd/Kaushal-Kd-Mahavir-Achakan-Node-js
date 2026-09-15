@@ -272,6 +272,11 @@ export async function revokeAuthSession(sessionId, revokedByUserId, reason) {
 export async function listShopAuthSessions(shopId, status = 'active', actorUserId = null) {
   const qb = knex('auth_sessions as s')
     .join('users as u', 'u.id', 's.user_id')
+    .leftJoin('shop_approved_devices as approved', function joinApprovedDevice() {
+      this.on('approved.user_id', '=', 's.user_id')
+        .andOn('approved.device_id', '=', 's.device_id')
+        .andOnVal('approved.shop_id', '=', shopId);
+    })
     .where((scope) => {
       if (actorUserId) scope.where('u.id', actorUserId);
       scope.orWhereExists(function shopMember() {
@@ -296,7 +301,8 @@ export async function listShopAuthSessions(shopId, status = 'active', actorUserI
         "CASE WHEN s.status = 'active' AND s.expires_at <= NOW() THEN 'expired' ELSE s.status END as status"
       ),
       's.revoked_at',
-      's.revoke_reason'
+      's.revoke_reason',
+      knex.raw('approved.device_id IS NOT NULL as is_approved')
     )
     .orderBy('s.last_used_at', 'desc');
   if (status === 'active') {
@@ -304,7 +310,8 @@ export async function listShopAuthSessions(shopId, status = 'active', actorUserI
   } else if (status !== 'all') {
     qb.andWhere('s.status', status);
   }
-  return qb;
+  const rows = await qb;
+  return rows.map((row) => ({ ...row, is_approved: Boolean(Number(row.is_approved)) }));
 }
 
 export async function getShopScopedAuthSession(shopId, sessionId, actorUserId = null) {

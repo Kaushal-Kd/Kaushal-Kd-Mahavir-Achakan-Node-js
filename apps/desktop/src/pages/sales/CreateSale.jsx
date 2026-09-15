@@ -27,8 +27,10 @@ import { productsApi } from '../../lib/api/products.js';
 import { validateSellProductQty } from '../../lib/productAvailability.js';
 import { salesApi } from '../../lib/api/sales.js';
 import { buildSalesmanSelectOptions } from '../../lib/salesmanOptions.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import { usersApi } from '../../lib/api/users.js';
 import { useAuthStore } from '../../stores/authStore.js';
+import { useShopStore } from '../../stores/shopStore.js';
 import { useAppSettings } from '../../hooks/useAppSettings.js';
 import {
   computeItemTotals,
@@ -74,6 +76,7 @@ const CreateSale = ({ mode }) => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
+  const selectedShopId = useShopStore((s) => s.selectedShopId);
   const { gst } = useAppSettings();
   const isEdit = mode === 'edit' && !!saleId;
 
@@ -147,9 +150,10 @@ const CreateSale = ({ mode }) => {
   });
 
   const shopUsersQuery = useQuery({
-    queryKey: ['users', 'sale-salesman'],
+    queryKey: queryKeys.users.dropdown(selectedShopId),
     queryFn: () => usersApi.list({ per_page: 200, is_active: 'true' }),
     staleTime: 60_000,
+    enabled: Boolean(selectedShopId),
   });
 
   const salesmanOptions = useMemo(() => {
@@ -157,12 +161,23 @@ const CreateSale = ({ mode }) => {
     const extras = sale?.sales_person_id
       ? [{ id: sale.sales_person_id, label: sale.sales_person_name }]
       : [];
-    return buildSalesmanSelectOptions(shopUsersQuery.data?.data || [], currentUser, extras);
-  }, [shopUsersQuery.data, currentUser, saleQuery.data?.data]);
+    return buildSalesmanSelectOptions(
+      shopUsersQuery.data?.data || [],
+      currentUser,
+      extras,
+      selectedShopId
+    );
+  }, [shopUsersQuery.data, currentUser, saleQuery.data?.data, selectedShopId]);
 
   useEffect(() => {
-    if (isEdit || salesPersonId) return;
-    if (currentUser?.id && salesmanOptions.some((o) => o.value === currentUser.id)) {
+    if (isEdit) return;
+    const selectedIsValid = salesmanOptions.some((o) => o.value === salesPersonId);
+    if (salesPersonId && !selectedIsValid) {
+      const selfId = currentUser?.id;
+      setSalesPersonId(salesmanOptions.some((o) => o.value === selfId) ? selfId : '');
+      return;
+    }
+    if (!salesPersonId && currentUser?.id && salesmanOptions.some((o) => o.value === currentUser.id)) {
       setSalesPersonId(currentUser.id);
     }
   }, [isEdit, currentUser?.id, salesPersonId, salesmanOptions]);
@@ -214,32 +229,6 @@ const CreateSale = ({ mode }) => {
       }))
     );
   }, [isEdit, saleQuery.data]);
-
-  const handleBillTypeChange = useCallback(
-    (nextBillType) => {
-      setBillType(nextBillType);
-      const configuredRates =
-        nextBillType === 'gst'
-          ? { cgst_percent: Number(gst.cgst || 0), sgst_percent: Number(gst.sgst || 0) }
-          : { cgst_percent: 0, sgst_percent: 0 };
-      setAddCgst(configuredRates.cgst_percent);
-      setAddSgst(configuredRates.sgst_percent);
-      setAddIgst(0);
-      setItems((current) =>
-        current.map((item) => {
-          const hasTaxRate =
-            Number(item.cgst_percent) || Number(item.sgst_percent) || Number(item.igst_percent);
-          if (nextBillType === 'gst' && hasTaxRate) return item;
-          return computeItemTotals({
-            ...item,
-            ...configuredRates,
-            igst_percent: 0,
-          });
-        })
-      );
-    },
-    [gst.cgst, gst.sgst]
-  );
 
   const searchResults = productOptions;
 
@@ -676,21 +665,15 @@ const CreateSale = ({ mode }) => {
   return (
     <div className="overflow-auto">
       <PageHeader
-        title={isEdit ? 'Edit Sale' : 'Create Sale'}
+        title={
+          isEdit && saleNumber ? `Edit Sale · ${saleNumber}` : isEdit ? 'Edit Sale' : 'Create Sale'
+        }
         breadcrumbs={[
           { label: 'Dashboard', to: '/' },
           { label: 'Sales', to: '/sales' },
           { label: isEdit ? 'Edit Sale' : 'Create Sale' },
         ]}
       />
-      {saleNumber ? (
-        <div className="-mt-2 mb-4">
-          <span className="inline-block font-mono text-xs px-2 py-0.5 rounded border border-brand/25 bg-brand-light text-brand">
-            {saleNumber}
-          </span>
-        </div>
-      ) : null}
-
       {/* ── Customer Details ── */}
       <fieldset
         ref={customerFieldRef}
@@ -769,21 +752,10 @@ const CreateSale = ({ mode }) => {
             ) : null}
           </div>
           <div>
-            <label
-              htmlFor="sale-bill-type"
-              className="block text-[11px] font-medium text-gray-500 mb-0.5"
-            >
-              Bill Type
-            </label>
-            <select
-              id="sale-bill-type"
-              className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-sm bg-white focus:border-brand focus:ring-1 focus:ring-brand/30 outline-none"
-              value={billType}
-              onChange={(event) => handleBillTypeChange(event.target.value)}
-            >
-              <option value="kaccha">Kaccha Bill</option>
-              <option value="gst">GST Bill</option>
-            </select>
+            <span className="block text-[11px] font-medium text-gray-500 mb-0.5">Bill Type</span>
+            <div className="w-full rounded border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-sm text-gray-700">
+              {billType === 'gst' ? 'Legacy GST Bill' : 'Kaccha Bill'}
+            </div>
           </div>
           <div className="col-span-2">
             <label

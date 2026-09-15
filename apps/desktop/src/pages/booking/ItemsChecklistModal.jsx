@@ -22,6 +22,7 @@ import {
   applyConditionPatchWithStageEffects,
   countReceivedBulkSkipped,
   diffStageUpdates,
+  getBulkAccessoryQuantityWarnings,
   stageUpdatesIncludeNewDelivered,
   stageUpdatesIncludeNewReceived,
   stageUpdatesRequireAdminPassword,
@@ -33,10 +34,15 @@ import {
   conditionDraftIsDirty,
   needsConditionConfirmOnSave,
 } from '../../lib/orderConditionDraft.js';
-import { MIXED_DELIVERY_CONDITION_MESSAGE, prepareChecklistCombinedReview, saveChecklistDraft, shouldSendChecklistWhatsApp, useChecklistDraftState } from '../../lib/orderChecklistSave.js';
+import {
+  MIXED_DELIVERY_CONDITION_MESSAGE,
+  prepareChecklistCombinedReview,
+  saveChecklistDraft,
+  shouldSendChecklistWhatsApp,
+  useChecklistDraftState,
+} from '../../lib/orderChecklistSave.js';
 import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
 import { toast } from '../../stores/uiStore.js';
-import { buildWhatsAppTransactionPdf } from '../../utils/whatsappTransactionPdf.js';
 import { newMissingLineKeys } from '../../utils/whatsappTransactionRows.js';
 
 const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) => {
@@ -51,6 +57,7 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
   const [combinedModalPreview, setCombinedModalPreview] = useState({ lines: [], total: 0 });
   const [adminPasswordOpen, setAdminPasswordOpen] = useState(false);
   const [adminPasswordError, setAdminPasswordError] = useState('');
+  const [pendingBulkAction, setPendingBulkAction] = useState(null);
   const wa = useWhatsAppOutbound();
   const pendingWaStageDraftRef = useRef(null);
   const pendingWaOrderRef = useRef(null);
@@ -65,8 +72,21 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
 
   const order = orderQuery.data;
   const checklist = useChecklistCommand(orderId);
-  const { draftOrder, stageDraft, setStageDraft, conditionDraft, setConditionDraft, resetDrafts, refreshDrafts, refreshError, locked } =
-    useChecklistDraftState(order, checklist.pendingEntry, { enabled: isOpen, scopeKey: orderId, refetch: orderQuery.refetch });
+  const {
+    draftOrder,
+    stageDraft,
+    setStageDraft,
+    conditionDraft,
+    setConditionDraft,
+    resetDrafts,
+    refreshDrafts,
+    refreshError,
+    locked,
+  } = useChecklistDraftState(order, checklist.pendingEntry, {
+    enabled: isOpen,
+    scopeKey: orderId,
+    refetch: orderQuery.refetch,
+  });
   const paymentAccountsQuery = useQuery({
     queryKey: ['payment-accounts'],
     queryFn: () => paymentAccountsApi.list(),
@@ -86,6 +106,7 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
     setCombinedModalPreview({ lines: [], total: 0 });
     setAdminPasswordOpen(false);
     setAdminPasswordError('');
+    setPendingBulkAction(null);
     pendingStageUpdatesRef.current = null;
   }, [orderId, isOpen]);
 
@@ -106,17 +127,25 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
   const isAnythingDirty = isStageDirty || isConditionDirty;
 
   const saveStageMut = useMutation({
-    mutationFn: ({ updates, combinedCharge, admin_password }) => saveChecklistDraft({
-      submit: checklist.submit, order: draftOrder, stageDraft, conditionDraft,
-      stageUpdates: updates, combinedCharge, adminPassword: admin_password,
-    }),
+    mutationFn: ({ updates, combinedCharge, admin_password }) =>
+      saveChecklistDraft({
+        submit: checklist.submit,
+        order: draftOrder,
+        stageDraft,
+        conditionDraft,
+        stageUpdates: updates,
+        combinedCharge,
+        adminPassword: admin_password,
+      }),
     onSuccess: async (result) => {
       setAdminPasswordOpen(false);
       setAdminPasswordError('');
       pendingStageUpdatesRef.current = null;
       setCombinedChargeOpen(false);
       if (result.queued) {
-        toast.info('Checklist saved on this device; awaiting sync. Resolve any failed action in Pending sync items.');
+        toast.info(
+          'Checklist saved on this device; awaiting sync. Resolve any failed action in Pending sync items.'
+        );
         return;
       }
       if (result.order) {
@@ -129,19 +158,32 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
       const orderSnapshot = pendingWaOrderRef.current;
       pendingWaStageDraftRef.current = null;
       pendingWaOrderRef.current = null;
-      if (shouldSendChecklistWhatsApp(result)) await runStageTemplateWhatsApp(wa, {
-        order: orderSnapshot,
-        stageDraftAfter,
-        orderId,
-        actionLabel: 'Checklist stages saved',
-        excludeDelivered: true,
-      });
-      const missingLineKeys = shouldSendChecklistWhatsApp(result) ? newMissingLineKeys(orderSnapshot, result.order) : [];
-      if (missingLineKeys.length) await wa.runOutbound({
-        templateKey: 'RETURN_MISSING_ITEMS', orderId, order: result.order,
-        actionLabel: 'Missing items saved', forcePrompt: true,
-        document: buildWhatsAppTransactionPdf(result.order, 'missing', { lineKeys: missingLineKeys }),
-      });
+      if (shouldSendChecklistWhatsApp(result))
+        await runStageTemplateWhatsApp(wa, {
+          order: orderSnapshot,
+          stageDraftAfter,
+          orderId,
+          actionLabel: 'Checklist stages saved',
+          excludeDelivered: true,
+        });
+      const missingLineKeys = shouldSendChecklistWhatsApp(result)
+        ? newMissingLineKeys(orderSnapshot, result.order)
+        : [];
+      if (missingLineKeys.length) {
+        const { buildWhatsAppTransactionPdf } = await import(
+          '../../utils/whatsappTransactionPdf.js'
+        );
+        await wa.runOutbound({
+          templateKey: 'RETURN_MISSING_ITEMS',
+          orderId,
+          order: result.order,
+          actionLabel: 'Missing items saved',
+          forcePrompt: true,
+          document: buildWhatsAppTransactionPdf(result.order, 'missing', {
+            lineKeys: missingLineKeys,
+          }),
+        });
+      }
       onClose();
     },
     onError: (e) => {
@@ -177,7 +219,10 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
     }
 
     if (stageUpdatesIncludeNewDelivered(updates)) {
-      if (isConditionDirty) { toast.warning(MIXED_DELIVERY_CONDITION_MESSAGE); return; }
+      if (isConditionDirty) {
+        toast.warning(MIXED_DELIVERY_CONDITION_MESSAGE);
+        return;
+      }
       onRequireSettlement(workingOrder.id, {
         settlementKind: 'delivery',
         stageUpdates: updates,
@@ -238,19 +283,28 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
 
     const draftStageUpdates = diffStageUpdates(draftOrder, stageDraft, conditionDraft);
     if (stageUpdatesIncludeNewDelivered(draftStageUpdates) && hasConditionChanges) {
-      toast.warning(MIXED_DELIVERY_CONDITION_MESSAGE); return;
+      toast.warning(MIXED_DELIVERY_CONDITION_MESSAGE);
+      return;
     }
     if (stageUpdatesIncludeNewReceived(draftStageUpdates)) {
       onRequireSettlement(order.id, {
         settlementKind: 'return',
         stageUpdates: draftStageUpdates,
         stageDraftAfter: stageDraft,
-        conditionUpdates: buildReturnConditionUpdates(draftOrder, conditionDraft, draftStageUpdates),
+        conditionUpdates: buildReturnConditionUpdates(
+          draftOrder,
+          conditionDraft,
+          draftStageUpdates
+        ),
       });
       return;
     }
 
-    if (hasConditionChanges && (draftOrder.pending_checklist_combined_charge || needsConditionConfirmOnSave(draftOrder, conditionDraft))) {
+    if (
+      hasConditionChanges &&
+      (draftOrder.pending_checklist_combined_charge ||
+        needsConditionConfirmOnSave(draftOrder, conditionDraft))
+    ) {
       openCombinedChargeModal();
       return;
     }
@@ -264,9 +318,9 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
       return;
     }
     await finishSaveAfterConditions({
-        amount: combinedModalPreview.total,
-        accountId: combinedModalAccountId,
-        remarks: combinedModalRemarks,
+      amount: combinedModalPreview.total,
+      accountId: combinedModalAccountId,
+      remarks: combinedModalRemarks,
     });
   };
 
@@ -292,7 +346,14 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
   const handleConditionDraftChange = (itemType, id, patch) => {
     if (locked) return;
     const { conditionDraft: nextCondition, stageDraft: nextStage } =
-      applyConditionPatchWithStageEffects(draftOrder, stageDraft, conditionDraft, itemType, id, patch);
+      applyConditionPatchWithStageEffects(
+        draftOrder,
+        stageDraft,
+        conditionDraft,
+        itemType,
+        id,
+        patch
+      );
     setConditionDraft(nextCondition);
     setStageDraft(nextStage);
   };
@@ -308,6 +369,11 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
     });
     if (!v.ok) {
       toast.error(v.message);
+      return;
+    }
+    const quantityWarnings = getBulkAccessoryQuantityWarnings(draftOrder, stageDraft, next, field);
+    if (quantityWarnings.length) {
+      setPendingBulkAction({ field, next, rows: quantityWarnings });
       return;
     }
     setStageDraft(next);
@@ -351,11 +417,36 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
           <p className="text-sm text-red-600">Could not load checklist.</p>
         ) : (
           <div className="space-y-3">
-            {locked ? <div role="status" className="space-y-2 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
-              <p>{refreshError || (checklist.pendingEntry ? 'This checklist has a pending sync action. The saved draft is shown below and cannot be edited until it is confirmed or removed in Pending sync items.' : 'Refreshing the confirmed checklist before further edits.')} {checklist.pendingEntry?.error || checklist.pendingEntry?.blockedReason || ''}</p>
-              {checklist.pendingEntry?.payload?.combined_assessment ? <p>Pending assessment: {Number(checklist.pendingEntry.payload.combined_assessment.amount).toFixed(2)}. {checklist.pendingEntry.payload.combined_assessment.remarks}</p> : null}
-              {refreshError ? <Button size="sm" variant="secondary" onClick={() => void refreshDrafts()}>Refresh checklist</Button> : null}
-            </div> : !checklist.isOnline ? <p className="text-sm text-yellow-800">Offline changes will be saved on this device and validated during sync.</p> : null}
+            {locked ? (
+              <div
+                role="status"
+                className="space-y-2 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800"
+              >
+                <p>
+                  {refreshError ||
+                    (checklist.pendingEntry
+                      ? 'This checklist has a pending sync action. The saved draft is shown below and cannot be edited until it is confirmed or removed in Pending sync items.'
+                      : 'Refreshing the confirmed checklist before further edits.')}{' '}
+                  {checklist.pendingEntry?.error || checklist.pendingEntry?.blockedReason || ''}
+                </p>
+                {checklist.pendingEntry?.payload?.combined_assessment ? (
+                  <p>
+                    Pending assessment:{' '}
+                    {Number(checklist.pendingEntry.payload.combined_assessment.amount).toFixed(2)}.{' '}
+                    {checklist.pendingEntry.payload.combined_assessment.remarks}
+                  </p>
+                ) : null}
+                {refreshError ? (
+                  <Button size="sm" variant="secondary" onClick={() => void refreshDrafts()}>
+                    Refresh checklist
+                  </Button>
+                ) : null}
+              </div>
+            ) : !checklist.isOnline ? (
+              <p className="text-sm text-yellow-800">
+                Offline changes will be saved on this device and validated during sync.
+              </p>
+            ) : null}
             {order.customer_notes ? (
               <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                 <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">
@@ -378,7 +469,11 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
                     variant="secondary"
                     onClick={() => bulkCheck(s.key)}
                     disabled={
-                      saveStageMut.isPending || locked || isCancelled || allRows.length === 0 || !stageDraft
+                      saveStageMut.isPending ||
+                      locked ||
+                      isCancelled ||
+                      allRows.length === 0 ||
+                      !stageDraft
                     }
                   >
                     {s.label}
@@ -421,6 +516,29 @@ const ItemsChecklistModal = ({ isOpen, orderId, onClose, onRequireSettlement }) 
         onAccountIdChange={setCombinedModalAccountId}
         paymentAccountOptions={paymentAccountOptions}
         loading={saveStageMut.isPending}
+      />
+      <ConfirmDialog
+        isOpen={Boolean(pendingBulkAction)}
+        onClose={() => setPendingBulkAction(null)}
+        onConfirm={() => {
+          setStageDraft(pendingBulkAction.next);
+          setPendingBulkAction(null);
+        }}
+        title={`Confirm bulk ${pendingBulkAction?.field === 'delivered' ? 'delivery' : 'prepare'}`}
+        message={
+          <div className="space-y-2">
+            <p>This action marks the full quantity of these accessories:</p>
+            <ul className="max-h-48 list-disc overflow-y-auto pl-5">
+              {(pendingBulkAction?.rows || []).map((row) => (
+                <li key={row.id}>
+                  {row.label} — quantity {row.qty}
+                </li>
+              ))}
+            </ul>
+            <p className="font-medium">Check the physical quantity before continuing.</p>
+          </div>
+        }
+        confirmLabel="Confirm full quantity"
       />
       <ConfirmDialog
         isOpen={discardConfirmOpen}

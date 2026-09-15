@@ -43,6 +43,35 @@ function assertTargetRoleAllowed(actor, targetRole) {
   }
 }
 
+const COMMISSION_MEMBERSHIP_FIELDS = [
+  'commission_basis',
+  'commission_rate',
+  'manager_user_id',
+  'self_booking_commission_rate',
+  'self_product_commission_rate',
+  'managed_booking_commission_rate',
+  'managed_product_commission_rate',
+];
+
+function serializeCommissionMembership(row, categoryRates = []) {
+  return {
+    commission_basis: row?.commission_basis || null,
+    commission_rate: Number(row?.commission_rate || 0),
+    manager_user_id: row?.manager_user_id || null,
+    manager_name: row?.manager_name || null,
+    self_booking_rate: Number(row?.self_booking_commission_rate || 0),
+    self_product_rate: Number(row?.self_product_commission_rate || 0),
+    managed_booking_rate: Number(row?.managed_booking_commission_rate || 0),
+    managed_product_rate: Number(row?.managed_product_commission_rate || 0),
+    category_rates: categoryRates.map((rate) => ({
+      category_id: rate.category_id,
+      category_label: rate.category_label || null,
+      self_rate: Number(rate.self_rate || 0),
+      managed_rate: Number(rate.managed_rate || 0),
+    })),
+  };
+}
+
 async function assertUsernameAvailable(username, excludeUserId = null) {
   if (!username) return;
   let qb = knex('users').whereRaw('LOWER(username) = ?', [username.toLowerCase()]);
@@ -178,25 +207,39 @@ export default async function userRoutes(fastify) {
     const shopRows = userIds.length
       ? await knex('users_shops as us')
           .join('shops as s', 's.id', 'us.shop_id')
+          .leftJoin('users as manager', 'manager.id', 'us.manager_user_id')
           .whereIn('us.user_id', userIds)
           .select(
             'us.user_id',
             's.id as shop_id',
             's.shop_name',
-            'us.commission_basis',
-            'us.commission_rate',
+            ...COMMISSION_MEMBERSHIP_FIELDS.map((field) => `us.${field}`),
+            'manager.name as manager_name',
             'us.permissions',
             'us.permissions_overridden'
           )
       : [];
+    const categoryRows =
+      shopId && userIds.length
+        ? await knex('commission_category_rates as ccr')
+            .join('categories as c', 'c.id', 'ccr.category_id')
+            .where('ccr.shop_id', shopId)
+            .whereIn('ccr.user_id', userIds)
+            .select('ccr.*', 'c.label as category_label')
+        : [];
+    const categoryRatesByUser = new Map();
+    for (const rate of categoryRows) {
+      const previous = categoryRatesByUser.get(rate.user_id) || [];
+      previous.push(rate);
+      categoryRatesByUser.set(rate.user_id, previous);
+    }
     const shopsByUser = new Map();
     for (const r of shopRows) {
       const prev = shopsByUser.get(r.user_id) || [];
       prev.push({
         id: r.shop_id,
         name: r.shop_name,
-        commission_basis: r.commission_basis || null,
-        commission_rate: Number(r.commission_rate || 0),
+        ...serializeCommissionMembership(r, categoryRatesByUser.get(r.user_id) || []),
         permissions: parseStoredPermissions(r.permissions),
         permissions_overridden: Boolean(r.permissions_overridden),
       });
@@ -210,12 +253,9 @@ export default async function userRoutes(fastify) {
         is_online: isOnline(row.last_seen_at),
         shop_ids: shops.map((s) => s.id),
         shop_names: shops.map((s) => s.name),
-        commission_basis: shopId
-          ? shops.find((shop) => shop.id === shopId)?.commission_basis || null
-          : null,
-        commission_rate: shopId
-          ? Number(shops.find((shop) => shop.id === shopId)?.commission_rate || 0)
-          : 0,
+        ...(shopId
+          ? shops.find((shop) => shop.id === shopId) || serializeCommissionMembership(null)
+          : serializeCommissionMembership(null)),
         permissions: shopId
           ? shops.find((shop) => shop.id === shopId)?.permissions || clean.permissions
           : clean.permissions,
@@ -231,27 +271,34 @@ export default async function userRoutes(fastify) {
     const row = await knex('users').where({ id: request.params.id }).first();
     if (!row) throw notFound('User not found');
     assertTargetRoleAllowed(request.authUser, row.role);
-    const shopRows = await knex('users_shops')
-      .where({ user_id: row.id })
+    const shopRows = await knex('users_shops as us')
+      .leftJoin('users as manager', 'manager.id', 'us.manager_user_id')
+      .where({ 'us.user_id': row.id })
       .select(
-        'shop_id',
-        'commission_basis',
-        'commission_rate',
-        'permissions',
-        'permissions_overridden'
+        'us.shop_id',
+        ...COMMISSION_MEMBERSHIP_FIELDS.map((field) => `us.${field}`),
+        'manager.name as manager_name',
+        'us.permissions',
+        'us.permissions_overridden'
       );
     const selectedShopId = request.shopId;
     const selectedShop = shopRows.find((shop) => shop.shop_id === selectedShopId);
     if (!selectedShop && request.authUser.role !== 'super_admin') {
       throw forbidden('User is not assigned to this shop');
     }
+    const categoryRates = selectedShop
+      ? await knex('commission_category_rates as ccr')
+          .join('categories as c', 'c.id', 'ccr.category_id')
+          .where({ 'ccr.shop_id': selectedShopId, 'ccr.user_id': row.id })
+          .select('ccr.*', 'c.label as category_label')
+          .orderBy('c.label')
+      : [];
     return {
       ok: true,
       data: {
         ...sanitizeUser(row),
         shop_ids: shopRows.map((shop) => shop.shop_id),
-        commission_basis: selectedShop?.commission_basis || null,
-        commission_rate: Number(selectedShop?.commission_rate || 0),
+        ...serializeCommissionMembership(selectedShop, categoryRates),
         permissions: parseStoredPermissions(selectedShop?.permissions),
         permissions_overridden: Boolean(selectedShop?.permissions_overridden),
       },
@@ -273,19 +320,89 @@ export default async function userRoutes(fastify) {
     const body = validate(salesmanCommissionSchema, request.body || {});
     const target = await knex('users').where({ id: request.params.id }).first('id', 'role');
     if (!target) throw notFound('User not found');
-    if (target.role !== 'salesman') {
-      throw badRequest('Commission settings apply only to salesmen');
+    if (!['salesman', 'manager'].includes(target.role)) {
+      throw badRequest('Commission settings apply only to salesmen and managers');
     }
     const before = await knex('users_shops')
       .where({ user_id: request.params.id, shop_id: shopId })
       .first();
     if (!before) throw notFound('User is not assigned to this shop');
-    await knex('users_shops')
-      .where({ user_id: request.params.id, shop_id: shopId })
-      .update({
-        commission_basis: body.basis || null,
-        commission_rate: body.basis ? body.rate : 0,
-      });
+    if (body.manager_user_id) {
+      if (target.role !== 'salesman') {
+        throw badRequest('Only a salesman can be assigned to a manager');
+      }
+      const manager = await knex('users_shops as us')
+        .join('users as u', 'u.id', 'us.user_id')
+        .where({ 'us.shop_id': shopId, 'us.user_id': body.manager_user_id, 'u.role': 'manager' })
+        .first('u.id');
+      if (!manager) throw badRequest('Selected manager is not assigned to this shop');
+    }
+
+    const categoryRates = body.category_rates || [];
+    if (new Set(categoryRates.map((rate) => rate.category_id)).size !== categoryRates.length) {
+      throw badRequest('Each product category can have only one commission rate');
+    }
+    if (categoryRates.length) {
+      const validCategoryIds = await knex('categories')
+        .where({ shop_id: shopId, category_type: 'product' })
+        .whereIn(
+          'id',
+          categoryRates.map((rate) => rate.category_id)
+        )
+        .pluck('id');
+      if (validCategoryIds.length !== categoryRates.length) {
+        throw badRequest('One or more commission categories do not belong to this shop');
+      }
+    }
+
+    let selfBookingRate = Number(body.self_booking_rate ?? 0);
+    let selfProductRate = Number(body.self_product_rate ?? 0);
+    if (body.basis !== undefined) {
+      selfBookingRate = body.basis === 'booking' ? Number(body.rate || 0) : 0;
+      selfProductRate = body.basis === 'product' ? Number(body.rate || 0) : 0;
+    }
+    const managedBookingRate =
+      target.role === 'manager' ? Number(body.managed_booking_rate || 0) : 0;
+    const managedProductRate =
+      target.role === 'manager' ? Number(body.managed_product_rate || 0) : 0;
+    const legacyBasis =
+      selfBookingRate > 0 && selfProductRate === 0
+        ? 'booking'
+        : selfProductRate > 0 && selfBookingRate === 0
+          ? 'product'
+          : null;
+    const legacyRate =
+      legacyBasis === 'booking' ? selfBookingRate : legacyBasis === 'product' ? selfProductRate : 0;
+
+    await knex.transaction(async (trx) => {
+      await trx('users_shops')
+        .where({ user_id: request.params.id, shop_id: shopId })
+        .update({
+          commission_basis: legacyBasis,
+          commission_rate: legacyRate,
+          manager_user_id: target.role === 'salesman' ? body.manager_user_id || null : null,
+          self_booking_commission_rate: selfBookingRate,
+          self_product_commission_rate: selfProductRate,
+          managed_booking_commission_rate: managedBookingRate,
+          managed_product_commission_rate: managedProductRate,
+        });
+      if (body.category_rates !== undefined) {
+        await trx('commission_category_rates')
+          .where({ user_id: request.params.id, shop_id: shopId })
+          .delete();
+        const rows = categoryRates
+          .map((rate) => ({
+            id: uuid(),
+            shop_id: shopId,
+            user_id: request.params.id,
+            category_id: rate.category_id,
+            self_rate: rate.self_rate,
+            managed_rate: target.role === 'manager' ? rate.managed_rate : 0,
+          }))
+          .filter((rate) => Number(rate.self_rate) > 0 || Number(rate.managed_rate) > 0);
+        if (rows.length) await trx('commission_category_rates').insert(rows);
+      }
+    });
     const after = await knex('users_shops')
       .where({ user_id: request.params.id, shop_id: shopId })
       .first();
@@ -297,8 +414,13 @@ export default async function userRoutes(fastify) {
     return {
       ok: true,
       data: {
-        commission_basis: after.commission_basis || null,
-        commission_rate: Number(after.commission_rate || 0),
+        ...serializeCommissionMembership(
+          after,
+          await knex('commission_category_rates').where({
+            user_id: request.params.id,
+            shop_id: shopId,
+          })
+        ),
       },
     };
   });

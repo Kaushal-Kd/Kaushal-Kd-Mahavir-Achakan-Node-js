@@ -1,4 +1,3 @@
-import { buildWhatsAppTransactionPdf } from '../utils/whatsappTransactionPdf.js';
 import { newDeliveredLineKeys } from '../utils/whatsappTransactionRows.js';
 
 import {
@@ -13,7 +12,7 @@ export async function runDeliveryWhatsAppFlow({
   orderId,
   stageUpdates,
   actionLabel,
-  buildDocument = buildWhatsAppTransactionPdf,
+  buildDocument,
 }) {
   if (!wa?.runOutbound || !orderBefore || !orderAfter || !orderId) return [];
   const sentTemplates = [];
@@ -25,13 +24,16 @@ export async function runDeliveryWhatsAppFlow({
 
   const lineKeys = newDeliveredLineKeys(orderBefore, orderAfter, stageUpdates);
   if (lineKeys.length) {
+    const build =
+      buildDocument ||
+      (await import('../utils/whatsappTransactionPdf.js')).buildWhatsAppTransactionPdf;
     const result = await wa.runOutbound({
       templateKey: 'DELIVERY_PRODUCT_LIST',
       orderId,
       order: orderAfter,
       actionLabel: 'Delivery saved',
       forcePrompt: true,
-      document: buildDocument(orderAfter, 'delivery', { lineKeys }),
+      document: build(orderAfter, 'delivery', { lineKeys }),
     });
     if (result?.sent) sentTemplates.push('DELIVERY_PRODUCT_LIST');
   }

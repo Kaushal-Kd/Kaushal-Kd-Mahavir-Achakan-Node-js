@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
 export const IP_ACCESS_MODES = Object.freeze(['inherit', 'anywhere', 'restricted']);
+export const SHOP_ACCESS_MODES = Object.freeze([
+  'inherit',
+  'restricted',
+  'registered_device',
+  'anywhere',
+]);
 
 const ipRangeListSchema = (maxItems) =>
   z
@@ -37,15 +43,39 @@ export const userIpWhitelistSchema = z
     }
   });
 
-export const shopIpCommandSchema = z.object({
-  idempotency_key: z.string().uuid(),
-  expected_revision: z.number().int().nonnegative(),
-  policy: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('shop'), enabled: z.boolean(), allowed_ranges: ipRangeListSchema(100) }).strict(),
-    z.object({ kind: z.literal('user'), user_id: z.string().uuid(), mode: z.enum(IP_ACCESS_MODES), allowed_ranges: ipRangeListSchema(50) }).strict(),
-  ]),
-}).strict().superRefine(({ policy }, ctx) => {
-  if ((policy.kind === 'shop' && policy.enabled || policy.kind === 'user' && policy.mode === 'restricted') && !policy.allowed_ranges.length) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['policy', 'allowed_ranges'], message: 'Add at least one allowed IP address or CIDR range' });
-  }
-});
+export const shopIpCommandSchema = z
+  .object({
+    idempotency_key: z.string().uuid(),
+    expected_revision: z.number().int().nonnegative(),
+    policy: z.discriminatedUnion('kind', [
+      z
+        .object({
+          kind: z.literal('shop'),
+          enabled: z.boolean(),
+          allowed_ranges: ipRangeListSchema(100),
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal('user'),
+          user_id: z.string().uuid(),
+          mode: z.enum(SHOP_ACCESS_MODES),
+          allowed_ranges: ipRangeListSchema(50),
+        })
+        .strict(),
+    ]),
+  })
+  .strict()
+  .superRefine(({ policy }, ctx) => {
+    if (
+      ((policy.kind === 'shop' && policy.enabled) ||
+        (policy.kind === 'user' && policy.mode === 'restricted')) &&
+      !policy.allowed_ranges.length
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['policy', 'allowed_ranges'],
+        message: 'Add at least one allowed IP address or CIDR range',
+      });
+    }
+  });

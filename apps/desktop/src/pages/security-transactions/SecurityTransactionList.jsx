@@ -351,6 +351,7 @@ const SecurityTransactionList = () => {
                 setView(e.target.value);
               }}
               options={[
+                { value: 'all', label: 'All' },
                 { value: 'received', label: 'Received' },
                 { value: 'return', label: 'Return' },
                 { value: 'on_hand', label: 'On Hand' },

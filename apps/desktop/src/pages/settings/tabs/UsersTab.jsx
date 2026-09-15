@@ -32,6 +32,7 @@ import { useSelectedShopName } from '../../../hooks/useSelectedShopName.js';
 import { useOnlineStatus } from '../../../hooks/useOnlineStatus.js';
 import { api, unwrap } from '../../../lib/api.js';
 import { getApiErrorMessage } from '../../../lib/apiError.js';
+import { categoriesApi } from '../../../lib/api/categories.js';
 import { usersApi } from '../../../lib/api/users.js';
 import { useAuthStore } from '../../../stores/authStore.js';
 import { useShopStore } from '../../../stores/shopStore.js';
@@ -66,6 +67,32 @@ const ONLINE_WINDOW_MS = 2 * 60_000;
 /** Compact default: name, email, phone, role, status; hide username, shops, dates. */
 const USERS_TAB_DEFAULT_HIDDEN = ['username', 'shops', 'created_at', 'last_login_at'];
 
+const EMPTY_COMMISSION = {
+  manager_user_id: '',
+  self_booking_rate: '0',
+  self_product_rate: '0',
+  managed_booking_rate: '0',
+  managed_product_rate: '0',
+  category_rates: [],
+};
+
+function commissionFormFromUser(user) {
+  return {
+    manager_user_id: user?.manager_user_id || '',
+    self_booking_rate: String(user?.self_booking_rate || 0),
+    self_product_rate: String(user?.self_product_rate || 0),
+    managed_booking_rate: String(user?.managed_booking_rate || 0),
+    managed_product_rate: String(user?.managed_product_rate || 0),
+    category_rates: Array.isArray(user?.category_rates)
+      ? user.category_rates.map((rate) => ({
+          category_id: rate.category_id,
+          self_rate: String(rate.self_rate || 0),
+          managed_rate: String(rate.managed_rate || 0),
+        }))
+      : [],
+  };
+}
+
 const UsersTab = () => {
   const qc = useQueryClient();
   const online = useOnlineStatus();
@@ -97,8 +124,7 @@ const UsersTab = () => {
   const [permsGrid, setPermsGrid] = useState({});
   const [permsServer, setPermsServer] = useState({});
   const [permsOverridden, setPermsOverridden] = useState(false);
-  const [commissionBasis, setCommissionBasis] = useState('');
-  const [commissionRate, setCommissionRate] = useState('0');
+  const [commissionForm, setCommissionForm] = useState(EMPTY_COMMISSION);
   const [loginIdentityTarget, setLoginIdentityTarget] = useState(null);
   const [loginIdentity, setLoginIdentity] = useState({ phone: '', email: '' });
   const formRules = useMemo(
@@ -170,6 +196,13 @@ const UsersTab = () => {
     enabled: currentUser?.role === ROLES.SUPER_ADMIN && Boolean(selectedShopId),
   });
 
+  const { data: commissionCategoriesData } = useQuery({
+    queryKey: ['categories', selectedShopId, 'product', 'commission'],
+    queryFn: () => categoriesApi.list({ type: 'product' }),
+    enabled: Boolean(selectedShopId),
+  });
+  const commissionCategories = commissionCategoriesData?.data || [];
+
   const loginModeMut = useMutation({
     mutationFn: (mode) => usersApi.setLoginMode(mode),
     onSuccess: async (response) => {
@@ -212,6 +245,15 @@ const UsersTab = () => {
     if (roleFilter) r = r.filter((u) => u.role === roleFilter);
     return r;
   }, [currentUser?.role, data, roleFilter, selectedShopId]);
+  const managerOptions = useMemo(
+    () => [
+      { value: '', label: 'No manager' },
+      ...rows
+        .filter((user) => user.role === ROLES.MANAGER && user.is_active)
+        .map((user) => ({ value: user.id, label: user.name || user.email || 'Manager' })),
+    ],
+    [rows]
+  );
 
   const userFiltersClear = !userSearch.trim() && !roleFilter;
   const clearUserFilters = () => {
@@ -322,8 +364,7 @@ const UsersTab = () => {
   });
 
   const commissionMut = useMutation({
-    mutationFn: ({ id, basis, rate }) =>
-      usersApi.updateCommission(id, { basis: basis || null, rate: Number(rate || 0) }),
+    mutationFn: ({ id, payload }) => usersApi.updateCommission(id, payload),
     onSuccess: () => {
       toast.success('Commission settings saved');
       invalidate();
@@ -377,8 +418,7 @@ const UsersTab = () => {
     let assignedShopIds = [];
     let perms = row.permissions || {};
     let overridden = !!row.permissions_overridden;
-    let commissionBasisValue = row.commission_basis || '';
-    let commissionRateValue = Number(row.commission_rate || 0);
+    let nextCommissionForm = commissionFormFromUser(row);
     try {
       const detail = await api.get(`/users/${row.id}`).then(unwrap);
       assignedShopIds = Array.isArray(detail?.data?.shop_ids) ? detail.data.shop_ids : [];
@@ -386,16 +426,14 @@ const UsersTab = () => {
       // list response can be a trimmed row.
       if (detail?.data?.permissions) perms = detail.data.permissions;
       overridden = !!detail?.data?.permissions_overridden;
-      commissionBasisValue = detail?.data?.commission_basis || '';
-      commissionRateValue = Number(detail?.data?.commission_rate || 0);
+      nextCommissionForm = commissionFormFromUser(detail?.data);
     } catch {
       /* fall through — will still open modal */
     }
     setPermsServer(perms);
     setPermsGrid(JSON.parse(JSON.stringify(perms)));
     setPermsOverridden(overridden);
-    setCommissionBasis(commissionBasisValue);
-    setCommissionRate(String(commissionRateValue));
+    setCommissionForm(nextCommissionForm);
     setForm({
       name: row.name || '',
       email: row.email || '',
@@ -417,6 +455,69 @@ const UsersTab = () => {
     setOpen(false);
     setEditing(null);
     setModalTab('details');
+  };
+
+  const updateCommissionField = (key, value) => {
+    setCommissionForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateCategoryCommission = (categoryId, key, value) => {
+    setCommissionForm((current) => {
+      const existing = current.category_rates.find((rate) => rate.category_id === categoryId);
+      const nextRate = {
+        category_id: categoryId,
+        self_rate: existing?.self_rate || '0',
+        managed_rate: existing?.managed_rate || '0',
+        [key]: value,
+      };
+      return {
+        ...current,
+        category_rates: [
+          ...current.category_rates.filter((rate) => rate.category_id !== categoryId),
+          nextRate,
+        ],
+      };
+    });
+  };
+
+  const saveCommission = () => {
+    const numericKeys = [
+      'self_booking_rate',
+      'self_product_rate',
+      'managed_booking_rate',
+      'managed_product_rate',
+    ];
+    const values = numericKeys.map((key) => Number(commissionForm[key] || 0));
+    const categoryRates = commissionCategories.map((category) => {
+      const current = commissionForm.category_rates.find(
+        (rate) => rate.category_id === category.id
+      );
+      return {
+        category_id: category.id,
+        self_rate: Number(current?.self_rate || 0),
+        managed_rate: Number(current?.managed_rate || 0),
+      };
+    });
+    if (
+      [...values, ...categoryRates.flatMap((rate) => [rate.self_rate, rate.managed_rate])].some(
+        (value) => !Number.isFinite(value) || value < 0
+      )
+    ) {
+      toast.error('Commission rates must be zero or more');
+      return;
+    }
+    commissionMut.mutate({
+      id: editing.id,
+      payload: {
+        manager_user_id:
+          form.role === ROLES.SALESMAN ? commissionForm.manager_user_id || null : null,
+        self_booking_rate: values[0],
+        self_product_rate: values[1],
+        managed_booking_rate: form.role === ROLES.MANAGER ? values[2] : 0,
+        managed_product_rate: form.role === ROLES.MANAGER ? values[3] : 0,
+        category_rates: categoryRates,
+      },
+    });
   };
 
   const openPasswordModal = (user) => {
@@ -592,9 +693,22 @@ const UsersTab = () => {
         header: 'Commission',
         columnPickerLabel: 'Commission',
         render: (r) => {
-          if (r.role !== ROLES.SALESMAN || !r.commission_basis) return '—';
-          const basis = r.commission_basis === 'booking' ? 'booking' : 'product';
-          return `${formatCurrency(Number(r.commission_rate || 0))} / ${basis}`;
+          if (![ROLES.SALESMAN, ROLES.MANAGER].includes(r.role)) return '—';
+          const rates = [
+            Number(r.self_booking_rate || 0),
+            Number(r.self_product_rate || 0),
+            Number(r.managed_booking_rate || 0),
+            Number(r.managed_product_rate || 0),
+          ];
+          if (!rates.some((rate) => rate > 0) && !r.category_rates?.length) return '—';
+          const parts = [];
+          if (rates[0] > 0) parts.push(`${formatCurrency(rates[0])}/booking`);
+          if (rates[1] > 0) parts.push(`${formatCurrency(rates[1])}/product`);
+          if (r.category_rates?.length) parts.push(`${r.category_rates.length} category rates`);
+          if (r.role === ROLES.MANAGER && (rates[2] > 0 || rates[3] > 0)) {
+            parts.push('team commission');
+          }
+          return parts.join(' + ');
         },
       },
       {
@@ -971,7 +1085,9 @@ const UsersTab = () => {
             {[
               { id: 'details', label: 'Details' },
               { id: 'permissions', label: 'Permissions' },
-              ...(form.role === ROLES.SALESMAN ? [{ id: 'commission', label: 'Commission' }] : []),
+              ...([ROLES.SALESMAN, ROLES.MANAGER].includes(form.role)
+                ? [{ id: 'commission', label: 'Commission' }]
+                : []),
             ].map((t) => (
               <button
                 key={t.id}
@@ -1051,45 +1167,137 @@ const UsersTab = () => {
         ) : modalTab === 'commission' && editing ? (
           <div className="space-y-4">
             <div className="rounded-md border border-brand/20 bg-brand-light px-3 py-2 text-xs text-gray-700">
-              Commission is configured for this salesman in the currently selected shop. It is
-              earned only after a booking reaches Delivered or a later return/closed stage.
+              Fixed rupee commissions are configured per shop. Booking and product commission are
+              additive and are earned on the booking&apos;s first delivery date.
             </div>
-            <Select
-              label="Commission basis"
-              value={commissionBasis}
-              onChange={(e) => {
-                setCommissionBasis(e.target.value);
-                if (!e.target.value) setCommissionRate('0');
-              }}
-              options={[
-                { value: '', label: 'No commission' },
-                { value: 'booking', label: 'Booking-wise' },
-                { value: 'product', label: 'Product-wise' },
-              ]}
-            />
-            <Input
-              label={
-                commissionBasis === 'product' ? 'Rate per product quantity' : 'Rate per booking'
-              }
-              type="number"
-              min="0"
-              step="0.01"
-              disabled={!commissionBasis}
-              value={commissionRate}
-              onChange={(e) => setCommissionRate(e.target.value)}
-              hint="Fixed rupee amount; this is not a percentage."
-            />
+
+            {form.role === ROLES.SALESMAN ? (
+              <Select
+                label="Reports to manager"
+                value={commissionForm.manager_user_id}
+                onChange={(event) => updateCommissionField('manager_user_id', event.target.value)}
+                options={managerOptions}
+                hint="The selected manager can receive team commission on this salesman's bookings."
+              />
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input
+                label="Self rate per booking"
+                type="number"
+                min="0"
+                step="0.01"
+                value={commissionForm.self_booking_rate}
+                onChange={(event) => updateCommissionField('self_booking_rate', event.target.value)}
+              />
+              <Input
+                label="Self default rate per product"
+                type="number"
+                min="0"
+                step="0.01"
+                value={commissionForm.self_product_rate}
+                onChange={(event) => updateCommissionField('self_product_rate', event.target.value)}
+              />
+              {form.role === ROLES.MANAGER ? (
+                <>
+                  <Input
+                    label="Team rate per booking"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={commissionForm.managed_booking_rate}
+                    onChange={(event) =>
+                      updateCommissionField('managed_booking_rate', event.target.value)
+                    }
+                  />
+                  <Input
+                    label="Team default rate per product"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={commissionForm.managed_product_rate}
+                    onChange={(event) =>
+                      updateCommissionField('managed_product_rate', event.target.value)
+                    }
+                  />
+                </>
+              ) : null}
+            </div>
+
+            <div>
+              <div className="label">Product category rates</div>
+              <p className="mb-2 text-xs text-gray-500">
+                A category rate overrides the corresponding default product rate. Leave it at zero
+                to use the default.
+              </p>
+              <div className="max-h-64 overflow-y-auto rounded-md border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-600">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Category</th>
+                      <th className="px-3 py-2 font-medium">Self ₹ / product</th>
+                      {form.role === ROLES.MANAGER ? (
+                        <th className="px-3 py-2 font-medium">Team ₹ / product</th>
+                      ) : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...commissionCategories]
+                      .sort((a, b) => String(a.label).localeCompare(String(b.label)))
+                      .map((category) => {
+                        const rate = commissionForm.category_rates.find(
+                          (entry) => entry.category_id === category.id
+                        );
+                        return (
+                          <tr key={category.id} className="border-t border-gray-100">
+                            <td className="px-3 py-2 font-medium text-gray-800">
+                              {category.label}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Input
+                                aria-label={`${category.label} self commission`}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={rate?.self_rate || '0'}
+                                onChange={(event) =>
+                                  updateCategoryCommission(
+                                    category.id,
+                                    'self_rate',
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            </td>
+                            {form.role === ROLES.MANAGER ? (
+                              <td className="px-3 py-2">
+                                <Input
+                                  aria-label={`${category.label} team commission`}
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={rate?.managed_rate || '0'}
+                                  onChange={(event) =>
+                                    updateCategoryCommission(
+                                      category.id,
+                                      'managed_rate',
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </td>
+                            ) : null}
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
             <div className="flex justify-end">
               <Button
                 type="button"
-                onClick={() => {
-                  const rate = Number(commissionRate || 0);
-                  if (!Number.isFinite(rate) || rate < 0) {
-                    toast.error('Commission rate must be zero or more');
-                    return;
-                  }
-                  commissionMut.mutate({ id: editing.id, basis: commissionBasis, rate });
-                }}
+                onClick={saveCommission}
                 loading={commissionMut.isPending}
                 disabled={!canManage}
               >

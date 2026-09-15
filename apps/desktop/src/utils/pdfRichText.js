@@ -1,4 +1,4 @@
-import { pdfSafeText } from './tablePdf.js';
+import { pdfSafeText } from './pdfSafeText.js';
 
 /**
  * @typedef {{ text: string, bold?: boolean }} PdfTextSegment

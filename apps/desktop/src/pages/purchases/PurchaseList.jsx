@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { addDaysIso, formatCurrency, formatDate, todayIndiaISODate } from '@wrs/shared';
 import { Ban, Download, FileText, IndianRupee, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import ListPdfToolbarButtons from '../../components/reports/ListPdfToolbarButtons.jsx';
@@ -58,6 +58,7 @@ const PurchaseList = () => {
   const [transactionsPurchaseId, setTransactionsPurchaseId] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [exportBusy, setExportBusy] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   const listQuery = useQuery({
     queryKey: ['purchases', { page, perPage, search, dateFrom, dateTo, pendingOnly }],
@@ -76,6 +77,10 @@ const PurchaseList = () => {
 
   const rows = listQuery.data?.data || [];
   const meta = listQuery.data?.meta || {};
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [search, dateFrom, dateTo, pendingOnly]);
 
   const cancelMut = useMutation({
     mutationFn: (id) => purchasesApi.cancel(id),
@@ -109,10 +114,15 @@ const PurchaseList = () => {
     return acc;
   }, [search, dateFrom, dateTo, pendingOnly]);
 
-  const runListPdf = async (mode) => {
+  const runListPdf = async (mode, scope = 'all') => {
     setExportBusy(true);
     try {
-      const exportRows = await fetchAllFilteredPurchases();
+      const exportRows =
+        scope === 'selected'
+          ? await Promise.all(
+              [...selectedIds].map((id) => purchasesApi.get(id).then((response) => response.data))
+            )
+          : await fetchAllFilteredPurchases();
       if (!exportRows.length) {
         toast.warning(mode === 'print' ? 'No purchases to print' : 'No purchases to export');
         return;
@@ -122,20 +132,20 @@ const PurchaseList = () => {
       if (search.trim()) subtitleParts.push(`Search: ${search.trim()}`);
       if (pendingOnly) subtitleParts.push('Pending bills only');
       subtitleParts.push(`${exportRows.length} record(s)`);
+      if (scope === 'selected') subtitleParts.push('Selected bills');
       const pdfOptions = { title: 'Purchases', subtitle: subtitleParts.join(' · ') };
+      const { buildPurchaseCombinedPdfDoc } = await import('../../utils/purchaseCombinedPdf.js');
+      const { printJsPdfDoc } = await import('../../utils/tablePdf.js');
+      const doc = await buildPurchaseCombinedPdfDoc(exportColumns, exportRows, pdfOptions);
 
       if (mode === 'print') {
-        const { printTablePdf } = await import('../../utils/tablePdf.js');
-        printTablePdf(exportColumns, exportRows, pdfOptions);
+        printJsPdfDoc(doc, 'Purchases');
       } else {
-        const { downloadTablePdf } = await import('../../utils/tablePdf.js');
-        downloadTablePdf(`purchases_${stamp}.pdf`, exportColumns, exportRows, pdfOptions);
+        doc.save(`purchases_${scope}_${stamp}.pdf`);
         toast.success('PDF downloaded');
       }
     } catch (err) {
-      toast.error(
-        err?.message || (mode === 'print' ? 'Could not print' : 'Could not export PDF')
-      );
+      toast.error(err?.message || (mode === 'print' ? 'Could not print' : 'Could not export PDF'));
     } finally {
       setExportBusy(false);
     }
@@ -143,6 +153,42 @@ const PurchaseList = () => {
 
   const allColumns = useMemo(
     () => [
+      {
+        key: 'select',
+        locked: true,
+        header: (
+          <input
+            type="checkbox"
+            aria-label="Select all purchases on this page"
+            checked={rows.length > 0 && rows.every((row) => selectedIds.has(String(row.id)))}
+            onChange={(event) => {
+              setSelectedIds((current) => {
+                const next = new Set(current);
+                rows.forEach((row) => {
+                  if (event.target.checked) next.add(String(row.id));
+                  else next.delete(String(row.id));
+                });
+                return next;
+              });
+            }}
+          />
+        ),
+        render: (row) => (
+          <input
+            type="checkbox"
+            aria-label={`Select purchase ${row.purchase_number}`}
+            checked={selectedIds.has(String(row.id))}
+            onChange={(event) => {
+              setSelectedIds((current) => {
+                const next = new Set(current);
+                if (event.target.checked) next.add(String(row.id));
+                else next.delete(String(row.id));
+                return next;
+              });
+            }}
+          />
+        ),
+      },
       {
         key: 'purchase_number',
         header: 'Bill No',
@@ -231,9 +277,12 @@ const PurchaseList = () => {
         header: 'Status',
         columnPickerLabel: 'Status',
         render: (r) => (
-          <span title={r.status === 'cancelled'
-            ? 'Cancelled — bill voided, stock reversed, payments blocked'
-            : 'Active — valid bill, payments allowed'}
+          <span
+            title={
+              r.status === 'cancelled'
+                ? 'Cancelled — bill voided, stock reversed, payments blocked'
+                : 'Active — valid bill, payments allowed'
+            }
           >
             <Badge tone={r.status === 'cancelled' ? 'red' : 'green'}>
               {r.status === 'cancelled' ? 'Cancelled' : 'Active'}
@@ -246,56 +295,56 @@ const PurchaseList = () => {
         header: 'Action',
         locked: true,
         render: (r) => (
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            title="Edit"
-            className="p-1 rounded hover:bg-gray-100 text-brand"
-            onClick={() => navigate(`/purchases/${r.id}/edit`)}
-          >
-            <Pencil size={14} />
-          </button>
-          <button
-            type="button"
-            title="Transactions"
-            className="p-1 rounded hover:bg-gray-100 text-gray-700"
-            onClick={() => setTransactionsPurchaseId(r.id)}
-          >
-            <FileText size={14} />
-          </button>
-          {r.status !== 'cancelled' ? (
+          <div className="flex items-center gap-1">
             <button
               type="button"
-              title="Payment"
+              title="Edit"
               className="p-1 rounded hover:bg-gray-100 text-brand"
-              onClick={() => setPaymentPurchaseId(r.id)}
+              onClick={() => navigate(`/purchases/${r.id}/edit`)}
             >
-              <IndianRupee size={14} />
+              <Pencil size={14} />
             </button>
-          ) : null}
-          {r.status !== 'cancelled' ? (
             <button
               type="button"
-              title="Cancel bill"
-              className="p-1 rounded hover:bg-amber-50 text-amber-700"
-              onClick={() => setCancelTarget(r)}
+              title="Transactions"
+              className="p-1 rounded hover:bg-gray-100 text-gray-700"
+              onClick={() => setTransactionsPurchaseId(r.id)}
             >
-              <Ban size={14} />
+              <FileText size={14} />
             </button>
-          ) : null}
-          <button
-            type="button"
-            title="Delete"
-            className="p-1 rounded hover:bg-gray-100 text-red-500"
-            onClick={() => requestDelete(r)}
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
-      ),
-    },
+            {r.status !== 'cancelled' ? (
+              <button
+                type="button"
+                title="Payment"
+                className="p-1 rounded hover:bg-gray-100 text-brand"
+                onClick={() => setPaymentPurchaseId(r.id)}
+              >
+                <IndianRupee size={14} />
+              </button>
+            ) : null}
+            {r.status !== 'cancelled' ? (
+              <button
+                type="button"
+                title="Cancel bill"
+                className="p-1 rounded hover:bg-amber-50 text-amber-700"
+                onClick={() => setCancelTarget(r)}
+              >
+                <Ban size={14} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              title="Delete"
+              className="p-1 rounded hover:bg-gray-100 text-red-500"
+              onClick={() => requestDelete(r)}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ),
+      },
     ],
-    [navigate, requestDelete]
+    [navigate, requestDelete, rows, selectedIds]
   );
 
   const { visibleColumns, pickerProps } = useDataTableColumns('purchases', allColumns, {
@@ -305,12 +354,13 @@ const PurchaseList = () => {
   const exportColumns = useMemo(
     () =>
       visibleColumns
-        .filter((c) => c.key !== 'actions')
+        .filter((c) => !['select', 'actions'].includes(c.key))
         .map((c) => ({
           key: c.key,
           header: c.columnPickerLabel || String(c.header || c.key),
           get: (r) => {
-            if (c.key === 'purchase_date') return formatFinancialRecordDateTime(r, 'purchase_date') || '';
+            if (c.key === 'purchase_date')
+              return formatFinancialRecordDateTime(r, 'purchase_date') || '';
             if (c.key === 'due_date') {
               const base = String(r.purchase_date || '').slice(0, 10);
               if (!base) return '';
@@ -344,10 +394,7 @@ const PurchaseList = () => {
     <div className="">
       <PageHeader
         title="Purchases"
-        breadcrumbs={[
-          { label: 'Dashboard', to: '/' },
-          { label: 'Purchases' },
-        ]}
+        breadcrumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Purchases' }]}
         actions={
           <Link to="/purchases/new">
             <Button size="sm">
@@ -409,12 +456,25 @@ const PurchaseList = () => {
         <TableColumnPicker {...pickerProps} />
 
         <ListPdfToolbarButtons
-          className="ml-auto"
+          className={selectedIds.size ? '' : 'ml-auto'}
           busy={exportBusy}
           disabled={listQuery.isLoading || listQuery.isFetching}
           onPrint={() => runListPdf('print')}
           onExport={() => runListPdf('download')}
         />
+        {selectedIds.size ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            icon={Download}
+            className="ml-auto"
+            loading={exportBusy}
+            onClick={() => runListPdf('download', 'selected')}
+          >
+            Selected PDF ({selectedIds.size})
+          </Button>
+        ) : null}
       </div>
 
       <DataTable

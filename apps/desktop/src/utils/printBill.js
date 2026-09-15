@@ -124,7 +124,7 @@ export function invalidateBillNotesCache() {
   cachedBillNotesShopId = null;
 }
 
-async function getDefaultTemplate() {
+export async function getDefaultBillTemplate() {
   const s = useShopStore.getState();
   const shopId = s.selectedShopId;
   if (!shopId) return null;
@@ -151,7 +151,7 @@ async function buildBillHtml(order, options = {}) {
   if (!order) return { html: '', printTitle: 'Invoice', paperSize: 'A4' };
   const billOrder = prepareOrderForBill(order);
   const shop = options.shop || (await resolveBillShopHeader(options.shopId));
-  const rawTemplate = options.template || (await getDefaultTemplate());
+  const rawTemplate = options.template || (await getDefaultBillTemplate());
   const template = applyShopLogoToTemplate(rawTemplate, shop);
   const merged = mergeTemplate(template);
   const printTitle = billPrintTitle(billOrder, shop);

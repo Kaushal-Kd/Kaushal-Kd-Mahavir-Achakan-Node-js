@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { combineShopIpAccess } from './shopService.js';
+import { combineShopIpAccess, evaluateShopAccess } from './shopService.js';
 import { evaluateIpAccess } from './service.js';
 import { shopIpCommandSchema } from '@wrs/shared';
 
@@ -39,4 +39,22 @@ test('shop commands require revisions and reject empty enabled policies and forg
     false
   );
   assert.equal(shopIpCommandSchema.safeParse({ ...cmd, shop_id: 'another' }).success, false);
+});
+
+test('approved-device mode allows mobile data only on a registered device', () => {
+  const base = {
+    role: 'salesman',
+    userMode: 'registered_device',
+    userAllowedRanges: [],
+    shopEnabled: true,
+    shopAllowedRanges: ['192.0.2.10'],
+    clientIp: '203.0.113.25',
+  };
+  assert.deepEqual(evaluateShopAccess({ ...base, deviceApproved: true }), {
+    allowed: true,
+    restricted: true,
+    effective_mode: 'registered_device',
+    allowed_ranges: [],
+  });
+  assert.equal(evaluateShopAccess({ ...base, deviceApproved: false }).allowed, false);
 });

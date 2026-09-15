@@ -5,16 +5,21 @@ import { lazy } from 'react';
  * Fixes "Failed to fetch dynamically imported module" after Vite HMR / dep rebundles.
  */
 export function lazyRetry(importFn) {
+  const key = 'wrs:lazy-import-retry';
   return lazy(() =>
-    importFn().catch((error) => {
-      const key = 'wrs:lazy-import-retry';
-      if (!sessionStorage.getItem(key)) {
-        sessionStorage.setItem(key, '1');
-        window.location.reload();
-        return new Promise(() => {});
-      }
-      sessionStorage.removeItem(key);
-      throw error;
-    })
+    importFn()
+      .then((mod) => {
+        sessionStorage.removeItem(key);
+        return mod;
+      })
+      .catch((error) => {
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, '1');
+          window.location.reload();
+          return new Promise(() => {});
+        }
+        sessionStorage.removeItem(key);
+        throw error;
+      })
   );
 }

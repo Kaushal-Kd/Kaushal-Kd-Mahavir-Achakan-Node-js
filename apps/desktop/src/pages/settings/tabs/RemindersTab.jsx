@@ -254,12 +254,12 @@ const RemindersTab = () => {
             />
           </div>
           <Input
-            label="Assignee"
+            label="Responsible person (Assignee)"
             required
             value={form.assignee}
             onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))}
             placeholder="e.g. Miraj bhai"
-            hint="The person responsible for completing this reminder."
+            hint="The responsible person's name, used for display and search only; it does not change permissions or send a notification."
           />
           <Input
             type="datetime-local"

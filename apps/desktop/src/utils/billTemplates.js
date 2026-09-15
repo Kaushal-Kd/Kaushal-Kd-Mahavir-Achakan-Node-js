@@ -32,6 +32,16 @@ export const PAPER_SIZES = [
   { id: 'thermal_58', label: 'Thermal 58mm', widthMm: 58, heightMm: 297 },
 ];
 
+/**
+ * New A4 letter-pad templates. Artwork: docs/reference/mahavir-achakan-letterpad.pdf
+ * (210×297 mm page, 210×251 mm marked print window). Bill CSS already pads 14mm
+ * top / 16mm bottom, so these inches only clear the remaining preprinted header.
+ */
+export const LETTER_PAD_PAGE_SETTINGS = {
+  letterhead_top_in: 0.75,
+  letterhead_bottom_in: 0.15,
+};
+
 export const DEFAULT_MANUAL_BILL_CONTENT = `{{header}}
 {{customer}}
 {{items}}
@@ -84,6 +94,12 @@ export const DEFAULT_TEMPLATE = {
   },
   page_settings: {
     vertical_offset_in: 0,
+    letterhead_top_in: 0,
+    letterhead_bottom_in: 0,
+    token_width_mm: 92,
+    token_min_height_mm: 0,
+    token_font_size: 9,
+    token_page_margin_mm: 10,
   },
   custom_content: {
     enabled: false,
@@ -139,6 +155,12 @@ function pageStyles(tpl) {
   const verticalOffsetIn = Number.isFinite(rawVerticalOffset)
     ? Math.min(4, Math.max(-2, rawVerticalOffset))
     : 0;
+  const letterheadTopIn = thermal
+    ? 0
+    : Math.min(4, Math.max(0, Number(page_settings?.letterhead_top_in) || 0));
+  const letterheadBottomIn = thermal
+    ? 0
+    : Math.min(4, Math.max(0, Number(page_settings?.letterhead_bottom_in) || 0));
   return `
     <style>
       @page { ${pageCss} }
@@ -153,6 +175,8 @@ function pageStyles(tpl) {
       }
       .bill-document {
         padding: ${docPad};
+        ${thermal ? '' : `padding-top: calc(14mm + ${letterheadTopIn}in);`}
+        ${thermal ? '' : `padding-bottom: calc(16mm + ${letterheadBottomIn}in);`}
         position: relative;
         top: ${verticalOffsetIn}in;
         ${thermal ? '' : 'max-width: 210mm; margin: 0 auto;'}
@@ -284,6 +308,7 @@ function pageStyles(tpl) {
         color: #111827;
         font-size: ${Math.max(6, productSize - 1)}px;
       }
+      .item-name { font-weight: 700; color: #111827; }
       table.items td:first-child { padding-left: 12px; }
       table.items td:last-child { padding-right: 12px; }
       table.items tbody tr:last-child td { border-bottom: none; }
@@ -484,6 +509,20 @@ function orderCustomerAddress(order) {
   return String(order.customer?.address || order.customer_address || '').trim();
 }
 
+function orderCustomerPhones(order) {
+  const values = [
+    order.customer?.phone1,
+    order.customer_phone,
+    order.pickup_number,
+    order.customer?.phone2,
+    order.customer_phone2,
+  ];
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].slice(
+    0,
+    2
+  );
+}
+
 /** Per-order remarks entered on the booking form (not shop-wide bill notes). */
 function orderCustomerRemarks(order) {
   return String(order.customer_notes || '').trim();
@@ -512,14 +551,14 @@ function customerBlock(tpl, order, renderOptions = {}) {
     return '';
   }
   const thermal = isThermal(paper_size);
-  const phone = order.pickup_number || order.customer?.phone1 || order.customer_phone || '';
+  const phones = orderCustomerPhones(order);
 
   const customerCol = bill_info_config.show_customer
     ? `
       <div class="info-col">
         <div class="section-label">Bill to</div>
         <div class="customer-name">${esc(orderCustomerName(order))}</div>
-        ${phone ? `<div class="customer-line phone">${esc(phone)}</div>` : ''}
+        ${phones.map((phone) => `<div class="customer-line phone">${esc(phone)}</div>`).join('')}
         ${showAddress ? `<div class="customer-line">${esc(orderCustomerAddress(order))}</div>` : ''}
         ${
           showReference
@@ -617,7 +656,7 @@ export function prepareOrderForBill(order) {
   };
 }
 
-function itemNameCell(cfg, line, { isAccessory, isSale, parentProduct }) {
+function itemNameCell(line, { isAccessory, isSale, parentProduct }) {
   const saleTag = isSale ? ' <span class="muted">(Sale)</span>' : '';
   if (isAccessory) {
     const cat = String(line.category_name || '').trim();
@@ -632,17 +671,15 @@ function itemNameCell(cfg, line, { isAccessory, isSale, parentProduct }) {
       : '<span class="muted">(acc.)</span>';
     return `${parentPart}${catPart}${esc(line.name_snapshot)} ${accTag}${saleTag}`;
   }
-  const code =
-    !isSale && cfg.show_code && line.code_snapshot
-      ? `<div class="item-code">${esc(line.code_snapshot)}</div>`
-      : '';
-  return `${esc(line.name_snapshot)}${saleTag}${code}`;
+  return `<span class="item-name">${esc(line.name_snapshot)}</span>${saleTag}`;
 }
 
 function itemsBlock(tpl, order) {
   const cfg = tpl.items_config;
   const rows = [];
-  const headers = ['<th>Item</th>'];
+  const headers = [];
+  if (cfg.show_code) headers.push('<th>Item Code</th>');
+  headers.push('<th>Item</th>');
   if (cfg.show_qty) headers.push('<th class="right">Qty</th>');
   headers.push('<th class="right">Price</th>');
   if (cfg.show_discount) headers.push('<th class="right">Disc</th>');
@@ -671,7 +708,11 @@ function itemsBlock(tpl, order) {
 
   const pushLineRow = (line, { isAccessory, isSale, parentProduct }) => {
     const cells = [];
-    cells.push(`<td>${itemNameCell(cfg, line, { isAccessory, isSale, parentProduct })}</td>`);
+    if (cfg.show_code) {
+      const code = esc(line.code_snapshot || '—');
+      cells.push(`<td><span class="item-code">${code}</span></td>`);
+    }
+    cells.push(`<td>${itemNameCell(line, { isAccessory, isSale, parentProduct })}</td>`);
     if (cfg.show_qty) cells.push(`<td class="right">${line.qty}</td>`);
     cells.push(`<td class="right">${formatCurrency(line.price)}</td>`);
     if (cfg.show_discount)

@@ -1,5 +1,14 @@
 import { env } from './src/config/env.js';
 
+const LIVE_DB_NAME = 'wedding_rent_system';
+if (env.DB_NAME === LIVE_DB_NAME && process.env.WRS_ALLOW_LIVE_MIGRATE !== '1') {
+  console.error(
+    `[knex] Refusing to run against live database "${LIVE_DB_NAME}". ` +
+      `Point DB_NAME at wedding_rent_system_beta, or set WRS_ALLOW_LIVE_MIGRATE=1.`
+  );
+  process.exit(1);
+}
+
 const base = {
   client: 'mysql2',
   connection: {
@@ -10,6 +19,8 @@ const base = {
     database: env.DB_NAME,
     charset: 'utf8mb4',
     timezone: 'Z',
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
     typeCast(field, next) {
       if (field.type === 'TINY' && field.length === 1) {
         const value = field.string();

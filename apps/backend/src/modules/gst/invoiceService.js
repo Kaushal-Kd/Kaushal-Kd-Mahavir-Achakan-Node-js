@@ -35,6 +35,30 @@ const indiaDate = () =>
     day: '2-digit',
   }).format(new Date());
 const sourceTable = (type) => (type === 'sale' ? 'sales' : 'orders');
+export const GST_MONTHLY_INVOICE_LIMIT = 20;
+
+function monthBounds(date = indiaDate()) {
+  const [year, month] = date.slice(0, 7).split('-').map(Number);
+  const next =
+    month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+  return { from: `${date.slice(0, 7)}-01`, next };
+}
+
+export function remainingGstMonthlyCapacity(issued, requested = 0) {
+  const remaining = Math.max(0, GST_MONTHLY_INVOICE_LIMIT - Math.max(0, Number(issued) || 0));
+  return { remaining, allowed: Math.max(0, Number(requested) || 0) <= remaining };
+}
+
+async function countCurrentMonthInvoices(db, shopId, date = indiaDate()) {
+  const { from, next } = monthBounds(date);
+  const row = await db('gst_invoices')
+    .where({ shop_id: shopId })
+    .where('invoice_date', '>=', from)
+    .where('invoice_date', '<', next)
+    .count({ total: '*' })
+    .first();
+  return Number(row?.total || 0);
+}
 
 function eligibleQuery(db, shopId, type) {
   const q = db(`${sourceTable(type)} as b`)
@@ -76,7 +100,10 @@ export async function listGstCandidates(shopId, actorId, query) {
         .where(isSale ? 'b.sale_number' : 'b.order_number', 'like', `%${query.search}%`)
         .orWhere(customerName, 'like', `%${query.search}%`)
     );
-  const count = await q.clone().count({ total: '*' }).first();
+  const [count, issuedThisMonth] = await Promise.all([
+    q.clone().count({ total: '*' }).first(),
+    countCurrentMonthInvoices(knex, shopId),
+  ]);
   const rows = await q
     .clone()
     .select(
@@ -95,6 +122,9 @@ export async function listGstCandidates(shopId, actorId, query) {
     meta: {
       total: Number(count.total),
       total_pages: Math.ceil(Number(count.total) / query.per_page),
+      monthly_limit: GST_MONTHLY_INVOICE_LIMIT,
+      monthly_issued: issuedThisMonth,
+      monthly_remaining: remainingGstMonthlyCapacity(issuedThisMonth).remaining,
     },
   };
 }
@@ -244,6 +274,13 @@ export async function issueGstInvoices(shopId, actorId, payload) {
     }
     const snapshots = await prepare(trx, shopId, body, true);
     const invoiceDate = indiaDate();
+    const issuedThisMonth = await countCurrentMonthInvoices(trx, shopId, invoiceDate);
+    const capacity = remainingGstMonthlyCapacity(issuedThisMonth, snapshots.length);
+    if (!capacity.allowed) {
+      throw conflict(
+        `Only ${capacity.remaining} of ${GST_MONTHLY_INVOICE_LIMIT} GST invoice slots remain this month`
+      );
+    }
     const year = gstFinancialYear(invoiceDate);
     const gstin = snapshots[0].supplier.gstin;
     await trx('gst_invoice_sequences')

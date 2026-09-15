@@ -93,8 +93,8 @@ const PRODUCT_INVENTORY_OPTS = [
   { value: PRODUCT_STATUS.LOST, label: 'Lost' },
 ];
 
-/** Always list products by code descending (newest / highest codes first). */
-const PRODUCT_LIST_SORT = '-p.code';
+const PRODUCT_LIST_SORT = 'p.natural_code_sort_key,p.code,p.name';
+const PRODUCT_CATEGORY_SORT = 'p.name,p.natural_code_sort_key,p.code';
 
 const INVENTORY_STATUS_TONE = {
   [PRODUCT_STATUS.AVAILABLE]: 'green',
@@ -143,7 +143,8 @@ const ProductList = () => {
     loading,
     close,
   } = useAdminDelete({
-    deleteFn: (row, admin_password) => productsApi.remove(row.id, { admin_password, mode: catalogDeleteModeForRow(row) }),
+    deleteFn: (row, admin_password) =>
+      productsApi.remove(row.id, { admin_password, mode: catalogDeleteModeForRow(row) }),
     onSuccess: async (res, item) => {
       toast.success(
         res?.data?.mode === 'permanently_deleted'
@@ -161,7 +162,12 @@ const ProductList = () => {
   });
   const buildListParams = useCallback(
     (page, perPage = 500) => {
-      const params = { search, page, per_page: perPage, sort: PRODUCT_LIST_SORT };
+      const params = {
+        search,
+        page,
+        per_page: perPage,
+        sort: categoryId && categoryId !== 'all' ? PRODUCT_CATEGORY_SORT : PRODUCT_LIST_SORT,
+      };
       if (categoryId && categoryId !== 'all') params.category_id = categoryId;
       if (typeFilter) params.type = typeFilter;
       if (sizeFilter) params.size = sizeFilter;

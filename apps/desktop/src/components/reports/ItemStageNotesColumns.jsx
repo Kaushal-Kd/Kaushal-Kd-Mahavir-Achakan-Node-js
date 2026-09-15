@@ -71,25 +71,14 @@ ItemStageAllNotesContent.propTypes = {
 function ItemStageProductNotesContent({ row }) {
   const tailor = String(row?.tailor_notes ?? '').trim();
   const image = String(row?.tailor_note_image ?? '').trim();
-  const catalog = String(row?.product_catalog_notes ?? '').trim();
 
-  if (!LineNotesContent.hasContent({ notes: tailor, noteImage: image }) && !catalog) {
+  if (!LineNotesContent.hasContent({ notes: tailor, noteImage: image })) {
     return <span className="text-gray-400">—</span>;
   }
 
   return (
-    <div className="min-w-0 max-w-[14rem] space-y-1">
-      {catalog ? (
-        <p className="text-[10px] text-gray-800 whitespace-pre-wrap break-words leading-snug" title={catalog}>
-          {catalog}
-        </p>
-      ) : null}
-      {LineNotesContent.hasContent({ notes: tailor, noteImage: image }) ? (
-        <div>
-          <span className="text-[10px] font-semibold text-gray-600">Tailor: </span>
-          <LineNotesContent notes={tailor} noteImage={image} compact clampText />
-        </div>
-      ) : null}
+    <div className="min-w-0 max-w-[14rem]">
+      <LineNotesContent notes={tailor} noteImage={image} compact clampText />
     </div>
   );
 }
@@ -105,6 +94,25 @@ export function buildItemStageProductNotesColumn() {
     header: 'Product notes',
     className: 'text-xs align-top whitespace-normal max-w-[14rem]',
     render: (r) => <ItemStageProductNotesContent row={r} />,
+  };
+}
+
+export function buildItemStageDesignDetailsColumn() {
+  return {
+    key: 'product_catalog_notes',
+    columnPickerLabel: 'Design Detail',
+    header: 'Design Detail',
+    className: 'text-xs align-top whitespace-normal max-w-[14rem]',
+    render: (r) => {
+      const details = String(r?.product_catalog_notes ?? '').trim();
+      return details ? (
+        <span className="block whitespace-pre-wrap break-words text-gray-900" title={details}>
+          {details}
+        </span>
+      ) : (
+        <span className="text-gray-400">—</span>
+      );
+    },
   };
 }
 

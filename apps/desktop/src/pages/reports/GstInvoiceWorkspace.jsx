@@ -248,6 +248,7 @@ export default function GstInvoiceWorkspace() {
   const queryParams = { ...params, ...(creating ? { max_amount: maxAmount || 10000 } : {}) };
   const query = useGstBills(queryParams, creating);
   const payload = query.data?.data;
+  const monthlyRemaining = Number(payload?.meta?.monthly_remaining ?? 20);
   const errorToast = (error) =>
     toast.error(getApiErrorMessage(error, 'Could not complete GST action'));
   const issuer = useIssueGstInvoices({
@@ -294,6 +295,10 @@ export default function GstInvoiceWorkspace() {
       return;
     }
     let percentage;
+    if (Object.keys(selected).length + selecting.current.size >= monthlyRemaining) {
+      toast.warning(`Only ${monthlyRemaining} GST invoice slot(s) remain this month`);
+      return;
+    }
     try {
       percentage = readGstPercentage(
         defaults[row.source_type],
@@ -556,6 +561,12 @@ export default function GstInvoiceWorkspace() {
           ))}
         </div>
       )}
+      {creating && payload?.meta ? (
+        <p className="mb-3 rounded border border-brand/30 bg-brand-light/30 p-2 text-sm text-brand">
+          Monthly GST invoice limit: {payload.meta.monthly_issued || 0} issued, {monthlyRemaining}{' '}
+          of {payload.meta.monthly_limit || 20} remaining.
+        </p>
+      ) : null}
       {pending && (
         <p className="mb-3 rounded border border-brand p-3 text-sm text-brand">
           A GST issuance request is pending sync or review. No new invoice numbers are available

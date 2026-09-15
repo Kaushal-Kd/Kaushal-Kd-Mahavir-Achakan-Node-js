@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { globalIpWhitelistSchema, userIpWhitelistSchema } from './ipWhitelist.js';
+import {
+  globalIpWhitelistSchema,
+  shopIpCommandSchema,
+  userIpWhitelistSchema,
+} from './ipWhitelist.js';
 
 test('global IP policy requires ranges only when enabled', () => {
   assert.equal(
@@ -35,6 +39,22 @@ test('restricted user policy requires a custom range', () => {
   assert.equal(
     userIpWhitelistSchema.safeParse({ mode: 'restricted', allowed_ranges: ['2001:db8::/32'] })
       .success,
+    true
+  );
+});
+
+test('shop policy accepts approved-device mode without an IP range', () => {
+  assert.equal(
+    shopIpCommandSchema.safeParse({
+      idempotency_key: '11111111-1111-4111-8111-111111111111',
+      expected_revision: 0,
+      policy: {
+        kind: 'user',
+        user_id: '22222222-2222-4222-8222-222222222222',
+        mode: 'registered_device',
+        allowed_ranges: [],
+      },
+    }).success,
     true
   );
 });

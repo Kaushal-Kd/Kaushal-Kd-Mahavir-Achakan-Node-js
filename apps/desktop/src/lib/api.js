@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuthStore } from '../stores/authStore.js';
 import { useShopStore } from '../stores/shopStore.js';
 
+import { resolveApiBaseUrl } from './apiBaseUrl.js';
 import { queryClient } from './queryClient.js';
 import { getReadableDeviceName, getStableDeviceId } from './deviceIdentity.js';
 import { assertEmailSettingsScope } from './shopEmailSettingsState.js';
@@ -19,22 +20,13 @@ export function hardLogout(accessDeniedMessage = null) {
 }
 
 function resolveBaseUrl() {
-  const envUrl = import.meta.env.VITE_API_URL;
-  if (envUrl) {
-    const isWeb = typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol);
-    const pointsToLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(envUrl);
-    const runningOnLocalhost =
-      typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
-    if (!isWeb || !pointsToLocalhost || runningOnLocalhost) return envUrl;
-  }
-
-  // On hosted web (Vercel), use same-origin backend route.
-  if (typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)) {
-    return `${window.location.origin}/api`;
-  }
-
-  // Electron/file:// and local dev fallback.
-  return 'http://localhost:4000/api';
+  const loc = typeof window !== 'undefined' ? window.location : null;
+  return resolveApiBaseUrl({
+    envUrl: import.meta.env.VITE_API_URL,
+    protocol: loc?.protocol,
+    hostname: loc?.hostname,
+    origin: loc?.origin,
+  });
 }
 
 const baseURL = resolveBaseUrl();

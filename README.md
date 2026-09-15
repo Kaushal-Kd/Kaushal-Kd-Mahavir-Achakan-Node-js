@@ -89,18 +89,18 @@ Change it on first login (change-on-first-login is enforced).
 
 ## Scripts
 
-| Script                  | Purpose                                       |
-| ----------------------- | --------------------------------------------- |
+| Script                  | Purpose                                           |
+| ----------------------- | ------------------------------------------------- |
 | `npm run dev:backend`   | Start Fastify (nodemon; run `migrate` separately) |
-| `npm run benchmark:api` | Benchmark hot API paths (needs token + shop id) |
-| `npm run dev:desktop`   | Start Electron + Vite concurrently            |
-| `npm run dev:web`       | Desktop app in browser (no Electron)          |
-| `npm run build:desktop` | Production bundle for Electron                |
-| `npm run migrate`       | Run pending Knex migrations                   |
-| `npm run seed`          | Seed initial data (admin, categories, sample) |
-| `npm run lint`          | Lint all workspaces                           |
-| `npm run format`        | Prettier write                                |
-| `npm run check:no-ts`   | Fail if any TS file exists (CI guard)         |
+| `npm run benchmark:api` | Benchmark hot API paths (needs token + shop id)   |
+| `npm run dev:desktop`   | Start Electron + Vite concurrently                |
+| `npm run dev:web`       | Desktop app in browser (no Electron)              |
+| `npm run build:desktop` | Production bundle for Electron                    |
+| `npm run migrate`       | Run pending Knex migrations                       |
+| `npm run seed`          | Seed initial data (admin, categories, sample)     |
+| `npm run lint`          | Lint all workspaces                               |
+| `npm run format`        | Prettier write                                    |
+| `npm run check:no-ts`   | Fail if any TS file exists (CI guard)             |
 
 ---
 
@@ -195,6 +195,18 @@ APP_DIR=/opt/wedding_rent_system BRANCH=main bash /opt/wedding_rent_system/scrip
 - Set `DB_HOST` to `127.0.0.1` or a private IP on the same host/VPC as the API container. A public remote MySQL host adds latency to every request.
 - After deploy, run `npm run benchmark:api` with `API_BASE`, `BENCH_EMAIL`, `BENCH_PASSWORD`, and `BENCH_SHOP_ID` to measure p50/p95 on dashboard, orders list, system logs, and trial reminders.
 - First backend start with schema changes: `npm --workspace @wrs/backend run dev:migrate` (migrations + nodemon). Day-to-day dev uses `npm run dev:backend` only.
+
+## Optional visual product search
+
+Products Available can rank visually similar catalog photos through Google Vertex AI. Enable the Vertex AI API for the same Google Cloud project used by the backend credentials, then set:
+
+```bash
+VERTEX_VISUAL_SEARCH_ENABLED=true
+VERTEX_VISUAL_SEARCH_PROJECT_ID=your-google-cloud-project-id
+VERTEX_VISUAL_SEARCH_LOCATION=us-central1
+```
+
+The project ID falls back to `GCS_PROJECT_ID`. Catalog photos must use the configured Google Cloud Storage/CDN host; the backend rejects arbitrary remote image hosts.
 
 ## Project Rules
 
