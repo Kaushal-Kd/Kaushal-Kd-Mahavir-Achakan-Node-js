@@ -426,6 +426,7 @@ const CreateOrder = ({ mode, orderId }) => {
   const [noteEditorImageUrl, setNoteEditorImageUrl] = useState('');
   const [bookingDraftId, setBookingDraftId] = useState(null);
   const [lastDraftSavedAt, setLastDraftSavedAt] = useState(null);
+  const [draftSaveStatus, setDraftSaveStatus] = useState('idle');
   const draftHydrateDoneRef = useRef(false);
   const skipDraftPersistRef = useRef(false);
   const justStartedBlankDraftRef = useRef(false);
@@ -1574,6 +1575,10 @@ const CreateOrder = ({ mode, orderId }) => {
 
   const flushBookingDraftToStorage = useCallback(() => {
     const snap = buildBookingDraftSnapshot();
+    const liveLines = compactDraftValue(linesRef.current || []);
+    if (Array.isArray(liveLines) && liveLines.length > 0) {
+      snap.lines = liveLines;
+    }
     const liveLineCount = Array.isArray(linesRef.current) ? linesRef.current.length : 0;
     const snapLineCount = Array.isArray(snap.lines) ? snap.lines.length : 0;
     if (liveLineCount > 0 && snapLineCount === 0) return false;
@@ -1597,6 +1602,7 @@ const CreateOrder = ({ mode, orderId }) => {
     const row = upsertBookingDraft({ id, title: draftLabelFromSnapshot(snap), snapshot: snap });
     if (!row) return false;
     setLastDraftSavedAt(Date.now());
+    setDraftSaveStatus('saved');
     return true;
   }, [buildBookingDraftSnapshot]);
 
@@ -1610,6 +1616,8 @@ const CreateOrder = ({ mode, orderId }) => {
     setBookingDraftId(newId);
     persistActiveDraftStorageKey(newId);
     applyBookingDraftSnapshot(getBlankBookingSnapshot());
+    setLastDraftSavedAt(null);
+    setDraftSaveStatus('idle');
     window.setTimeout(() => {
       skipDraftPersistRef.current = false;
       justStartedBlankDraftRef.current = false;
@@ -1632,6 +1640,8 @@ const CreateOrder = ({ mode, orderId }) => {
       setBookingDraftId(row.id);
       persistActiveDraftStorageKey(row.id);
       applyBookingDraftSnapshot(fromList.snapshot);
+      if (fromList.updatedAt) setLastDraftSavedAt(Number(fromList.updatedAt) || Date.now());
+      setDraftSaveStatus('saved');
       if (fromList.snapshot?.customer?.id) {
         const snap = fromList.snapshot;
         customersApi
@@ -3838,6 +3848,8 @@ const CreateOrder = ({ mode, orderId }) => {
     applyBookingDraftSnapshot(row.snapshot);
     bookingDraftIdRef.current = activeId;
     setBookingDraftId(activeId);
+    if (row.updatedAt) setLastDraftSavedAt(Number(row.updatedAt) || Date.now());
+    setDraftSaveStatus('saved');
 
     if (row.snapshot?.customer?.id) {
       const snap = row.snapshot;
@@ -4096,6 +4108,13 @@ const CreateOrder = ({ mode, orderId }) => {
     flushBookingDraftToStorageRef.current = flushBookingDraftToStorage;
   }, [flushBookingDraftToStorage]);
 
+  useLayoutEffect(() => {
+    if (isEditMode) return;
+    if (!Array.isArray(lines) || lines.length === 0) return;
+    setDraftSaveStatus('saving');
+    flushBookingDraftToStorage();
+  }, [isEditMode, lines, flushBookingDraftToStorage]);
+
   useEffect(() => {
     if (isEditMode) return undefined;
     const persistNow = () => {
@@ -4116,10 +4135,20 @@ const CreateOrder = ({ mode, orderId }) => {
   }, [isEditMode]);
 
   useEffect(() => {
-    if (isEditMode) return;
+    if (isEditMode) return undefined;
+    if (bookingDraftIdRef.current) setDraftSaveStatus('saving');
     const t = setTimeout(() => {
-      flushBookingDraftToStorage();
-    }, 250);
+      const snap = buildBookingDraftSnapshot();
+      const hasContent = !isSnapshotTriviallyEmpty(snap);
+      if (!hasContent && !bookingDraftIdRef.current) {
+        setDraftSaveStatus('idle');
+        return;
+      }
+      if (hasContent) setDraftSaveStatus('saving');
+      const ok = flushBookingDraftToStorage();
+      if (ok) setDraftSaveStatus('saved');
+      else if (!bookingDraftIdRef.current) setDraftSaveStatus('idle');
+    }, 160);
     return () => clearTimeout(t);
   }, [isEditMode, buildBookingDraftSnapshot, flushBookingDraftToStorage]);
 
@@ -4129,9 +4158,11 @@ const CreateOrder = ({ mode, orderId }) => {
   }, [lastDraftSavedAt]);
 
   const handleManualSaveDraft = useCallback(() => {
+    setDraftSaveStatus('saving');
     if (flushBookingDraftToStorage()) {
       toast.success('Draft saved on this device');
     } else {
+      setDraftSaveStatus(bookingDraftIdRef.current ? 'saved' : 'idle');
       toast.info('Enter booking details (customer, contact, items, or notes) to save a draft.');
     }
   }, [flushBookingDraftToStorage]);
@@ -4224,7 +4255,7 @@ const CreateOrder = ({ mode, orderId }) => {
               : editOrderQuery.isLoading
                 ? 'Loading booking…'
                 : 'Products with optional suggested accessories'
-            : 'Products with optional suggested accessories. Drafts save on this device. Use New draft to save the current form and start another booking here.'
+            : 'Products with optional suggested accessories. Auto save keeps this booking on this device. Use New draft to start another booking here.'
         }
         breadcrumbs={
           isEditMode
@@ -4247,6 +4278,7 @@ const CreateOrder = ({ mode, orderId }) => {
               mode="embedded"
               activeDraftId={bookingDraftId}
               draftSavedTimeLabel={draftSavedTimeLabel}
+              autosaveStatus={draftSaveStatus}
               onSaveDraft={handleManualSaveDraft}
               onNewDraft={handleStartNewBookingDraft}
               onResumeDraft={handleResumeDraft}

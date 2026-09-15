@@ -1,5 +1,5 @@
 import { formatDateTime } from '@wrs/shared';
-import { ClipboardList, FilePlus2, Save, Trash2 } from 'lucide-react';
+import { Check, ClipboardList, FilePlus2, Save, Trash2 } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -20,10 +20,51 @@ function formatDraftSavedTime(updatedAt) {
   return formatDateTime(updatedAt) || '';
 }
 
+function BookingDraftAutosaveStatus({ status, savedTimeLabel }) {
+  if (status === 'saving') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded border border-brand bg-brand-light text-brand text-[11px] font-semibold"
+        aria-live="polite"
+      >
+        Auto saving
+        <span className="inline-block w-0.5 h-3 bg-brand animate-pulse" aria-hidden />
+      </span>
+    );
+  }
+  if (status === 'saved') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded border border-green-200 bg-green-50 text-green-700 text-[11px] font-semibold"
+        aria-live="polite"
+      >
+        <Check size={12} strokeWidth={2.5} />
+        Auto saved
+        {savedTimeLabel ? <span className="font-medium text-green-600 tabular-nums">· {savedTimeLabel}</span> : null}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded border border-gray-200 bg-white text-gray-500 text-[11px] font-medium">
+      Auto save
+    </span>
+  );
+}
+
+BookingDraftAutosaveStatus.propTypes = {
+  status: PropTypes.oneOf(['idle', 'saving', 'saved']).isRequired,
+  savedTimeLabel: PropTypes.string,
+};
+
+BookingDraftAutosaveStatus.defaultProps = {
+  savedTimeLabel: '',
+};
+
 const BookingDraftActions = ({
   mode,
   activeDraftId,
   draftSavedTimeLabel,
+  autosaveStatus,
   onSaveDraft,
   onNewDraft,
   onResumeDraft,
@@ -105,11 +146,15 @@ const BookingDraftActions = ({
   return (
     <>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {displaySavedTimeLabel ? (
+        {mode === 'embedded' ? (
+          <BookingDraftAutosaveStatus status={autosaveStatus} savedTimeLabel={displaySavedTimeLabel} />
+        ) : displaySavedTimeLabel ? (
           <span className="text-[11px] text-gray-500 tabular-nums hidden sm:inline">
-            Saved · {displaySavedTimeLabel}
+            Auto saved · {displaySavedTimeLabel}
           </span>
-        ) : null}
+        ) : (
+          <span className="text-[11px] text-gray-500 hidden sm:inline">Auto save</span>
+        )}
         <Button
           type="button"
           variant="secondary"
@@ -220,6 +265,7 @@ BookingDraftActions.propTypes = {
   mode: PropTypes.oneOf(['embedded', 'navigate']).isRequired,
   activeDraftId: PropTypes.string,
   draftSavedTimeLabel: PropTypes.string,
+  autosaveStatus: PropTypes.oneOf(['idle', 'saving', 'saved']),
   onSaveDraft: PropTypes.func,
   onNewDraft: PropTypes.func,
   onResumeDraft: PropTypes.func,
@@ -229,6 +275,7 @@ BookingDraftActions.propTypes = {
 BookingDraftActions.defaultProps = {
   activeDraftId: null,
   draftSavedTimeLabel: '',
+  autosaveStatus: 'idle',
   onSaveDraft: undefined,
   onNewDraft: undefined,
   onResumeDraft: undefined,
