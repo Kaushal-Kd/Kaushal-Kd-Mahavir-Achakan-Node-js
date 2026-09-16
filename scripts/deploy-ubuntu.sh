@@ -61,9 +61,15 @@ fi
 docker compose -f "$COMPOSE_FILE" build --pull
 # A cancelled GitHub deploy can leave knex_migrations_lock set. Unlock first so
 # the next deploy is not stuck; only one production deploy should run at a time.
-docker compose -f "$COMPOSE_FILE" run --rm --no-deps backend npm run migrate:unlock --workspace @wrs/backend || true
+# WRS_ALLOW_LIVE_MIGRATE is required because knexfile refuses wedding_rent_system
+# unless this flag is set (protects local/beta from pointing at live by mistake).
+docker compose -f "$COMPOSE_FILE" run --rm --no-deps \
+  -e WRS_ALLOW_LIVE_MIGRATE=1 \
+  backend npm run migrate:unlock --workspace @wrs/backend || true
 # Auth checks need the new tables before the updated backend starts accepting requests.
-docker compose -f "$COMPOSE_FILE" run --rm --no-deps backend npm run migrate --workspace @wrs/backend
+docker compose -f "$COMPOSE_FILE" run --rm --no-deps \
+  -e WRS_ALLOW_LIVE_MIGRATE=1 \
+  backend npm run migrate --workspace @wrs/backend
 docker compose -f "$COMPOSE_FILE" up -d
 
 # Best-effort: keep bucket CORS in sync for direct browser uploads.
