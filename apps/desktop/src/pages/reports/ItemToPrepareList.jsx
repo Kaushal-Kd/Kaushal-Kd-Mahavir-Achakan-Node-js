@@ -8,8 +8,8 @@ import {
 } from '@wrs/shared';
 import {
   ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS,
-  ITEM_TO_PREPARE_PRINT_COLUMNS,
   buildPrepareProductExportRows,
+  getPrepareContactNumbers,
 } from '../../lib/itemToPreparePdfExport.js';
 import { ClipboardCheck, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -26,6 +26,7 @@ import { runItemStageTableExport, runItemStageTablePrint } from '../../lib/itemS
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import BookingBillLink from '../../components/booking/BookingBillLink.jsx';
+import DamageReplacementBadge from '../../components/booking/DamageReplacementBadge.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
 import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
@@ -44,12 +45,16 @@ import { buildCustomerAddressColumn } from '../../lib/listOrderColumns.jsx';
 import { buildBookingDateTimeColumn } from '../../lib/listTimestampColumns.js';
 import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
 import { submitSalesmanReassignment } from '../../lib/salesmanReassign.js';
+import { bookingAlertRowClass } from '../../lib/damageReplacementAlert.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { usePendingChecklistCommands } from '../../hooks/api/useChecklistCommand.js';
 import { toast } from '../../stores/uiStore.js';
 import { syncService } from '../../services/syncService.js';
 import { BookingListNextBookingAlert } from '../booking/ChecklistNextBookingAlert.jsx';
-import { orderHasNextBookingAlert } from '../booking/checklistNextBookingAlertUtils.js';
+import {
+  checklistRowWarningClass,
+  orderHasNextBookingAlert,
+} from '../booking/checklistNextBookingAlertUtils.js';
 import DeliverySettlementModal from '../booking/DeliverySettlementModal.jsx';
 import ItemsChecklistModal from '../booking/ItemsChecklistModal.jsx';
 import ReturnSettlementModal from '../booking/ReturnSettlementModal.jsx';
@@ -322,10 +327,7 @@ const ItemToPrepareList = () => {
       }
       const pdfPayload = {
         layout,
-        columns:
-          exportDialogAction === 'print'
-            ? ITEM_TO_PREPARE_PRINT_COLUMNS
-            : ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS,
+        columns: ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS,
         rows: exportRows,
         pdfOptions: {
           title: 'Prepare Item',
@@ -486,6 +488,7 @@ const ItemToPrepareList = () => {
       render: (r) => (
         <span className="inline-flex items-center gap-1 font-mono text-xs text-gray-900">
           <BookingBillLink orderId={r.id}>{r.order_number || '—'}</BookingBillLink>
+          <DamageReplacementBadge row={r} />
           {orderHasNextBookingAlert(r) ? (
             <BookingListNextBookingAlert alerts={r.next_booking_alerts} />
           ) : null}
@@ -519,11 +522,29 @@ const ItemToPrepareList = () => {
     },
     {
       key: 'customer_phone',
-      header: 'Customer No.',
+      header: 'Mobile / WhatsApp',
+      columnPickerLabel: 'Mobile / WhatsApp',
       className: 'text-xs',
-      render: (r) => (
-        <span className="font-mono text-xs">{r.customer_phone || r.pickup_number || '—'}</span>
-      ),
+      render: (r) => {
+        const { mobile, whatsapp } = getPrepareContactNumbers(r);
+        if (!mobile && !whatsapp) return <span className="text-gray-400">—</span>;
+        return (
+          <div className="space-y-0.5 leading-tight">
+            {mobile ? (
+              <p>
+                <span className="text-[10px] font-medium text-gray-500">Mobile </span>
+                <span className="font-mono text-xs text-gray-900">{mobile}</span>
+              </p>
+            ) : null}
+            {whatsapp ? (
+              <p>
+                <span className="text-[10px] font-medium text-gray-500">WhatsApp </span>
+                <span className="font-mono text-xs text-gray-900">{whatsapp}</span>
+              </p>
+            ) : null}
+          </div>
+        );
+      },
     },
     addressColumn,
     {
@@ -761,6 +782,9 @@ const ItemToPrepareList = () => {
         rows={rows}
         loading={isLoading || isFetching}
         rowKey="id"
+        getRowClassName={(row) =>
+          bookingAlertRowClass(row, checklistRowWarningClass(orderHasNextBookingAlert(row)))
+        }
         onRowClick={(r) => navigate(`/booking/${r.id}`)}
         emptyTitle="No bookings to prepare"
         emptyMessage="No collected-product or accessory-only bookings are pending preparation. Try another search or wider filters."

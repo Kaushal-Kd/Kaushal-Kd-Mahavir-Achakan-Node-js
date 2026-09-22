@@ -259,12 +259,91 @@ const Sidebar = () => {
   // Mobile keeps its full off-canvas drawer regardless of the saved desktop mode.
   if (!isMobileNav && sidebarCollapsed) {
     const sections = [
-      { id: 'master', label: 'Master', icon: SlidersHorizontal, active: onMasterRoute, visible: masterNavItems.length > 0 },
-      { id: 'inventory', label: 'Inventory', icon: Warehouse, active: onInventoryRoute, visible: inventoryChildren.length > 0 },
-      { id: 'transaction', label: 'Transaction', icon: BarChart3, active: onTransactionRoute, visible: transactionChildren.length > 0 },
-      { id: 'general-report', label: 'General Report', icon: BarChart3, active: onGeneralReportRoute, visible: generalReportChildren.length > 0 },
-      { id: 'finance-report', label: 'Finance Report', icon: BarChart3, active: onFinanceReportRoute, visible: financeReportChildren.length > 0 },
-      { id: 'settings', label: 'Settings', icon: Cog, active: onSettingsRoute, visible: settingsGroups.length > 0 },
+      {
+        id: 'master',
+        label: 'Master',
+        icon: SlidersHorizontal,
+        active: onMasterRoute,
+        visible: masterNavItems.length > 0,
+        items: masterNavItems.map((it) => ({
+          id: it.id,
+          label: it.label,
+          to: `/master/${it.id}`,
+          active:
+            it.id === 'accessory'
+              ? location.pathname.startsWith('/master/accessory')
+              : currentMasterTab === it.id,
+          badge: it.id === 'accessory' ? lowStockAccessoryCount : 0,
+        })),
+      },
+      {
+        id: 'inventory',
+        label: 'Inventory',
+        icon: Warehouse,
+        active: onInventoryRoute,
+        visible: inventoryChildren.length > 0,
+        items: inventoryChildren.map((it) => ({
+          id: it.id,
+          label: it.label,
+          to: it.to,
+          active: isSidebarNavItemActive(location.pathname, it.to),
+        })),
+      },
+      {
+        id: 'transaction',
+        label: 'Transaction',
+        icon: BarChart3,
+        active: onTransactionRoute,
+        visible: transactionChildren.length > 0,
+        items: transactionChildren.map((it) => ({
+          id: it.id,
+          label: it.label,
+          to: it.to,
+          active: isSidebarNavItemActive(location.pathname, it.to),
+        })),
+      },
+      {
+        id: 'general-report',
+        label: 'General Report',
+        icon: BarChart3,
+        active: onGeneralReportRoute,
+        visible: generalReportChildren.length > 0,
+        items: generalReportNavItems.map((it) => ({
+          id: it.id,
+          label: it.label,
+          to: it.to,
+          active: isSidebarNavItemActive(location.pathname, it.to),
+        })),
+      },
+      {
+        id: 'finance-report',
+        label: 'Finance Report',
+        icon: BarChart3,
+        active: onFinanceReportRoute,
+        visible: financeReportChildren.length > 0,
+        items: financeReportChildren.map((it) => ({
+          id: it.id,
+          label: it.label,
+          to: it.to,
+          active: isSidebarNavItemActive(location.pathname, it.to),
+        })),
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        icon: Cog,
+        active: onSettingsRoute,
+        visible: settingsGroups.length > 0,
+        items: settingsGroups.flatMap((group) => [
+          { id: `group-${group.id}`, label: group.label, heading: true },
+          ...group.items.map((it) => ({
+            id: it.id,
+            label: it.label,
+            to: `/settings/${it.id}`,
+            active: currentSettingsTab === it.id,
+          })),
+        ]),
+      },
     ].filter((section) => section.visible);
 
     return (
@@ -272,10 +351,6 @@ const Sidebar = () => {
         links={topNav}
         sections={sections}
         onExpand={toggleSidebar}
-        onSectionSelect={(section) => {
-          setOpenSection(section);
-          toggleSidebar();
-        }}
       />
     );
   }

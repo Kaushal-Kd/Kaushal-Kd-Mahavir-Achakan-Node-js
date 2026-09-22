@@ -2,6 +2,7 @@ export * from './currency.js';
 export * from './date.js';
 export * from './billNumber.js';
 export * from './nextBookingAlert.js';
+export * from './replacementReminder.js';
 export * from './rentalOverlap.js';
 export * from './laundryPriority.js';
 export * from './validators.js';

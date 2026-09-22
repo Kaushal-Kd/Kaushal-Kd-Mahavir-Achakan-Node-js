@@ -69,7 +69,7 @@ export const env = Object.freeze({
   PORT: Number(process.env.PORT || 4000),
   HOST: process.env.HOST || '0.0.0.0',
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
-  CORS_ORIGIN: (process.env.CORS_ORIGIN || 'http://localhost:5173,app://.')
+  CORS_ORIGIN: (process.env.CORS_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173,app://.')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),

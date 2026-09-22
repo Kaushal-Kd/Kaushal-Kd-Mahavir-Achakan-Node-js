@@ -1,9 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatCurrency } from '@wrs/shared';
 import {
-  ArrowDown,
-  ArrowUp,
-  GripVertical,
   Link2,
   Pencil,
   Plus,
@@ -22,6 +19,7 @@ import TableHeaderLabel from '../../../components/ui/TableHeaderLabel.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import { useAdminDelete } from '../../../hooks/useAdminDelete.js';
 import { useSelectedShopName } from '../../../hooks/useSelectedShopName.js';
+import { sortCategoriesAZ } from '../../../lib/categoryOrder.js';
 import { categoriesApi } from '../../../lib/api/categories.js';
 import { toast } from '../../../stores/uiStore.js';
 import { Section } from '../../settings/tabs/_Tab.jsx';
@@ -68,11 +66,7 @@ const CategoriesEditor = () => {
     queryKey: ['categories', activeType],
     queryFn: () => categoriesApi.list({ type: activeType }),
   });
-  const cats = useMemo(() => {
-    const arr = data?.data || [];
-    return [...arr].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-  }, [data]);
-  const searching = search.trim().length > 0;
+  const cats = useMemo(() => sortCategoriesAZ(data?.data), [data]);
   const filteredCats = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return cats;
@@ -82,14 +76,16 @@ const CategoriesEditor = () => {
     queryKey: ['categories', 'accessory', 'for-product-mapping'],
     queryFn: () => categoriesApi.list({ type: 'accessory' }),
   });
-  const accessoryCategories = accessoryCategoriesRes?.data || [];
+  const accessoryCategories = useMemo(
+    () => sortCategoriesAZ(accessoryCategoriesRes?.data),
+    [accessoryCategoriesRes]
+  );
 
   const openAdd = () => {
     setEditing(null);
     setForm({
       ...emptyCategory,
       category_type: activeType,
-      sort_order: (cats.at(-1)?.sort_order || 0) + 1,
     });
     setErr('');
     setModalOpen(true);
@@ -124,7 +120,7 @@ const CategoriesEditor = () => {
       const payload = {
         label: form.label.trim(),
         category_type: form.category_type || 'product',
-        sort_order: Number(form.sort_order) || 0,
+        sort_order: editing ? Number(form.sort_order) || 0 : 0,
         is_active: !!form.is_active,
         is_washable: !!form.is_washable,
         dc_price: Number(form.dc_price) || 0,
@@ -151,10 +147,6 @@ const CategoriesEditor = () => {
     },
   });
 
-  const reorderMut = useMutation({
-    mutationFn: ({ id, sort_order }) => categoriesApi.update(id, { sort_order }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
-  });
   const mappingMut = useMutation({
     mutationFn: ({ categoryId, accessory_category_ids }) =>
       categoriesApi.updateAccessoryCategoryMapping(categoryId, { accessory_category_ids }),
@@ -168,16 +160,6 @@ const CategoriesEditor = () => {
       toast.error(e?.response?.data?.error?.message || 'Could not save mapping');
     },
   });
-
-  const move = (idx, dir) => {
-    const j = idx + dir;
-    if (j < 0 || j >= cats.length) return;
-    const a = cats[idx];
-    const b = cats[j];
-    const so = a.sort_order;
-    reorderMut.mutate({ id: a.id, sort_order: b.sort_order });
-    reorderMut.mutate({ id: b.id, sort_order: so });
-  };
 
   return (
     <Section
@@ -269,24 +251,19 @@ const CategoriesEditor = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredCats.map((c) => {
-                // Reorder acts on the full list, so a filtered row still needs
-                // its real position — a filtered index would swap the wrong rows.
-                const idx = cats.indexOf(c);
+              {filteredCats.map((c, idx) => {
+                const mappedAccessories = sortCategoriesAZ(c.accessory_categories);
                 return (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <td className="px-3 py-2 text-gray-400">
-                    <div className="flex items-center gap-1">
-                      <GripVertical size={12} className="text-gray-300" />
-                      <span className="font-mono text-xs">{idx + 1}</span>
-                    </div>
+                    <span className="font-mono text-xs">{idx + 1}</span>
                   </td>
                   <td className="px-3 py-2 font-medium text-gray-900">{c.label}</td>
                   {activeType === 'product' ? (
                     <td className="px-3 py-2">
-                      {Array.isArray(c.accessory_categories) && c.accessory_categories.length > 0 ? (
+                      {mappedAccessories.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {c.accessory_categories.map((item) => (
+                          {mappedAccessories.map((item) => (
                             <span
                               key={item.id}
                               className="inline-flex items-center rounded border border-brand/30 bg-brand-light/30 px-1.5 py-0.5 text-[11px] text-brand"
@@ -311,20 +288,6 @@ const CategoriesEditor = () => {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex justify-end items-center gap-1">
-                      <IconBtn
-                        title={searching ? 'Clear the search to reorder' : 'Move up'}
-                        onClick={() => move(idx, -1)}
-                        disabled={searching || idx === 0}
-                      >
-                        <ArrowUp size={14} />
-                      </IconBtn>
-                      <IconBtn
-                        title={searching ? 'Clear the search to reorder' : 'Move down'}
-                        onClick={() => move(idx, 1)}
-                        disabled={searching || idx === cats.length - 1}
-                      >
-                        <ArrowDown size={14} />
-                      </IconBtn>
                       <IconBtn title="Edit" onClick={() => openEdit(c)}>
                         <Pencil size={14} />
                       </IconBtn>
@@ -440,12 +403,6 @@ const CategoriesEditor = () => {
             placeholder="e.g. Sherwani"
             value={form.label}
             onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-          />
-          <Input
-            type="number"
-            label="Sort order"
-            value={form.sort_order}
-            onChange={(e) => setForm((f) => ({ ...f, sort_order: e.target.value }))}
           />
           <Select
             label="Is Washable"

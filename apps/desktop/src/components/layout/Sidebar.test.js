@@ -69,8 +69,9 @@ test('collapsed desktop retains a narrow, scrollable icon sidebar and expand con
   assert.match(html, /aria-label="Check Availability"/);
   assert.match(html, /aria-label="Products Available"/);
   for (const section of ['Master', 'Inventory', 'Transaction', 'General Report', 'Finance Report', 'Settings']) {
-    assert.ok(html.includes(`aria-label="Expand ${section} menu"`));
+    assert.ok(html.includes(`aria-label="${section} menu"`));
   }
+  assert.match(html, /aria-haspopup="menu"/);
   assert.doesNotMatch(html, /<span[^>]*>Dashboard<\/span>/);
 });
 
@@ -83,8 +84,8 @@ test('collapsed icons keep direct destinations and highlight the current route',
 test('collapsed sidebar does not expose sections denied by user permissions', () => {
   const html = renderSidebar({ user: { role: 'salesman', permissions: { dashboard: { view: true } } } });
   assert.match(html, /aria-label="Dashboard"/);
-  assert.doesNotMatch(html, /aria-label="Expand Transaction menu"/);
-  assert.doesNotMatch(html, /aria-label="Expand Finance Report menu"/);
+  assert.doesNotMatch(html, /aria-label="Transaction menu"/);
+  assert.doesNotMatch(html, /aria-label="Finance Report menu"/);
   assert.doesNotMatch(html, /aria-label="Check Availability"/);
 });
 

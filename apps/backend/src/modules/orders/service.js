@@ -58,6 +58,10 @@ import { lockOrderInventory } from './orderInventoryLock.js';
 import { assertDeliveryLineVersion } from './stageLineVersion.js';
 import { readChecklistStateToken, attachChecklistStateTokens } from './checklistState.js';
 import {
+  attachDamageReplacementSummaryToLines,
+  attachDamageReplacementSummaryToOrders,
+} from '../order-replacements/attachSummary.js';
+import {
   recordDamagedProductReplacements,
   syncReplacementRequirementsForOrder,
   assertOrderItemReplacementAllowed,
@@ -631,6 +635,20 @@ export async function listOrders(shopId, query) {
   if (query.pending_bills === '1' || query.pending_bills === 1 || query.pending_bills === true) {
     qb.andWhere('o.balance', '>', 0).whereNot({ 'o.status': 'cancelled' });
   }
+  if (
+    query.damage_replacement === '1' ||
+    query.damage_replacement === 1 ||
+    query.damage_replacement === true ||
+    query.damage_replacement === 'true'
+  ) {
+    qb.whereExists(function damageReplacementExists() {
+      this.select(knex.raw('1'))
+        .from('order_item_replacement_requirements as rr_dmg')
+        .whereRaw('rr_dmg.target_order_id = o.id')
+        .andWhere('rr_dmg.shop_id', shopId)
+        .andWhere('rr_dmg.status', 'pending');
+    });
+  }
 
   let dateCol = 'o.pickup_date';
   if (query.date_field === 'return_date') dateCol = 'o.return_date';
@@ -737,7 +755,10 @@ export async function listOrders(shopId, query) {
     query.with_next_booking_alerts !== 'false';
 
   if (result.data?.length) {
-    const enrichments = [attachLinkedCustomOrders(shopId, result.data)];
+    const enrichments = [
+      attachLinkedCustomOrders(shopId, result.data),
+      attachDamageReplacementSummaryToOrders(knex, shopId, result.data),
+    ];
     if (withNextBookingAlerts) {
       enrichments.push(attachNextBookingAlertSummaryToOrders(knex, shopId, result.data));
     }
@@ -977,6 +998,7 @@ async function enrichItemStageListRows(shopId, rows) {
         row.next_booking_alerts = snap.next_booking_alerts;
       }
     }),
+    attachDamageReplacementSummaryToLines(knex, shopId, rows),
     attachItemLineAvailability(shopId, productRows),
     attachLineAccessoriesDetail(shopId, productRows),
     attachLineAccessoryRemarks(shopId, productRows),
@@ -992,6 +1014,7 @@ async function enrichItemsToCollectBookingRows(shopId, rows) {
     return_date: row.return_date,
   }));
   await attachNextBookingAlertSummaryToOrders(knex, shopId, orderSnapshots);
+  await attachDamageReplacementSummaryToOrders(knex, shopId, orderSnapshots);
   const alertByOrderId = new Map(orderSnapshots.map((o) => [String(o.id), o]));
   for (const row of rows) {
     const snap = alertByOrderId.get(String(row.id));
@@ -999,6 +1022,9 @@ async function enrichItemsToCollectBookingRows(shopId, rows) {
     row.has_next_booking_alert = snap.has_next_booking_alert;
     row.next_booking_alert_count = snap.next_booking_alert_count;
     row.next_booking_alerts = snap.next_booking_alerts;
+    row.has_damage_replacement = snap.has_damage_replacement;
+    row.damage_replacement_count = snap.damage_replacement_count;
+    row.damage_replacements = snap.damage_replacements;
   }
 }
 
@@ -3967,15 +3993,17 @@ export async function settleOrderDelivery(shopId, orderId, payload, userId) {
       const securityAmount = round2(Number(payload.security_amount || 0));
       const receiveAmount = round2(Number(payload.receive_amount || 0));
       const depositAmount = round2(Number(payload.deposit_amount || 0));
-      const configuredDeposit = round2(Number(order.deposit_amount || 0));
       const deliversAnyLine = (payload.stage_updates || []).some(
         (update) => update.field === 'delivered' && update.value === true
       );
-      if (Math.abs(depositAmount - configuredDeposit) > 0.009) {
-        throw badRequest('Change the Security Amount in Booking Edit before delivery');
+      const securityHeld = await getSecurityHeld(trx, orderId);
+      if (depositAmount + 0.009 < securityHeld) {
+        throw badRequest(
+          `Security amount cannot be less than already collected (${securityHeld})`
+        );
       }
-      if (configuredDeposit <= 0 && securityAmount > 0) {
-        throw badRequest('Add a Security Amount in Booking Edit before collecting security');
+      if (depositAmount <= 0 && securityAmount > 0) {
+        throw badRequest('Set a Security Amount before collecting security');
       }
       if ((securityAmount > 0 || receiveAmount > 0) && !order.customer_id) {
         throw badRequest('Add a customer before recording settlement payments');
@@ -4010,7 +4038,6 @@ export async function settleOrderDelivery(shopId, orderId, payload, userId) {
         security_account_id: securityAmount > 0 ? payload.security_account_id : null,
       });
 
-      const securityHeld = await getSecurityHeld(trx, orderId);
       const securityPending = round2(Math.max(0, depositAmount - securityHeld));
       if (securityAmount > 0 && Math.abs(securityAmount - securityPending) > 0.009) {
         throw badRequest(`Security amount must equal pending security (${securityPending})`);
@@ -4019,8 +4046,8 @@ export async function settleOrderDelivery(shopId, orderId, payload, userId) {
         throw badRequest('Cannot collect security while marking it returned');
       }
       const heldAfter = round2(securityHeld + securityAmount);
-      if (deliversAnyLine && configuredDeposit > 0 && heldAfter < configuredDeposit) {
-        throw badRequest(`Collect the full Security Amount (${configuredDeposit}) before delivery`);
+      if (deliversAnyLine && depositAmount > 0 && heldAfter < depositAmount) {
+        throw badRequest(`Collect the full Security Amount (${depositAmount}) before delivery`);
       }
       if (payload.security_status === 'paid' && depositAmount > 0 && heldAfter < depositAmount) {
         throw badRequest('Security cannot be marked paid while an amount is pending');

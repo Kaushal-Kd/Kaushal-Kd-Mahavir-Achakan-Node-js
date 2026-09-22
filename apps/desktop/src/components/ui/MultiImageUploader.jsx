@@ -1,6 +1,6 @@
-import { ExternalLink, FileText, ImagePlus, Loader2, Trash2 } from 'lucide-react';
+import { Download, ExternalLink, FileText, ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { uploadToGCS } from '../../services/gcsUpload.js';
 import {
@@ -60,12 +60,27 @@ const MultiImageUploader = ({
   maxImages = 20,
   disabled = false,
   allowPdf = false,
+  selectable = false,
+  onDownloadSelected = null,
 }) => {
   const inputRef = useRef(null);
   const [busy, setBusy] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [selectedIndexes, setSelectedIndexes] = useState(() => new Set());
 
   const urls = Array.isArray(value) ? value.filter(Boolean) : [];
   const slotsLeft = Math.max(0, maxImages - urls.length);
+  const selectedCount = [...selectedIndexes].filter((index) => index >= 0 && index < urls.length)
+    .length;
+  const allSelected = urls.length > 0 && selectedCount === urls.length;
+
+  useEffect(() => {
+    setSelectedIndexes((prev) => {
+      const next = new Set([...prev].filter((index) => index >= 0 && index < urls.length));
+      if (next.size === prev.size && [...next].every((index) => prev.has(index))) return prev;
+      return next;
+    });
+  }, [urls.length]);
 
   const onPick = () => {
     if (disabled || busy || slotsLeft <= 0) return;
@@ -96,6 +111,38 @@ const MultiImageUploader = ({
 
   const removeAt = (index) => {
     onChange(urls.filter((_, i) => i !== index));
+    setSelectedIndexes((prev) => {
+      const next = new Set();
+      prev.forEach((current) => {
+        if (current === index) return;
+        next.add(current > index ? current - 1 : current);
+      });
+      return next;
+    });
+  };
+
+  const toggleIndex = (index, checked) => {
+    setSelectedIndexes((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(index);
+      else next.delete(index);
+      return next;
+    });
+  };
+
+  const downloadSelected = async () => {
+    if (!onDownloadSelected) return;
+    const selected = urls.filter((_, index) => selectedIndexes.has(index));
+    if (!selected.length) {
+      toast.warning('Select at least one image');
+      return;
+    }
+    setDownloadBusy(true);
+    try {
+      await onDownloadSelected(selected);
+    } finally {
+      setDownloadBusy(false);
+    }
   };
 
   return (
@@ -105,8 +152,14 @@ const MultiImageUploader = ({
       <div className="flex flex-wrap gap-2">
         {urls.map((url, index) => {
           const pdf = isPdfAttachmentUrl(url);
+          const selected = selectedIndexes.has(index);
           return (
-            <div key={`${url}-${index}`} className="relative h-20 w-20">
+            <div
+              key={`${url}-${index}`}
+              className={`relative h-20 w-20 ${
+                selectable && selected ? 'rounded-lg ring-2 ring-brand' : ''
+              }`}
+            >
               {pdf ? (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 bg-gray-50 text-gray-500">
                   <FileText className="h-7 w-7 text-brand" />
@@ -119,6 +172,16 @@ const MultiImageUploader = ({
                   className="h-20 w-20 rounded-lg border border-gray-200 object-cover"
                 />
               )}
+              {selectable ? (
+                <input
+                  type="checkbox"
+                  className="absolute left-1 bottom-1 z-20 h-4 w-4 accent-brand"
+                  checked={selected}
+                  onChange={(e) => toggleIndex(index, e.target.checked)}
+                  disabled={disabled || busy}
+                  aria-label={`Select ${pdf ? 'PDF' : 'image'} ${index + 1}`}
+                />
+              ) : null}
               <div className="pointer-events-none absolute right-1 top-1 z-20 flex flex-col gap-1">
                 {pdf ? (
                   <a
@@ -173,15 +236,50 @@ const MultiImageUploader = ({
         onChange={onFiles}
       />
       {urls.length > 0 ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => onChange([])}
-          disabled={disabled || busy}
-        >
-          Clear all
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {selectable ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setSelectedIndexes(
+                    allSelected ? new Set() : new Set(urls.map((_, index) => index))
+                  )
+                }
+                disabled={disabled || busy}
+              >
+                {allSelected ? 'Clear selection' : 'Select all'}
+              </Button>
+              {onDownloadSelected ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  icon={Download}
+                  onClick={downloadSelected}
+                  disabled={disabled || busy || !selectedCount}
+                  loading={downloadBusy}
+                >
+                  Download PDF ({selectedCount})
+                </Button>
+              ) : null}
+            </>
+          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              onChange([]);
+              setSelectedIndexes(new Set());
+            }}
+            disabled={disabled || busy}
+          >
+            Clear all
+          </Button>
+        </div>
       ) : null}
     </div>
   );
@@ -196,6 +294,8 @@ MultiImageUploader.propTypes = {
   maxImages: PropTypes.number,
   disabled: PropTypes.bool,
   allowPdf: PropTypes.bool,
+  selectable: PropTypes.bool,
+  onDownloadSelected: PropTypes.func,
 };
 
 export default MultiImageUploader;

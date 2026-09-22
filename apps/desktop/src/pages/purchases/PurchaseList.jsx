@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { addDaysIso, formatCurrency, formatDate, todayIndiaISODate } from '@wrs/shared';
-import { Ban, Download, FileText, IndianRupee, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Ban, Download, FileText, ImagePlus, IndianRupee, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -21,6 +21,7 @@ import { purchasesApi } from '../../lib/api/purchases.js';
 import { formatFinancialRecordDateTime } from '../../lib/listTimestampColumns.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { toast } from '../../stores/uiStore.js';
+import PurchaseImagesPdfModal from './PurchaseImagesPdfModal.jsx';
 import PurchasePaymentModal from './PurchasePaymentModal.jsx';
 import PurchaseTransactionsModal from './PurchaseTransactionsModal.jsx';
 
@@ -59,6 +60,7 @@ const PurchaseList = () => {
   const [cancelTarget, setCancelTarget] = useState(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [imagesPdfOpen, setImagesPdfOpen] = useState(false);
 
   const listQuery = useQuery({
     queryKey: ['purchases', { page, perPage, search, dateFrom, dateTo, pendingOnly }],
@@ -455,6 +457,15 @@ const PurchaseList = () => {
 
         <TableColumnPicker {...pickerProps} />
 
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          icon={ImagePlus}
+          onClick={() => setImagesPdfOpen(true)}
+        >
+          Images PDF
+        </Button>
         <ListPdfToolbarButtons
           className={selectedIds.size ? '' : 'ml-auto'}
           busy={exportBusy}
@@ -499,6 +510,13 @@ const PurchaseList = () => {
           setPage(1);
           setPerPage(n);
         }}
+      />
+
+      <PurchaseImagesPdfModal
+        isOpen={imagesPdfOpen}
+        onClose={() => setImagesPdfOpen(false)}
+        initialDateFrom={dateFrom}
+        initialDateTo={dateTo}
       />
 
       <PurchaseTransactionsModal

@@ -426,6 +426,33 @@ const CreatePurchase = ({ mode }) => {
 
   const purchaseNumber = isEdit ? purchaseQuery.data?.data?.purchase_number : null;
 
+  const downloadSelectedAttachmentPdf = async (urls) => {
+    if (!purchaseDate) {
+      toast.warning('Fill the purchase date first');
+      return;
+    }
+    try {
+      const { buildSelectedPurchaseImagesPdfDoc } = await import(
+        '../../utils/purchaseCombinedPdf.js'
+      );
+      const items = urls.map((url) => ({
+        url,
+        purchase: {
+          purchase_number: purchaseNumber || 'New purchase',
+          purchase_date: purchaseDate,
+        },
+      }));
+      const doc = await buildSelectedPurchaseImagesPdfDoc(items, {
+        title: 'Purchase images',
+        subtitle: `Date ${formatDate(purchaseDate)}${purchaseNumber ? ` · ${purchaseNumber}` : ''}`,
+      });
+      doc.save(`purchase_images_${purchaseDate}.pdf`);
+      toast.success('PDF downloaded');
+    } catch (err) {
+      toast.error(err?.message || 'Could not download PDF');
+    }
+  };
+
   const buildPurchasePayload = useCallback(() => {
     return {
       purchase_date: purchaseDate,
@@ -734,11 +761,13 @@ const CreatePurchase = ({ mode }) => {
         <div className="mt-3">
           <MultiImageUploader
             label="Bill attachments"
-            hint="Attach purchase-bill images or PDF files. Image preview and delete controls are stacked on the thumbnail."
+            hint="Attach purchase-bill images or PDF files. Tick the photos you need, then download them together as one PDF."
             folder="purchases"
             value={imageUrls}
             onChange={setImageUrls}
             allowPdf
+            selectable
+            onDownloadSelected={downloadSelectedAttachmentPdf}
           />
         </div>
       </fieldset>

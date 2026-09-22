@@ -17,6 +17,7 @@ import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus.js';
 import { syncService } from '../../services/syncService.js';
 import { toast } from '../../stores/uiStore.js';
+import EditableOrderSecurityCap from './EditableOrderSecurityCap.jsx';
 import SecurityTransactionsModal from './SecurityTransactionsModal.jsx';
 import { formatSingleSecurityTxInline } from './securityTxInlineSummary.js';
 
@@ -54,6 +55,7 @@ const DeliverySettlementModal = ({
   // Extra discount to apply at delivery time (shown as +value in input; label shows total).
   const [discountDraft, setDiscountDraft] = useState('0');
   const [securityTxOpen, setSecurityTxOpen] = useState(false);
+  const [securityCapDraft, setSecurityCapDraft] = useState(0);
 
   const orderQuery = useQuery({
     queryKey: ['order', 'delivery-settlement', orderId],
@@ -145,8 +147,8 @@ const DeliverySettlementModal = ({
     return round2(Math.max(0, Number(depositCollected || 0) - Number(depositRefunded || 0)));
   }, [depositCollected, depositRefunded, order?.security_held_amount]);
   const securityDepositCap = useMemo(
-    () => round2(Number(order?.deposit_amount) || 0),
-    [order?.deposit_amount]
+    () => round2(Number(securityCapDraft) || 0),
+    [securityCapDraft]
   );
   const maxSecurityCollectNow = useMemo(
     () => round2(Math.max(0, securityDepositCap - securityHeldNow)),
@@ -187,6 +189,7 @@ const DeliverySettlementModal = ({
     setReceiveAmount('');
     setDiscountDraft('0');
     setDeliveryRemark('');
+    setSecurityCapDraft(round2(Number(order.deposit_amount) || 0));
     const initialStatus = order.deposit_returned
       ? 'returned'
       : order.deposit_received || order.paid_security_amt
@@ -233,7 +236,11 @@ const DeliverySettlementModal = ({
         toast.error('Select the payment ledger account');
         throw new Error('validation');
       }
-      const depositCapNum = round2(Number(order.deposit_amount) || 0);
+      const depositCapNum = round2(Number(securityDepositCap) || 0);
+      if (secNum > 0 && depositCapNum <= 0) {
+        toast.error('Set the Security Amount before collecting it');
+        throw new Error('validation');
+      }
       if (secNum > 0 && Math.abs(secNum - maxSecurityCollectNow) > 0.009) {
         toast.warning(
           `Security amount should be ${formatCurrency(maxSecurityCollectNow)} (Pending security deposit). You entered ${formatCurrency(secNum)}.`
@@ -337,13 +344,15 @@ const DeliverySettlementModal = ({
     const initialDiscount = round2(Number(order.discount_total || 0));
     const discChanged = discountTotalDraft !== initialDiscount;
     const hasStageUpdates = Array.isArray(stageUpdates) && stageUpdates.length > 0;
+    const capChanged =
+      Math.abs(securityDepositCap - round2(Number(order.deposit_amount) || 0)) > 0.009;
     if (secNum <= 0 && receiveNum <= 0) {
       const initialStatus = order.deposit_returned
         ? 'returned'
         : order.deposit_received || order.paid_security_amt
           ? 'paid'
           : 'unpaid';
-      if (depositStatus === initialStatus && !discChanged && !hasStageUpdates) {
+      if (depositStatus === initialStatus && !discChanged && !hasStageUpdates && !capChanged) {
         toast.error('No changes to save');
         return;
       }
@@ -380,10 +389,23 @@ const DeliverySettlementModal = ({
                   Reference: {order.reference_name}
                 </span>
               ) : null}
-              <span className="text-[10px] text-gray-600">
-                Security on order: <strong>{formatCurrency(securityDepositCap)}</strong>
-                {securityDepositCap <= 0 ? ' · Add it in Booking Edit before collection.' : ''}
-              </span>
+              <EditableOrderSecurityCap
+                value={securityDepositCap}
+                onChange={(next) => {
+                  const requested = round2(Math.max(0, Number(next) || 0));
+                  const clamped = round2(Math.max(requested, securityHeldNow));
+                  if (clamped > requested + 0.009) {
+                    toast.warning(
+                      `Security amount cannot be less than already collected (${formatCurrency(securityHeldNow)})`
+                    );
+                  }
+                  setSecurityCapDraft(clamped);
+                  return clamped;
+                }}
+                label="Security on order"
+                size="sm"
+                disabled={loading || !order}
+              />
             </div>
             <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>
               Cancel

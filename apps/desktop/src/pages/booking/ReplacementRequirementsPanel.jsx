@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { formatDate } from '@wrs/shared';
+import { Phone } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -73,7 +74,7 @@ export default function ReplacementRequirementsPanel({ orderId, direction = 'tar
   return (
     <section className="my-3 rounded border border-red-300 bg-red-50 p-3 text-sm text-gray-900">
       <h3 className="font-semibold">This product is damaged</h3>
-      <p className="mt-1 text-xs">Alternate products required before delivery. Current return can be saved. Each affected future item must be replaced; repair alone does not release this requirement.</p>
+      <p className="mt-1 text-xs">All later bookings for this product are flagged now. Call the customer and select an alternate before delivery. Current return can be saved. Repair alone does not release this requirement.</p>
       {!online ? <p className="mt-1 text-xs font-medium">Offline: showing cached requirements. Changes require server confirmation before delivery.</p> : null}
       <ul className="mt-2 space-y-2">
         {rows.map((row) => (
@@ -83,6 +84,15 @@ export default function ReplacementRequirementsPanel({ orderId, direction = 'tar
               <span> · {formatDate(row.pickup_date)} · {row.source_product_label}</span>
               <p className="text-xs font-medium text-red-700">this product is damaged</p>
               {row.customer_name ? <p className="text-xs text-gray-600">{row.customer_name}</p> : null}
+              {row.customer_phone ? (
+                <a
+                  href={`tel:${String(row.customer_phone).replace(/\D/g, '')}`}
+                  className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-red-800 hover:underline"
+                >
+                  <Phone size={12} aria-hidden="true" />
+                  Call {row.customer_phone}
+                </a>
+              ) : null}
             </div>
             <Button size="sm" variant="secondary"
               disabled={row.status === 'preview' || queuedItems.includes(row.target_order_item_id)}

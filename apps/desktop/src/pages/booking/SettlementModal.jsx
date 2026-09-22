@@ -13,6 +13,7 @@ import { paymentsApi } from '../../lib/api/payments.js';
 import { securityAccountsApi } from '../../lib/api/securityAccounts.js';
 import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
 import { toast } from '../../stores/uiStore.js';
+import EditableOrderSecurityCap from './EditableOrderSecurityCap.jsx';
 
 const today = () => todayIndiaISODate();
 const toNonNegativeNumber = (v) => {
@@ -35,6 +36,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
   const [paymentAccountId, setPaymentAccountId] = useState('');
   // Extra discount to apply now (label shows total discount; input is +extra).
   const [discountDraft, setDiscountDraft] = useState('0');
+  const [securityCapDraft, setSecurityCapDraft] = useState(0);
 
   const orderQuery = useQuery({
     queryKey: ['order', 'settlement', orderId],
@@ -121,8 +123,8 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
     [depositCollected, depositRefunded]
   );
   const expectedDeposit = useMemo(
-    () => round2(Number(order?.deposit_amount || 0)),
-    [order?.deposit_amount]
+    () => round2(Number(securityCapDraft) || 0),
+    [securityCapDraft]
   );
   const maxSecurityCollectNow = useMemo(
     () => round2(Math.max(0, expectedDeposit - securityHeldNow)),
@@ -153,6 +155,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
     setReceiveAmount('');
     setReceiveMode('receive');
     setDiscountDraft('0');
+    setSecurityCapDraft(round2(Number(order.deposit_amount) || 0));
   }, [isOpen, order?.id]);
 
   useEffect(() => {
@@ -188,7 +191,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
         throw new Error('validation');
       }
       if (secNum > 0 && expectedDeposit <= 0) {
-        toast.error('Add the Security Amount through Booking Edit before collecting it');
+        toast.error('Set the Security Amount before collecting it');
         throw new Error('validation');
       }
       if (secNum > maxSecurityCollectNow) {
@@ -246,9 +249,26 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
         const willBeFullyPaid =
           expectedDeposit > 0 && round2(securityHeldNow + secNum) + 1e-6 >= expectedDeposit;
         const nextStatus = willBeFullyPaid ? 'paid' : initialStatus;
-        if (nextStatus !== initialStatus) {
+        const capChanged =
+          Math.abs(expectedDeposit - round2(Number(workingOrder.deposit_amount) || 0)) > 0.009;
+        if (nextStatus !== initialStatus || capChanged) {
           const res = await ordersApi.setSecurityStatus(workingOrder.id, {
             status: nextStatus,
+            deposit_amount: expectedDeposit,
+          });
+          workingOrder = res.data;
+        }
+      } else {
+        const capChanged =
+          Math.abs(expectedDeposit - round2(Number(workingOrder.deposit_amount) || 0)) > 0.009;
+        if (capChanged) {
+          const initialStatus = workingOrder.deposit_returned
+            ? 'returned'
+            : workingOrder.deposit_received || workingOrder.paid_security_amt
+              ? 'paid'
+              : 'unpaid';
+          const res = await ordersApi.setSecurityStatus(workingOrder.id, {
+            status: initialStatus,
             deposit_amount: expectedDeposit,
           });
           workingOrder = res.data;
@@ -321,7 +341,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
       return;
     }
     if (secNum > 0 && expectedDeposit <= 0) {
-      toast.error('Add the Security Amount through Booking Edit before collecting it');
+      toast.error('Set the Security Amount before collecting it');
       return;
     }
     if (secNum > maxSecurityCollectNow) {
@@ -331,8 +351,12 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
       return;
     }
     if (discountDraftNum <= 0 && secNum <= 0 && receiveNum <= 0) {
-      toast.error('No changes to save');
-      return;
+      const capChanged =
+        Math.abs(expectedDeposit - round2(Number(order.deposit_amount) || 0)) > 0.009;
+      if (!capChanged) {
+        toast.error('No changes to save');
+        return;
+      }
     }
     submitMut.mutate();
   };
@@ -352,9 +376,23 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
       footer={
         <>
           <div className="mr-auto self-center min-w-0">
-            <p className="text-[10px] text-gray-600">
-              Security on order: {formatCurrency(expectedDeposit)} · Change through Booking Edit
-            </p>
+            <EditableOrderSecurityCap
+              value={expectedDeposit}
+              onChange={(next) => {
+                const requested = round2(Math.max(0, Number(next) || 0));
+                const clamped = round2(Math.max(requested, securityHeldNow));
+                if (clamped > requested + 0.009) {
+                  toast.warning(
+                    `Security amount cannot be less than already collected (${formatCurrency(securityHeldNow)})`
+                  );
+                }
+                setSecurityCapDraft(clamped);
+                return clamped;
+              }}
+              label="Security on order"
+              size="sm"
+              disabled={loading || !order}
+            />
           </div>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>
             Cancel
@@ -436,7 +474,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
                   className="input min-w-0 flex-1 h-7 py-0.5 px-1 text-[10px] tabular-nums"
                   title={
                     expectedDeposit <= 0
-                      ? 'Add the Security Amount through Booking Edit before collecting it'
+                      ? 'Set the Security Amount before collecting it'
                       : `Collect pending security (max ${formatCurrency(maxSecurityCollectNow)})`
                   }
                 />

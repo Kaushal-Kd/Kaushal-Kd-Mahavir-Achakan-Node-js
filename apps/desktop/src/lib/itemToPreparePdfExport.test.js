@@ -10,6 +10,7 @@ import {
   formatPreparePdfLineDetails,
   formatPreparePdfProductNote,
   formatPreparePdfProductStatus,
+  formatPreparePdfContact,
 } from './itemToPreparePdfExport.js';
 
 const booking = {
@@ -91,8 +92,15 @@ test('Prepare PDF places each product design and booking note in separate border
   const note = ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.find((column) => column.key === 'product_note');
   assert.equal(design.get(rows[0]), 'Gold buttons');
   assert.equal(note.get(rows[0]), 'Keep with cover');
-  assert.ok(ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.every((column) => !column.richGet));
+  assert.ok(
+    ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.filter((column) => column.key !== 'customer_phone').every(
+      (column) => !column.richGet
+    )
+  );
   assert.ok(ITEM_TO_PREPARE_PRINT_COLUMNS.reduce((total, column) => total + column.width, 0) <= 277);
+  const status = ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.find((column) => column.key === 'product_status');
+  assert.equal(status?.header, 'Current status');
+  assert.equal(status.get(rows[0]), 'AVAILABLE');
 });
 
 test('identical product notes remain associated with each product and empty designs stay empty', () => {
@@ -117,20 +125,38 @@ test('long design details continue in bounded rows with the same product identit
   assert.doesNotMatch(formatPreparePdfLineDetails(rows[1]), /Necklace/);
 });
 
-test('Prepare contact cell stacks distinct mobile and WhatsApp numbers', () => {
+test('Prepare contact cell stacks labeled mobile and WhatsApp on separate lines', () => {
   const contact = ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.find(
     (column) => column.key === 'customer_phone'
   );
-  assert.equal(contact.get(booking), '9876543210\n9123456780');
+  assert.equal(contact.get(booking), 'Mobile  9876543210\nWhatsApp  9123456780');
   assert.equal(
     contact.get({ ...booking, customer_whatsapp: booking.customer_phone }),
-    '9876543210'
+    'Mobile  9876543210\nWhatsApp  9876543210'
   );
+  assert.equal(contact.get({ ...booking, customer_whatsapp: '' }), 'Mobile  9876543210');
+  assert.equal(
+    formatPreparePdfContact({ customer_phone: '', customer_whatsapp: '9123456780' }),
+    'WhatsApp  9123456780'
+  );
+  const rich = contact.richGet(booking);
+  assert.equal(rich.length, 2);
+  assert.equal(rich[0].segments[0].text, 'Mobile  ');
+  assert.equal(rich[0].segments[0].bold, true);
+  assert.equal(rich[1].segments[0].text, 'WhatsApp  ');
 });
 
 test('Prepare print status reports the live product status separately', () => {
   const [row] = buildPrepareBookingExportRows([booking], lines);
   assert.equal(formatPreparePdfProductStatus(row), 'P-101: AVAILABLE');
+});
+
+test('Prepare download PDF includes the same current status column as print', () => {
+  const status = ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.find((column) => column.key === 'product_status');
+  assert.equal(status?.header, 'Current status');
+  const [row] = buildPrepareBookingExportRows([booking], lines);
+  assert.equal(status.get(row), 'P-101: AVAILABLE');
+  assert.equal(ITEM_TO_PREPARE_PRINT_COLUMNS, ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS);
 });
 
 test('Prepare export retains accessory-only bills without inventing a product line', () => {

@@ -14,6 +14,7 @@ import PageHeader from '../../components/ui/PageHeader.jsx';
 import PreviewableUploadThumb from '../../components/ui/PreviewableUploadThumb.jsx';
 import Select from '../../components/ui/Select.jsx';
 import { accessoriesApi } from '../../lib/api/accessories.js';
+import { sortCategoriesAZ } from '../../lib/categoryOrder.js';
 import { categoriesApi } from '../../lib/api/categories.js';
 import { configurationsApi } from '../../lib/api/configurations.js';
 import { sortColorsAZ } from '../../lib/colorOrder.js';
@@ -395,11 +396,11 @@ const ProductFormPage = () => {
   }, [categoryId, isEdit, activePrefix, codePadding]);
 
   const categoryOptions = useMemo(
-    () => (cats?.data || []).map((c) => ({ value: c.id, label: c.label })),
+    () => sortCategoriesAZ(cats?.data).map((c) => ({ value: c.id, label: c.label })),
     [cats?.data]
   );
   const accessoryCategoryOptions = useMemo(
-    () => (accessoryCats?.data || []).map((c) => ({ value: c.id, label: c.label })),
+    () => sortCategoriesAZ(accessoryCats?.data).map((c) => ({ value: c.id, label: c.label })),
     [accessoryCats?.data]
   );
   const colorOptions = useMemo(() => colors.map((c) => ({ value: c, label: c })), [colors]);

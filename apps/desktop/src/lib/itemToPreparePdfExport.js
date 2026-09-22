@@ -228,14 +228,50 @@ export function formatPreparePdfProductStatus(row) {
   );
 }
 
-function prepareContactCell(row) {
-  const candidates = [
-    row.customer_phone ?? row.pickup_number,
-    row.customer_whatsapp ?? row.customer_phone2,
-  ];
-  return [...new Set(candidates.map((value) => String(value || '').trim()).filter(Boolean))].join(
-    '\n'
-  );
+function prepareContactMobile(row) {
+  return String(row?.customer_phone || row?.pickup_number || '').trim();
+}
+
+function prepareContactWhatsapp(row) {
+  return String(row?.customer_whatsapp || '').trim();
+}
+
+export function getPrepareContactNumbers(row) {
+  return {
+    mobile: prepareContactMobile(row),
+    whatsapp: prepareContactWhatsapp(row),
+  };
+}
+
+/** Mobile and WhatsApp as separate labeled lines, even when the digits match. */
+export function buildPreparePdfContactRichLines(row) {
+  const mobile = prepareContactMobile(row);
+  const whatsapp = prepareContactWhatsapp(row);
+  /** @type {import('../utils/pdfRichText.js').PdfRichLine[]} */
+  const lines = [];
+  if (mobile) {
+    lines.push({
+      segments: [
+        { text: 'Mobile  ', bold: true },
+        { text: mobile, bold: false },
+      ],
+    });
+  }
+  if (whatsapp) {
+    lines.push({
+      segments: [
+        { text: 'WhatsApp  ', bold: true },
+        { text: whatsapp, bold: false },
+      ],
+    });
+  }
+  return lines;
+}
+
+export function formatPreparePdfContact(row) {
+  return (buildPreparePdfContactRichLines(row) || [])
+    .map((line) => (line.segments || []).map((segment) => segment.text).join(''))
+    .join('\n');
 }
 
 /**
@@ -328,19 +364,20 @@ export const ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS = [
   {
     key: 'customer_address',
     header: 'Address',
-    width: 21,
+    width: 20,
     get: (r) => String(r.customer_address ?? '').trim(),
   },
   {
     key: 'customer_phone',
     header: 'Mobile / WhatsApp',
-    width: 22,
-    get: prepareContactCell,
+    width: 28,
+    get: formatPreparePdfContact,
+    richGet: buildPreparePdfContactRichLines,
   },
   {
     key: 'line_details',
     header: 'Product & accessories',
-    width: 47,
+    width: 43,
     get: formatPreparePdfLineDetails,
   },
   {
@@ -356,9 +393,15 @@ export const ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS = [
     get: formatPreparePdfProductNote,
   },
   {
+    key: 'product_status',
+    header: 'Current status',
+    width: 22,
+    get: formatPreparePdfProductStatus,
+  },
+  {
     key: 'customer_notes',
     header: 'Customer note',
-    width: 24,
+    width: 23,
     get: (r) => String(r.customer_notes ?? '').trim(),
   },
   {
@@ -375,13 +418,4 @@ export const ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS = [
   },
 ];
 
-export const ITEM_TO_PREPARE_PRINT_COLUMNS = [
-  ...ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.slice(0, 7),
-  {
-    key: 'product_status',
-    header: 'Product Status',
-    width: 22,
-    get: formatPreparePdfProductStatus,
-  },
-  ...ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.slice(7),
-];
+export const ITEM_TO_PREPARE_PRINT_COLUMNS = ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS;

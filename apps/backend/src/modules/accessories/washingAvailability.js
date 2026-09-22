@@ -1,4 +1,4 @@
-import { isStageFlagTruthy, parseStageFlagsJson } from '@wrs/shared';
+import { isStageFlagTruthy, parseStageFlagsJson, washingHoldQtyForPickupWindow } from '@wrs/shared';
 
 export function accessoryBookingLineBlocksAvailability(row) {
   const flags = parseStageFlagsJson(row?.stage_flags);
@@ -14,6 +14,8 @@ export function calculateAccessoryWashingAvailability({
   bookedQty,
   washingQueueRows,
   laundryWashingRows,
+  from,
+  today,
 }) {
   const washingQueueQty = (washingQueueRows || []).reduce(
     (sum, row) => sum + Number(row.qty || 0),
@@ -24,10 +26,11 @@ export function calculateAccessoryWashingAvailability({
     0
   );
   const washingQty = washingQueueQty + laundryWashingQty;
+  const washingHoldQty = washingHoldQtyForPickupWindow(washingQty, from, today);
   return {
     washingQueueQty,
     laundryWashingQty,
     washingQty,
-    freeQty: Math.max(0, Number(rentableQty || 0) - Number(bookedQty || 0) - washingQty),
+    freeQty: Math.max(0, Number(rentableQty || 0) - Number(bookedQty || 0) - washingHoldQty),
   };
 }

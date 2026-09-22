@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Button from '../../../components/ui/Button.jsx';
 import TableHeaderLabel from '../../../components/ui/TableHeaderLabel.jsx';
 import Input from '../../../components/ui/Input.jsx';
+import { sortCategoriesAZ } from '../../../lib/categoryOrder.js';
 import { categoriesApi } from '../../../lib/api/categories.js';
 import { productsApi } from '../../../lib/api/products.js';
 import { buildProductCode } from '../../../lib/productCodeFormat.js';
@@ -27,7 +28,7 @@ const ProductCodeEditor = () => {
 
   const categories = useMemo(() => {
     const arr = catsRes?.data || [];
-    return [...arr].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    return sortCategoriesAZ(arr);
   }, [catsRes]);
 
   const [defaultPrefix, setDefaultPrefix] = useState('');

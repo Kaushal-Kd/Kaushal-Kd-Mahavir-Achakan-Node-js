@@ -14,6 +14,8 @@ import {
   parseProductCode,
   productCodeNumberFromStored,
   resolveFullProductCode,
+  todayIndiaISODate,
+  washingHoldQtyForPickupWindow,
 } from '@wrs/shared';
 import { listUpcomingBookingsForProduct } from './upcomingBookings.js';
 import {
@@ -282,7 +284,6 @@ export async function getProductCategoryCounts(shopId) {
       .count({ c: '*' }),
     knex('categories')
       .where({ shop_id: shopId, is_active: true, category_type: 'product' })
-      .orderBy('sort_order')
       .orderBy('label')
       .select('id', 'label', 'sort_order'),
     knex('products')
@@ -1150,6 +1151,10 @@ function isValidDate(s) {
  * Returns the product row, total qty on hand, booked qty overlapping the
  * window, free qty, and the list of conflicting orders so the UI can show
  * *who* has the product booked.
+ *
+ * Washing/laundry only reduces free qty when pickup is today or earlier.
+ * Later booking windows (including already-saved later bookings on edit)
+ * stay available so laundry from a previous return cannot block save.
  */
 export async function checkProductAvailability(shopId, params) {
   const { code, product_id: productId, qty = 1 } = params;
@@ -1238,8 +1243,18 @@ export async function checkProductAvailability(shopId, params) {
   const washingQueueQty = washingQueueRows.reduce((sum, row) => sum + Number(row.qty || 0), 0);
   const laundryWashingQty = laundryWashingRows.reduce((sum, row) => sum + Number(row.qty || 0), 0);
   const washingQty = washingQueueQty + laundryWashingQty;
-
-  const freeQty = Math.max(0, totalQty - bookedQty - washingQty);
+  const washingRowsForHold = excludeOrderId
+    ? washingQueueRows.filter((row) => String(row.order_id || '') !== excludeOrderId)
+    : washingQueueRows;
+  const washingQueueQtyForHold = washingRowsForHold.reduce(
+    (sum, row) => sum + Number(row.qty || 0),
+    0
+  );
+  const washingHoldQty = washingHoldQtyForPickupWindow(
+    washingQueueQtyForHold + laundryWashingQty,
+    from
+  );
+  const freeQty = Math.max(0, totalQty - bookedQty - washingHoldQty);
   const requested = Math.max(1, Number(qty) || 1);
   const includeUpcoming = params.include_upcoming !== false && params.include_upcoming !== 'false';
   const upcoming_bookings = includeUpcoming
@@ -1820,7 +1835,12 @@ export async function listProductAvailability(shopId, params) {
     applyProductSearchRanking(qb, searchTerm, 'p');
   }
   if (params.available_only === true || params.available_only === 'true') {
-    qb.andWhereRaw('(p.qty - COALESCE(bk.booked, 0) - COALESCE(ws.washing, 0)) > 0');
+    const today = todayIndiaISODate();
+    if (from > today) {
+      qb.andWhereRaw('(p.qty - COALESCE(bk.booked, 0)) > 0');
+    } else {
+      qb.andWhereRaw('(p.qty - COALESCE(bk.booked, 0) - COALESCE(ws.washing, 0)) > 0');
+    }
   }
 
   qb.select(
@@ -1859,7 +1879,8 @@ export async function listProductAvailability(shopId, params) {
       const total = Number(r.total_qty || 0);
       const booked = Number(r.booked_qty || 0);
       const washing = Number(r.washing_qty || 0);
-      const free = Math.max(0, total - booked - washing);
+      const washingHold = washingHoldQtyForPickupWindow(washing, from);
+      const free = Math.max(0, total - booked - washingHold);
       const photos = parseJSONSafe(r.photos) || [];
       const gallery = Array.isArray(photos)
         ? photos.map((u) => String(u || '').trim()).filter(Boolean)
@@ -1902,6 +1923,7 @@ export async function searchBookingAvailability(shopId, params = {}) {
     throw badRequest('Visual product selection is invalid');
   }
   const perPage = Math.min(100, Math.max(1, Number(params.per_page) || 20));
+  const excludeOrderId = params.exclude_order_id ? String(params.exclude_order_id).trim() : '';
 
   const overlap = knex('order_items as oi')
     .join('orders as o', 'o.id', 'oi.order_id')
@@ -1917,6 +1939,7 @@ export async function searchBookingAvailability(shopId, params = {}) {
       [from]
     );
   applyStalePreDeliveryRelease(overlap, 'o');
+  if (excludeOrderId) overlap.andWhere('o.id', '!=', excludeOrderId);
   overlap
     .groupBy('oi.product_id')
     .select('oi.product_id')
@@ -2020,7 +2043,8 @@ export async function searchBookingAvailability(shopId, params = {}) {
     const inDelivery = Number(r.in_delivery_qty || 0);
     const washing = Number(r.washing_qty || 0);
     const repair = r.status === 'repair' ? total : 0;
-    const blocked = booked + inDelivery + washing;
+    const washingHold = washingHoldQtyForPickupWindow(washing, from);
+    const blocked = booked + inDelivery + washingHold;
     const free = Math.max(0, total - blocked);
     return {
       ...r,

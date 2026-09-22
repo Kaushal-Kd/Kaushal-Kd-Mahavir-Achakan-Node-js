@@ -46,3 +46,28 @@ test('accessory free quantity never becomes negative', () => {
   });
   assert.equal(result.freeQty, 0);
 });
+
+test('future pickup windows ignore current washing so later bookings can still save', () => {
+  const result = calculateAccessoryWashingAvailability({
+    rentableQty: 1,
+    bookedQty: 0,
+    washingQueueRows: [{ qty: 1 }],
+    laundryWashingRows: [],
+    from: '2026-10-05',
+    today: '2026-09-21',
+  });
+  assert.equal(result.washingQty, 1);
+  assert.equal(result.freeQty, 1);
+});
+
+test('same-day pickup still subtracts washing', () => {
+  const result = calculateAccessoryWashingAvailability({
+    rentableQty: 1,
+    bookedQty: 0,
+    washingQueueRows: [{ qty: 1 }],
+    laundryWashingRows: [],
+    from: '2026-09-21',
+    today: '2026-09-21',
+  });
+  assert.equal(result.freeQty, 0);
+});

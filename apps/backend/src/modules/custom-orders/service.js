@@ -513,7 +513,7 @@ export async function createProductFromCustomOrder(shopId, customOrderId, userId
       ? overrides.notes != null && String(overrides.notes).trim()
         ? String(overrides.notes).trim()
         : null
-      : String(order.design_name || '').trim() || null;
+      : String(order.remarks || '').trim() || null;
   const color =
     overrides.color !== undefined ? overrides.color : order.color || null;
   const qty = overrides.qty != null ? Number(overrides.qty) : 1;

@@ -762,6 +762,7 @@ const CreateOrder = ({ mode, orderId }) => {
       pickupDate,
       returnDate,
       lineQty,
+      isEditMode ? orderId : '',
     ],
     queryFn: () =>
       productsApi.bookingAvailability({
@@ -771,6 +772,7 @@ const CreateOrder = ({ mode, orderId }) => {
         to: returnDate,
         qty: Math.max(1, Number(lineQty) || 1),
         per_page: 20,
+        ...(isEditMode && orderId ? { exclude_order_id: orderId } : {}),
       }),
     enabled:
       ((allowProductAutocomplete && productQuery.trim().length >= 1) ||

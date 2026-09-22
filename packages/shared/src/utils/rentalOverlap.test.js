@@ -3,8 +3,10 @@ import { describe, it } from 'node:test';
 
 import {
   earliestPickupAfterReturnGap,
+  freeQtyAfterRentHolds,
   latestReturnBeforePickupGap,
   rentalDateRangeOverlaps,
+  washingHoldQtyForPickupWindow,
 } from './rentalOverlap.js';
 
 describe('rentalDateRangeOverlaps', () => {
@@ -39,5 +41,35 @@ describe('rentalDateRangeOverlaps', () => {
   it('latestReturnBeforePickupGap and earliestPickupAfterReturnGap match examples', () => {
     assert.equal(latestReturnBeforePickupGap('2026-06-13', 3), '2026-06-09');
     assert.equal(earliestPickupAfterReturnGap('2026-06-17', null, 3), '2026-06-21');
+  });
+});
+
+describe('washingHoldQtyForPickupWindow', () => {
+  it('does not occupy a later booking when the item is currently washing', () => {
+    assert.equal(washingHoldQtyForPickupWindow(1, '2026-10-05', '2026-09-21'), 0);
+    assert.equal(
+      freeQtyAfterRentHolds({
+        totalQty: 1,
+        bookedQty: 0,
+        washingQty: 1,
+        pickupDate: '2026-10-05',
+        today: '2026-09-21',
+      }),
+      1
+    );
+  });
+
+  it('still blocks same-day pickup while the item is washing', () => {
+    assert.equal(washingHoldQtyForPickupWindow(1, '2026-09-21', '2026-09-21'), 1);
+    assert.equal(
+      freeQtyAfterRentHolds({
+        totalQty: 1,
+        bookedQty: 0,
+        washingQty: 1,
+        pickupDate: '2026-09-21',
+        today: '2026-09-21',
+      }),
+      0
+    );
   });
 });

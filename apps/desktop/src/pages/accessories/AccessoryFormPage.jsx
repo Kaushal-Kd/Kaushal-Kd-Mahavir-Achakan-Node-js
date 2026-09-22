@@ -14,6 +14,7 @@ import Select from '../../components/ui/Select.jsx';
 import { accessoriesApi } from '../../lib/api/accessories.js';
 import { ACCESSORY_BASE_PATH } from '../../lib/accessoryRoutes.js';
 import { buildAccessoryDuplicateDraft } from '../../lib/accessoryDuplicate.js';
+import { sortCategoriesAZ } from '../../lib/categoryOrder.js';
 import { categoriesApi } from '../../lib/api/categories.js';
 import { configurationsApi } from '../../lib/api/configurations.js';
 import { sortColorsAZ } from '../../lib/colorOrder.js';
@@ -431,7 +432,7 @@ const AccessoryFormPage = () => {
                   error={errors.category_id}
                   onChange={(e) => set('category_id', e.target.value)}
                   placeholder={accessoryCatsLoading ? 'Loading…' : 'Select'}
-                  options={(accessoryCats?.data || []).map((c) => ({
+                  options={sortCategoriesAZ(accessoryCats?.data).map((c) => ({
                     value: c.id,
                     label: c.label,
                   }))}

@@ -33,6 +33,7 @@ import NumberInput from '../../components/ui/NumberInput.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Select from '../../components/ui/Select.jsx';
 import { customOrdersApi } from '../../lib/api/customOrders.js';
+import { sortCategoriesAZ } from '../../lib/categoryOrder.js';
 import { categoriesApi } from '../../lib/api/categories.js';
 import { configurationsApi } from '../../lib/api/configurations.js';
 import { sortColorsAZ } from '../../lib/colorOrder.js';
@@ -201,10 +202,7 @@ const CustomOrderFormPage = () => {
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   }, [fieldsData]);
 
-  const categories = useMemo(() => {
-    const arr = categoriesRes?.data || [];
-    return [...arr].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-  }, [categoriesRes]);
+  const categories = useMemo(() => sortCategoriesAZ(categoriesRes?.data), [categoriesRes]);
 
   const categoryId = values.category_id || '';
 

@@ -1,10 +1,11 @@
 import { assertNoIssuedGstInvoice } from '../../lib/gstInvoiceLock.js';
 import {
-  addDays,
   normalizeProductStageFlagsFromParsed,
   normalizeSqlDateToIso,
   parseStageFlagsJson,
   rentalDateRangeOverlaps,
+  replacementReminderDescription,
+  replacementReminderSchedule,
   todayIndiaISODate,
 } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
@@ -26,8 +27,20 @@ function candidateLines(db, shopId) {
     .join('orders as o', function joinOrder() {
       this.on('o.id', '=', 'oi.order_id').andOn('o.shop_id', '=', 'oi.shop_id');
     })
+    .leftJoin('customers as c', function joinCustomer() {
+      this.on('c.id', '=', 'o.customer_id').andOn('c.shop_id', '=', 'o.shop_id');
+    })
     .where('oi.shop_id', shopId)
-    .select('oi.*', 'o.status as order_status', 'o.is_deleted', 'o.pickup_date', 'o.order_number');
+    .select(
+      'oi.*',
+      'o.status as order_status',
+      'o.is_deleted',
+      'o.pickup_date',
+      'o.order_number',
+      'c.name as customer_name',
+      'c.phone1 as customer_phone',
+      'c.whatsapp as customer_whatsapp'
+    );
 }
 
 async function sourceRows(db, shopId, orderId, itemIds) {
@@ -50,7 +63,7 @@ async function ensureRequirement(trx, shopId, source, target) {
   const reminderId = uuid();
   const label = source.code_snapshot || source.name_snapshot || source.source_product_label || 'Damaged product';
   const today = todayIndiaISODate();
-  const beforePickup = normalizeSqlDateToIso(addDays(normalizeSqlDateToIso(target.pickup_date), -1));
+  const schedule = replacementReminderSchedule(today);
   const row = {
     ...key,
     id,
@@ -65,10 +78,10 @@ async function ensureRequirement(trx, shopId, source, target) {
   await trx('reminders').insert({
     id: reminderId,
     shop_id: shopId,
-    description: `Replacement required: ${label} for Bill ${target.order_number || target.order_id}. Select an alternate product before delivery.`,
+    description: replacementReminderDescription(label, target.order_number || target.order_id),
     assignee: 'SELF',
-    reminder_date: beforePickup < today ? today : beforePickup,
-    reminder_time: '9:00 AM',
+    reminder_date: schedule.reminder_date,
+    reminder_time: schedule.reminder_time,
     is_completed: false,
   });
   return row;
@@ -156,8 +169,17 @@ export async function listOrderReplacementRequirements(db, shopId, orderId, dire
     .leftJoin('order_items as oi', 'oi.id', 'rr.target_order_item_id')
     .where('rr.shop_id', shopId)
     .where(direction === 'source' ? 'rr.source_order_id' : 'rr.target_order_id', orderId)
-    .select('rr.*', 'o.order_number', 'o.pickup_date', 'c.name as customer_name',
-      'oi.product_id as current_product_id', 'oi.replacement_version', 'oi.stage_flags')
+    .select(
+      'rr.*',
+      'o.order_number',
+      'o.pickup_date',
+      'c.name as customer_name',
+      'c.phone1 as customer_phone',
+      'c.whatsapp as customer_whatsapp',
+      'oi.product_id as current_product_id',
+      'oi.replacement_version',
+      'oi.stage_flags'
+    )
     .orderBy('o.pickup_date', 'asc');
   if (direction !== 'source' || !sourceItemIds.length) return rows;
   const sources = await sourceRows(db, shopId, orderId, sourceItemIds);
@@ -174,6 +196,8 @@ export async function listOrderReplacementRequirements(db, shopId, orderId, dire
         source_product_label: source.code_snapshot || source.name_snapshot,
         target_order_id: target.order_id, target_order_item_id: target.id,
         order_number: target.order_number, pickup_date: target.pickup_date,
+        customer_name: target.customer_name, customer_phone: target.customer_phone,
+        customer_whatsapp: target.customer_whatsapp,
         current_product_id: target.product_id, replacement_version: target.replacement_version,
         status: 'preview',
       });

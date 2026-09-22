@@ -27,10 +27,7 @@ export default async function categoryRoutes(fastify) {
     if (type === 'product' || type === 'accessory') {
       qb.andWhere({ category_type: type });
     }
-    const rows =
-      type === 'accessory'
-        ? await qb.orderBy('label')
-        : await qb.orderBy('sort_order').orderBy('label');
+    const rows = await qb.orderBy('label');
     if (type === 'product' && rows.length > 0) {
       const productIds = rows.map((r) => r.id);
       const mappingRows = await knex('product_category_accessory_categories as pca')
@@ -45,8 +42,6 @@ export default async function categoryRoutes(fastify) {
           'pca.display_order',
           'ac.label as accessory_category_label'
         )
-        .orderBy('pca.display_order')
-        .orderBy('ac.sort_order')
         .orderBy('ac.label');
       const grouped = new Map();
       for (const row of mappingRows) {

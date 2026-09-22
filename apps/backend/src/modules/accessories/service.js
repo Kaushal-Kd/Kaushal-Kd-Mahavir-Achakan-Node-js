@@ -464,7 +464,7 @@ export async function checkAccessoryAvailability(shopId, params) {
     .where('oa.accessory_id', accessory.id);
   applyAccessoryRentOverlap(conflictsQb, shopId, from, to, { excludeOrderId });
 
-  const [conflicts, washingQueueRows, laundryWashingRows] = await Promise.all([
+  const [conflicts, washingQueueAllRows, laundryWashingRows] = await Promise.all([
     conflictsQb
       .orderBy('o.pickup_date')
       .select(
@@ -509,6 +509,9 @@ export async function checkAccessoryAvailability(shopId, params) {
   const spareQty = Math.max(0, Number(accessory.spare_qty || 0));
   const damagedQty = Math.max(0, Number(accessory.damaged_qty || 0));
   const rentableQty = accessoryRentableQty(accessory);
+  const washingQueueRows = excludeOrderId
+    ? washingQueueAllRows.filter((row) => String(row.order_id || '') !== excludeOrderId)
+    : washingQueueAllRows;
   const washingQueue = washingQueueRows.map((row) => ({
     ...row,
     qty: Number(row.qty || 0),
@@ -523,6 +526,7 @@ export async function checkAccessoryAvailability(shopId, params) {
       bookedQty,
       washingQueueRows: washingQueue,
       laundryWashingRows: laundryWashing,
+      from,
     });
 
   return {

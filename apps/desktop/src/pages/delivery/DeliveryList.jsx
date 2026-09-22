@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import BookingBillLink from '../../components/booking/BookingBillLink.jsx';
+import DamageReplacementBadge from '../../components/booking/DamageReplacementBadge.jsx';
 import NextBookingColumnCell from '../../components/booking/NextBookingColumnCell.jsx';
 import BookingLogsModal from '../../components/booking/BookingLogsModal.jsx';
 import CompactOrderFilters from '../../components/list/CompactOrderFilters.jsx';
@@ -62,6 +63,7 @@ import {
   expandOrdersToProductWiseRows,
   filterProductWiseRows,
 } from '../../lib/listProductWiseRows.js';
+import { bookingAlertRowClass } from '../../lib/damageReplacementAlert.js';
 import { isDrillToday, syncDateParam } from '../../lib/orderListDrillDown.js';
 import { useAuthStore } from '../../stores/authStore.js';
 import { toast } from '../../stores/uiStore.js';
@@ -353,6 +355,7 @@ const DeliveryList = () => {
       render: (r) => (
         <span className="inline-flex items-center gap-1 font-mono text-xs text-gray-900">
           <BookingBillLink orderId={r.order_id || r.id}>{r.order_number || '—'}</BookingBillLink>
+          <DamageReplacementBadge row={r} />
           {orderHasNextBookingAlert(r) ? (
             <BookingListNextBookingAlert
               alerts={r.next_booking_alerts}
@@ -922,7 +925,10 @@ const DeliveryList = () => {
         loading={isLoading || (productWise && isFetching)}
         rowKey="id"
         getRowClassName={(row) =>
-          [deliveredRowClass(row), checklistRowWarningClass(orderHasNextBookingAlert(row))]
+          [
+            deliveredRowClass(row),
+            bookingAlertRowClass(row, checklistRowWarningClass(orderHasNextBookingAlert(row))),
+          ]
             .filter(Boolean)
             .join(' ')
         }

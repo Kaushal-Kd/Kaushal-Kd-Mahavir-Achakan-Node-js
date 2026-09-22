@@ -10,6 +10,7 @@ import Select from '../../components/ui/Select.jsx';
 import { useCustomOrderMutations } from '../../hooks/api/useCustomOrders.js';
 import { categoriesApi } from '../../lib/api/categories.js';
 import { configurationsApi } from '../../lib/api/configurations.js';
+import { sortCategoriesAZ } from '../../lib/categoryOrder.js';
 import { sortColorsAZ } from '../../lib/colorOrder.js';
 import { productsApi } from '../../lib/api/products.js';
 import { toast } from '../../stores/uiStore.js';
@@ -36,7 +37,7 @@ function buildFormFromOrder(order) {
     code: '',
     color: order?.color || '',
     size: order?.size || '',
-    notes: String(order?.design_name || '').trim(),
+    notes: String(order?.remarks || '').trim(),
     photos,
     main_image: photos[0] || '',
   };
@@ -96,10 +97,7 @@ const CustomOrderProductVerifyModal = ({ order, isOpen, onClose, onCreated, requ
     }
   }, [isOpen, categoryId, productSize, nextCodeRes?.data?.code, codeTouched]);
 
-  const categories = useMemo(() => {
-    const arr = categoriesRes?.data || [];
-    return [...arr].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-  }, [categoriesRes]);
+  const categories = useMemo(() => sortCategoriesAZ(categoriesRes?.data), [categoriesRes]);
 
   const colors = sortColorsAZ(colorsRes?.data?.items);
   const sizes = sizesRes?.data?.items || [];

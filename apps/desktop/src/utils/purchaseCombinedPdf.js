@@ -1,16 +1,11 @@
+import { formatDate } from '@wrs/shared';
+import { jsPDF } from 'jspdf';
+
 import { isPdfAttachmentUrl } from '../services/uploadAttachment.js';
+import { flattenPurchaseAttachments } from './purchaseAttachments.js';
 import { buildTablePdfDoc, pdfSafeText } from './tablePdf.js';
 
-export function normalizePurchaseAttachmentUrls(value) {
-  if (Array.isArray(value)) return value.filter(Boolean);
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-}
+export { flattenPurchaseAttachments, normalizePurchaseAttachmentUrls } from './purchaseAttachments.js';
 
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
@@ -21,11 +16,17 @@ function blobToDataUrl(blob) {
   });
 }
 
+function purchaseDateLabel(purchase) {
+  return formatDate(purchase?.purchase_date) || String(purchase?.purchase_date || '').slice(0, 10);
+}
+
 function addAttachmentHeader(doc, purchase, attachmentNumber, total) {
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  doc.text(pdfSafeText(`Purchase ${purchase.purchase_number || purchase.bill_no || ''}`), 10, 12);
+  const bill = pdfSafeText(purchase?.purchase_number || purchase?.bill_no || 'Purchase');
+  const dateText = purchaseDateLabel(purchase);
+  doc.text(dateText ? `${bill} · ${dateText}` : bill, 10, 12);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.text(`Attachment ${attachmentNumber} of ${total}`, 10, 18);
@@ -64,22 +65,50 @@ function appendPdfLinkPage(doc, purchase, url, attachmentNumber, total) {
   doc.text(doc.splitTextToSize(pdfSafeText(url), 190), 10, 46);
 }
 
+async function appendAttachmentPages(doc, items, fetchImpl) {
+  const list = Array.isArray(items) ? items.filter((item) => item?.url) : [];
+  for (let index = 0; index < list.length; index += 1) {
+    const item = list[index];
+    const purchase = item.purchase || {};
+    if (isPdfAttachmentUrl(item.url)) {
+      appendPdfLinkPage(doc, purchase, item.url, index + 1, list.length);
+    } else {
+      await appendImagePage(doc, purchase, item.url, index + 1, list.length, fetchImpl);
+    }
+  }
+}
+
+export async function buildSelectedPurchaseImagesPdfDoc(items, options = {}) {
+  const list = Array.isArray(items) ? items.filter((item) => item?.url) : [];
+  if (!list.length) {
+    throw new Error('Select at least one image');
+  }
+
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text(pdfSafeText(options.title || 'Purchase images'), 10, 16);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  let y = 24;
+  if (options.subtitle) {
+    doc.text(pdfSafeText(options.subtitle), 10, y);
+    y += 7;
+  }
+  doc.text(`${list.length} attachment(s)`, 10, y);
+
+  await appendAttachmentPages(doc, list, options.fetchImpl || fetch);
+  return doc;
+}
+
 export async function buildPurchaseCombinedPdfDoc(columns, purchases, options = {}) {
   const rows = Array.isArray(purchases) ? purchases : [];
   const doc = buildTablePdfDoc(columns, rows, options);
-  const fetchImpl = options.fetchImpl || fetch;
-
-  for (const purchase of rows) {
-    const urls = normalizePurchaseAttachmentUrls(purchase.image_urls);
-    for (let index = 0; index < urls.length; index += 1) {
-      const url = urls[index];
-      if (isPdfAttachmentUrl(url)) {
-        appendPdfLinkPage(doc, purchase, url, index + 1, urls.length);
-      } else {
-        await appendImagePage(doc, purchase, url, index + 1, urls.length, fetchImpl);
-      }
-    }
-  }
-
+  const selectedKeys = options.selectedKeys instanceof Set ? options.selectedKeys : null;
+  const items = flattenPurchaseAttachments(rows).filter((item) =>
+    selectedKeys ? selectedKeys.has(item.key) : true
+  );
+  await appendAttachmentPages(doc, items, options.fetchImpl || fetch);
   return doc;
 }

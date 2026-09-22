@@ -34,6 +34,7 @@ import { runItemStageTableExport, runItemStageTablePrint } from '../../lib/itemS
 import { useSearchParams } from 'react-router-dom';
 
 import BookingBillLink from '../../components/booking/BookingBillLink.jsx';
+import DamageReplacementBadge from '../../components/booking/DamageReplacementBadge.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
 import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
@@ -51,11 +52,15 @@ import { buildBookingDateTimeColumn } from '../../lib/listTimestampColumns.js';
 import { saveItemToCollectCommands } from '../../lib/orderChecklistSave.js';
 import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
 import { submitSalesmanReassignment } from '../../lib/salesmanReassign.js';
+import { bookingAlertRowClass } from '../../lib/damageReplacementAlert.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { toast } from '../../stores/uiStore.js';
 import { syncService } from '../../services/syncService.js';
 import { BookingListNextBookingAlert } from '../booking/ChecklistNextBookingAlert.jsx';
-import { orderHasNextBookingAlert } from '../booking/checklistNextBookingAlertUtils.js';
+import {
+  checklistRowWarningClass,
+  orderHasNextBookingAlert,
+} from '../booking/checklistNextBookingAlertUtils.js';
 
 const SEARCH_ID = 'item-to-collect-search';
 
@@ -432,6 +437,7 @@ const ItemToCollectList = () => {
       render: (r) => (
         <span className="inline-flex items-center gap-1 font-mono text-xs text-gray-900">
           <BookingBillLink orderId={r.order_id}>{r.order_number || '—'}</BookingBillLink>
+          <DamageReplacementBadge row={r} />
           {orderHasNextBookingAlert(r) ? (
             <BookingListNextBookingAlert alerts={r.next_booking_alerts} />
           ) : null}
@@ -740,6 +746,9 @@ const ItemToCollectList = () => {
         rows={rows}
         loading={isLoading || isFetching}
         rowKey="id"
+        getRowClassName={(row) =>
+          bookingAlertRowClass(row, checklistRowWarningClass(orderHasNextBookingAlert(row)))
+        }
         emptyTitle="No product lines to collect"
         emptyMessage="All product lines are collected, or try another search or wider filters."
         visibleCount={rows.length}

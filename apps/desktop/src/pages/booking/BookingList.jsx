@@ -25,6 +25,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 
 import AdminPasswordModal from '../../components/booking/AdminPasswordModal.jsx';
 import BookingBillLink from '../../components/booking/BookingBillLink.jsx';
+import DamageReplacementBadge from '../../components/booking/DamageReplacementBadge.jsx';
 import NextBookingColumnCell from '../../components/booking/NextBookingColumnCell.jsx';
 import BookingDraftActions from '../../components/booking/BookingDraftActions.jsx';
 import BookingLogsActionButton from '../../components/booking/BookingLogsActionButton.jsx';
@@ -54,6 +55,7 @@ import { useAdminDelete } from '../../hooks/useAdminDelete.js';
 import { authApi } from '../../lib/api/auth.js';
 import { getApiErrorMessage } from '../../lib/apiError.js';
 import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
+import { bookingAlertRowClass } from '../../lib/damageReplacementAlert.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { ordersApi } from '../../lib/api/orders.js';
 import {
@@ -160,6 +162,7 @@ const BookingList = () => {
   const [dateFrom, setDateFrom] = useState(initDateFrom);
   const [dateTo, setDateTo] = useState(initDateTo);
   const [status, setStatus] = useState(initStatus);
+  const [damageOnly, setDamageOnly] = useState(false);
   const [checklistOrderId, setChecklistOrderId] = useState(null);
   const [cancelOrderId, setCancelOrderId] = useState(null);
   const [settlementOrderId, setSettlementOrderId] = useState(null);
@@ -228,11 +231,12 @@ const BookingList = () => {
       lean: 1,
       with_next_booking_alerts: 1,
       with_audit_summary: 1,
+      ...(damageOnly ? { damage_replacement: 1 } : {}),
       ...(dateFrom ? { from: dateFrom } : {}),
       ...(dateTo ? { to: dateTo } : {}),
       ...(status && STATUS_QUERY_MAP[status] ? STATUS_QUERY_MAP[status] : {}),
     }),
-    [search, page, perPage, sortBy, dateField, dateFrom, dateTo, status]
+    [search, page, perPage, sortBy, dateField, dateFrom, dateTo, status, damageOnly]
   );
 
   const { data, isFetching, isLoading } = useQuery({
@@ -374,6 +378,7 @@ const BookingList = () => {
         render: (r) => (
           <span className="inline-flex flex-wrap items-center gap-1 font-mono text-xs text-gray-900">
             <BookingBillLink orderId={r.id}>{r.order_number || '—'}</BookingBillLink>
+            <DamageReplacementBadge row={r} />
             {orderHasNextBookingAlert(r) ? (
               <BookingListNextBookingAlert
                 alerts={r.next_booking_alerts}
@@ -758,6 +763,18 @@ const BookingList = () => {
           }}
         />
         <TableColumnPicker {...pickerProps} />
+        <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-gray-200 bg-white text-[11px] text-gray-700 cursor-pointer hover:bg-gray-50 select-none shrink-0">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 accent-brand"
+            checked={damageOnly}
+            onChange={(e) => {
+              setPage(1);
+              setDamageOnly(e.target.checked);
+            }}
+          />
+          Damaged products
+        </label>
       </div>
 
       <CompactOrderFilters
@@ -803,7 +820,9 @@ const BookingList = () => {
         rows={data?.data}
         loading={isLoading}
         rowKey="id"
-        getRowClassName={(row) => checklistRowWarningClass(orderHasNextBookingAlert(row))}
+        getRowClassName={(row) =>
+          bookingAlertRowClass(row, checklistRowWarningClass(orderHasNextBookingAlert(row)))
+        }
         onRowClick={(r) => navigate(`/booking/${r.id}`)}
         emptyTitle="No bookings yet"
         emptyMessage="Create your first order to get started."

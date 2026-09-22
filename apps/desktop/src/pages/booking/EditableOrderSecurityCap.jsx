@@ -35,8 +35,9 @@ const EditableOrderSecurityCap = ({
 
   const commit = () => {
     const n = toNonNegativeNumber(draft);
-    onChange(n);
-    setDraft(String(n));
+    const result = onChange(n);
+    const committed = result == null ? n : round2(Number(result) || 0);
+    setDraft(String(committed));
     setEditing(false);
   };
 

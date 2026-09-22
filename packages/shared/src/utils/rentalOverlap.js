@@ -1,4 +1,4 @@
-import { addDays, toLocalISODate } from './date.js';
+import { addDays, toLocalISODate, todayIndiaISODate } from './date.js';
 
 /**
  * Normalize to YYYY-MM-DD or null.
@@ -84,4 +84,35 @@ export function earliestPickupAfterReturnGap(returnDate, pickupDate, nextGapDays
   const nextGap = Math.max(0, Math.floor(Number(nextGapDays) || 0));
   if (!base) return null;
   return addDaysIso(base, nextGap + 1);
+}
+
+/**
+ * Washing/laundry is a same-day physical hold, not a calendar booking.
+ * Later pickup windows assume the item is back before that delivery.
+ *
+ * @param {unknown} washingQty
+ * @param {unknown} pickupDate window start YYYY-MM-DD
+ * @param {unknown} [today]
+ * @returns {number}
+ */
+export function washingHoldQtyForPickupWindow(washingQty, pickupDate, today = todayIndiaISODate()) {
+  const qty = Math.max(0, Number(washingQty) || 0);
+  if (qty === 0) return 0;
+  const from = toIsoDateOnly(pickupDate);
+  if (!from) return qty;
+  const todayIso = toIsoDateOnly(today) || todayIndiaISODate();
+  return from > todayIso ? 0 : qty;
+}
+
+/**
+ * Free rent qty after overlapping bookings and any same-day washing hold.
+ *
+ * @param {{ totalQty?: unknown, bookedQty?: unknown, washingQty?: unknown, pickupDate?: unknown, today?: unknown }} opts
+ * @returns {number}
+ */
+export function freeQtyAfterRentHolds(opts = {}) {
+  const total = Math.max(0, Number(opts.totalQty) || 0);
+  const booked = Math.max(0, Number(opts.bookedQty) || 0);
+  const washingHold = washingHoldQtyForPickupWindow(opts.washingQty, opts.pickupDate, opts.today);
+  return Math.max(0, total - booked - washingHold);
 }

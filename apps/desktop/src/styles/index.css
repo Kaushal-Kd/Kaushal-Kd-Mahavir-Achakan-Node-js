@@ -119,6 +119,12 @@
   .table tbody tr.booking-gap-alert-row:hover {
     @apply bg-yellow-100;
   }
+  .table tbody tr.damage-replacement-row {
+    @apply bg-red-50;
+  }
+  .table tbody tr.damage-replacement-row:hover {
+    @apply bg-red-100;
+  }
 
   /* Order checklist — desktop table only (mobile uses cards in OrderChecklistPanel) */
   .order-checklist-table .table thead th {

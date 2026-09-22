@@ -8,6 +8,7 @@ import fastifySensible from '@fastify/sensible';
 import Fastify from 'fastify';
 
 import { env } from './config/env.js';
+import { isAllowedCorsOrigin } from './lib/corsOrigin.js';
 import { TRUSTED_PROXY_HOPS } from './lib/trustedProxy.js';
 import { normalizeInstantFieldsDeep } from './utils/normalizeApiTimestamps.js';
 import accessoryRoutes from './modules/accessories/routes.js';
@@ -72,9 +73,7 @@ export async function build() {
   await app.register(fastifyHelmet, { global: true, crossOriginResourcePolicy: false });
   await app.register(fastifyCors, {
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      if (env.CORS_ORIGIN.includes('*') || env.CORS_ORIGIN.includes(origin)) return cb(null, true);
-      return cb(null, false);
+      return cb(null, isAllowedCorsOrigin(origin, env.CORS_ORIGIN));
     },
     credentials: true,
   });
