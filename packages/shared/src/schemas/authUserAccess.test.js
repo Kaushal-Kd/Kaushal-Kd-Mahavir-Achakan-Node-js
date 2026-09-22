@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { createUserSchema } from './user.js';
-import { confirmPasswordOtpSchema, loginSchema } from './auth.js';
+import { confirmPasswordOtpSchema, forgotPasswordSchema, loginSchema } from './auth.js';
 
 describe('phone login transition schemas', () => {
   it('accepts phone identity and legacy email payloads', () => {
@@ -23,6 +23,15 @@ describe('phone login transition schemas', () => {
       createUserSchema.safeParse({ ...base, role: 'shop_admin', phone: '9876543210' }).success,
       false
     );
+  });
+
+  it('accepts phone or email identity for forgot password', () => {
+    assert.equal(forgotPasswordSchema.parse({ identity: '9876543210' }).identity, '9876543210');
+    assert.equal(
+      forgotPasswordSchema.parse({ identity: '  admin@shop.test  ' }).identity,
+      'admin@shop.test'
+    );
+    assert.equal(forgotPasswordSchema.safeParse({ identity: 'ab' }).success, false);
   });
 
   it('requires a six-digit OTP and matching strong password', () => {

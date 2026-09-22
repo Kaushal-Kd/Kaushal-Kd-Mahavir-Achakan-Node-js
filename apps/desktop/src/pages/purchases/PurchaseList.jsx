@@ -17,6 +17,7 @@ import TableColumnPicker from '../../components/ui/TableColumnPicker.jsx';
 import { useAdminDelete } from '../../hooks/useAdminDelete.js';
 import { useDataTableColumns } from '../../hooks/useDataTableColumns.js';
 import { useSelectedShopName } from '../../hooks/useSelectedShopName.js';
+import { paymentAccountsApi } from '../../lib/api/paymentAccounts.js';
 import { purchasesApi } from '../../lib/api/purchases.js';
 import { formatFinancialRecordDateTime } from '../../lib/listTimestampColumns.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
@@ -28,6 +29,12 @@ import PurchaseTransactionsModal from './PurchaseTransactionsModal.jsx';
 const todayStr = () => todayIndiaISODate();
 
 const EXPORT_PER_PAGE = 500;
+
+function normGroup(g) {
+  return String(g || '')
+    .trim()
+    .toLowerCase();
+}
 
 const PurchaseList = () => {
   const navigate = useNavigate();
@@ -52,6 +59,7 @@ const PurchaseList = () => {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(DEFAULT_TABLE_PER_PAGE);
   const [search, setSearch] = useState('');
+  const [vendorAccountId, setVendorAccountId] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState(todayStr());
   const [pendingOnly, setPendingOnly] = useState(false);
@@ -62,13 +70,40 @@ const PurchaseList = () => {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [imagesPdfOpen, setImagesPdfOpen] = useState(false);
 
+  const paymentAccountsQuery = useQuery({
+    queryKey: ['payment-accounts'],
+    queryFn: () => paymentAccountsApi.list(),
+  });
+
+  const vendorAccounts = useMemo(
+    () =>
+      (paymentAccountsQuery.data?.data || [])
+        .filter((a) => normGroup(a.account_group) === 'vendors')
+        .slice()
+        .sort((a, b) =>
+          String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+            sensitivity: 'base',
+          })
+        ),
+    [paymentAccountsQuery.data]
+  );
+
+  const selectedVendorName = useMemo(
+    () => vendorAccounts.find((a) => a.id === vendorAccountId)?.name || '',
+    [vendorAccountId, vendorAccounts]
+  );
+
   const listQuery = useQuery({
-    queryKey: ['purchases', { page, perPage, search, dateFrom, dateTo, pendingOnly }],
+    queryKey: [
+      'purchases',
+      { page, perPage, search, vendorAccountId, dateFrom, dateTo, pendingOnly },
+    ],
     queryFn: () =>
       purchasesApi.list({
         page,
         per_page: perPage,
         search: search || undefined,
+        vendor_account_id: vendorAccountId || undefined,
         from: dateFrom || undefined,
         to: dateTo || undefined,
         pending_only: pendingOnly || undefined,
@@ -82,7 +117,7 @@ const PurchaseList = () => {
 
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [search, dateFrom, dateTo, pendingOnly]);
+  }, [search, vendorAccountId, dateFrom, dateTo, pendingOnly]);
 
   const cancelMut = useMutation({
     mutationFn: (id) => purchasesApi.cancel(id),
@@ -99,6 +134,7 @@ const PurchaseList = () => {
   const fetchAllFilteredPurchases = useCallback(async () => {
     const baseParams = {
       search: search || undefined,
+      vendor_account_id: vendorAccountId || undefined,
       from: dateFrom || undefined,
       to: dateTo || undefined,
       pending_only: pendingOnly || undefined,
@@ -114,7 +150,7 @@ const PurchaseList = () => {
       p += 1;
     } while (p <= totalPages);
     return acc;
-  }, [search, dateFrom, dateTo, pendingOnly]);
+  }, [search, vendorAccountId, dateFrom, dateTo, pendingOnly]);
 
   const runListPdf = async (mode, scope = 'all') => {
     setExportBusy(true);
@@ -132,6 +168,7 @@ const PurchaseList = () => {
       const stamp = `${dateFrom || 'all'}_${dateTo || 'all'}`;
       const subtitleParts = [`Date ${dateFrom || '—'} to ${dateTo || '—'}`];
       if (search.trim()) subtitleParts.push(`Search: ${search.trim()}`);
+      if (selectedVendorName) subtitleParts.push(`Vendor: ${selectedVendorName}`);
       if (pendingOnly) subtitleParts.push('Pending bills only');
       subtitleParts.push(`${exportRows.length} record(s)`);
       if (scope === 'selected') subtitleParts.push('Selected bills');
@@ -422,6 +459,23 @@ const PurchaseList = () => {
           />
         </div>
 
+        <select
+          aria-label="Filter by vendor"
+          className="border border-gray-200 rounded-md px-2.5 py-1.5 text-sm bg-white min-w-[10rem] max-w-[16rem]"
+          value={vendorAccountId}
+          onChange={(e) => {
+            setVendorAccountId(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">All Vendors</option>
+          {vendorAccounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+
         <input
           type="date"
           className="border border-gray-200 rounded-md px-2.5 py-1.5 text-sm"
@@ -517,6 +571,7 @@ const PurchaseList = () => {
         onClose={() => setImagesPdfOpen(false)}
         initialDateFrom={dateFrom}
         initialDateTo={dateTo}
+        vendorAccountId={vendorAccountId}
       />
 
       <PurchaseTransactionsModal

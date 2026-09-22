@@ -278,6 +278,10 @@ export async function listPurchases(shopId, query) {
   if (query.status) qb.andWhere('p.status', query.status);
   if (query.from) qb.andWhere('p.purchase_date', '>=', query.from);
   if (query.to) qb.andWhere('p.purchase_date', '<=', query.to);
+  const vendorAccountId = String(query.vendor_account_id || '')
+    .trim()
+    .slice(0, 80);
+  if (vendorAccountId) qb.andWhere('p.vendor_account_id', vendorAccountId);
   if (query.pending_only === 'true' || query.pending_only === true) {
     qb.andWhereRaw('p.total_amount > p.advance');
   }

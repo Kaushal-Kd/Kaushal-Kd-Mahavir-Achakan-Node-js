@@ -14,7 +14,7 @@ import { flattenPurchaseAttachments } from '../../utils/purchaseAttachments.js';
 
 const EXPORT_PER_PAGE = 500;
 
-async function fetchPurchasesForDates(dateFrom, dateTo) {
+async function fetchPurchasesForDates(dateFrom, dateTo, vendorAccountId) {
   const acc = [];
   let page = 1;
   let totalPages = 1;
@@ -22,6 +22,7 @@ async function fetchPurchasesForDates(dateFrom, dateTo) {
     const res = await purchasesApi.list({
       from: dateFrom || undefined,
       to: dateTo || undefined,
+      vendor_account_id: vendorAccountId || undefined,
       page,
       per_page: EXPORT_PER_PAGE,
       sort: '-p.purchase_date',
@@ -33,7 +34,13 @@ async function fetchPurchasesForDates(dateFrom, dateTo) {
   return acc;
 }
 
-const PurchaseImagesPdfModal = ({ isOpen, onClose, initialDateFrom = '', initialDateTo = '' }) => {
+const PurchaseImagesPdfModal = ({
+  isOpen,
+  onClose,
+  initialDateFrom = '',
+  initialDateTo = '',
+  vendorAccountId = '',
+}) => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
@@ -49,8 +56,8 @@ const PurchaseImagesPdfModal = ({ isOpen, onClose, initialDateFrom = '', initial
   }, [isOpen, initialDateFrom, initialDateTo]);
 
   const listQuery = useQuery({
-    queryKey: ['purchases', 'images-pdf', dateFrom, dateTo],
-    queryFn: () => fetchPurchasesForDates(dateFrom, dateTo),
+    queryKey: ['purchases', 'images-pdf', dateFrom, dateTo, vendorAccountId],
+    queryFn: () => fetchPurchasesForDates(dateFrom, dateTo, vendorAccountId),
     enabled: Boolean(isOpen && dateFrom && dateTo),
   });
 
@@ -232,6 +239,7 @@ PurchaseImagesPdfModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   initialDateFrom: PropTypes.string,
   initialDateTo: PropTypes.string,
+  vendorAccountId: PropTypes.string,
 };
 
 export default PurchaseImagesPdfModal;

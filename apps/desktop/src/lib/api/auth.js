@@ -6,6 +6,11 @@ export const authApi = {
   changePassword: (payload) => api.post('/auth/change-password', payload).then(unwrap),
   requestPasswordOtp: (payload) => api.post('/auth/password-otp/request', payload).then(unwrap),
   confirmPasswordOtp: (payload) => api.post('/auth/password-otp/confirm', payload).then(unwrap),
+  requestForgotPassword: (payload) =>
+    api.post('/auth/forgot-password/request', payload).then(unwrap),
+  verifyForgotPasswordOtp: (payload) =>
+    api.post('/auth/forgot-password/verify', payload).then(unwrap),
+  resetForgotPassword: (payload) => api.post('/auth/forgot-password/reset', payload).then(unwrap),
   verifyShopAdminPassword: (body) =>
     api.post('/auth/verify-shop-admin-password', body).then(unwrap),
   listDevices: (params) => api.get('/auth/devices', { params }).then(unwrap),

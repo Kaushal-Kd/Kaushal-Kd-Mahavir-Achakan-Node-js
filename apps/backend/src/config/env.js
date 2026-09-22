@@ -90,6 +90,12 @@ export const env = Object.freeze({
   BCRYPT_ROUNDS: Number(process.env.BCRYPT_ROUNDS || 12),
 
   SHOP_SMTP_ENCRYPTION_KEY: process.env.SHOP_SMTP_ENCRYPTION_KEY || '',
+  SMTP_HOST: process.env.SMTP_HOST || '',
+  SMTP_PORT: Number(process.env.SMTP_PORT || 587),
+  SMTP_USER: process.env.SMTP_USER || '',
+  SMTP_PASSWORD: String(process.env.SMTP_PASSWORD || '').replace(/\s+/g, ''),
+  SMTP_FROM: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+  /** System Gmail SMTP is used for public admin forgot-password OTPs. */
 
   GCS_PROJECT_ID: process.env.GCS_PROJECT_ID || gcs?.credentials?.project_id || '',
   GCS_BUCKET_NAME: process.env.GCS_BUCKET_NAME || '',

@@ -4,8 +4,10 @@ import {
   authSessionListQuerySchema,
   changePasswordSchema,
   confirmPasswordOtpSchema,
+  forgotPasswordSchema,
   loginSchema,
   requestPasswordOtpSchema,
+  verifyForgotPasswordOtpSchema,
   revokeAuthSessionSchema,
   shopAdminPasswordBodySchema,
   updateProfileSchema,
@@ -38,6 +40,11 @@ import {
   requestAdminPasswordOtp,
   confirmAdminPasswordOtp,
 } from './service.js';
+import {
+  requestForgotPasswordOtp,
+  resetForgotPassword,
+  verifyForgotPasswordOtp,
+} from './forgotPassword.js';
 
 export default async function authRoutes(fastify) {
   fastify.post('/login', async (request, reply) => {
@@ -83,6 +90,29 @@ export default async function authRoutes(fastify) {
         ip_access_restricted: ipAccess.restricted,
       },
     };
+  });
+
+  fastify.post('/forgot-password/request', async (request) => {
+    const body = validate(forgotPasswordSchema, request.body || {});
+    const result = await requestForgotPasswordOtp({ identity: body.identity });
+    return { ok: true, data: result };
+  });
+
+  fastify.post('/forgot-password/verify', async (request) => {
+    const body = validate(verifyForgotPasswordOtpSchema, request.body || {});
+    const result = await verifyForgotPasswordOtp({ challengeId: body.challenge_id, otp: body.otp });
+    return { ok: true, data: result };
+  });
+
+  fastify.post('/forgot-password/reset', async (request) => {
+    const body = validate(confirmPasswordOtpSchema, request.body || {});
+    const result = await resetForgotPassword({
+      challengeId: body.challenge_id,
+      otp: body.otp,
+      newPassword: body.new_password,
+    });
+    invalidateAuthCacheForUser(result.target_user_id);
+    return { ok: true, data: result };
   });
 
   // Refresh access tokens without requiring a valid access token in the header.

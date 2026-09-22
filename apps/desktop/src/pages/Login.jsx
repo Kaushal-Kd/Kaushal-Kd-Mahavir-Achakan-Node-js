@@ -8,6 +8,7 @@ import Checkbox from '../components/ui/Checkbox.jsx';
 import Input from '../components/ui/Input.jsx';
 import PasswordInput from '../components/ui/PasswordInput.jsx';
 import { api, unwrap } from '../lib/api.js';
+import { authApi } from '../lib/api/auth.js';
 import { queryClient } from '../lib/queryClient.js';
 import { getReadableDeviceName, getStableDeviceId } from '../lib/deviceIdentity.js';
 import { useAuthStore } from '../stores/authStore.js';
@@ -35,6 +36,26 @@ const Login = () => {
   const [remember, setRemember] = useState(!!rememberedIdentity);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(accessDeniedMessage);
+  const [view, setView] = useState('login');
+  const [forgotIdentity, setForgotIdentity] = useState('');
+  const [otp, setOtp] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const resetForgot = () => {
+    setView('login');
+    setErr(null);
+    setOtp('');
+    setChallengeId('');
+    setMaskedEmail('');
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const apiError = (error, fallback) =>
+    error?.response?.data?.error?.message || error?.message || fallback;
 
   useEffect(() => {
     if (accessDeniedMessage) clearAccessDeniedMessage();
@@ -78,6 +99,85 @@ const Login = () => {
       setLoading(false);
     }
   };
+
+  const onRequestOtp = async (e) => {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
+    try {
+      const resp = await authApi.requestForgotPassword({ identity: forgotIdentity });
+      setChallengeId(resp.data.challenge_id);
+      setMaskedEmail(resp.data.email || '');
+      setOtp('');
+      setView('otp');
+      toast.success(`OTP sent to ${resp.data.email || 'your email'}`);
+    } catch (error) {
+      setErr(apiError(error, 'Could not send OTP'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onVerifyOtp = async (e) => {
+    e.preventDefault();
+    setErr(null);
+    if (!/^\d{6}$/.test(otp)) {
+      setErr('Enter the 6-digit OTP');
+      return;
+    }
+    setLoading(true);
+    try {
+      await authApi.verifyForgotPasswordOtp({ challenge_id: challengeId, otp });
+      setView('password');
+    } catch (error) {
+      setErr(apiError(error, 'Incorrect OTP'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onResetPassword = async (e) => {
+    e.preventDefault();
+    setErr(null);
+    if (newPassword !== confirmPassword) {
+      setErr('Passwords do not match');
+      return;
+    }
+    setLoading(true);
+    try {
+      await authApi.resetForgotPassword({
+        challenge_id: challengeId,
+        otp,
+        new_password: newPassword,
+        confirm: confirmPassword,
+      });
+      toast.success('Password updated. Sign in with your new password.');
+      setIdentity(forgotIdentity);
+      setPassword('');
+      resetForgot();
+    } catch (error) {
+      setErr(apiError(error, 'Could not reset password'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const title =
+    view === 'login'
+      ? 'Welcome back'
+      : view === 'password'
+        ? 'Set new password'
+        : view === 'otp'
+          ? 'Verify OTP'
+          : 'Forgot password';
+  const subtitle =
+    view === 'login'
+      ? `Sign in to ${APP_NAME}`
+      : view === 'otp'
+        ? `Enter the 6-digit code sent to ${maskedEmail || 'your email'}`
+        : view === 'password'
+          ? 'Choose a new password for this administrator account'
+          : 'Shop admin and super admin can reset by email OTP';
 
   return (
     <div className="min-h-screen bg-surface lg:flex lg:h-screen lg:overflow-hidden">
@@ -133,9 +233,10 @@ const Login = () => {
         <main className="flex flex-1 items-center justify-center px-5 py-10 sm:px-8">
           <div className="w-full max-w-[420px] rounded-lg border border-gray-200 bg-surface p-6 shadow-card sm:p-8">
             <div className="mb-3 h-1 w-10 rounded-sm bg-brand" />
-            <h1 className="text-2xl font-semibold text-gray-900">Welcome back</h1>
-            <p className="mt-1 text-sm text-gray-500">Sign in to {APP_NAME}</p>
+            <h1 className="text-2xl font-semibold text-gray-900">{title}</h1>
+            <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
 
+            {view === 'login' ? (
             <form onSubmit={onSubmit} className="mt-8 space-y-5">
               {err ? (
                 <div
@@ -168,16 +269,137 @@ const Login = () => {
                 placeholder="Enter your password"
               />
 
-              <Checkbox checked={remember} onChange={setRemember} label="Remember me" />
+              <div className="flex items-center justify-between gap-3">
+                <Checkbox checked={remember} onChange={setRemember} label="Remember me" />
+                <button
+                  type="button"
+                  className="text-sm font-medium text-brand hover:underline"
+                  onClick={() => {
+                    setForgotIdentity(identity);
+                    setErr(null);
+                    setView('identity');
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </div>
 
               <Button type="submit" size="lg" className="w-full" loading={loading}>
                 Sign in
               </Button>
-
-              <p className="text-center text-xs text-gray-500">
-                Need a password reset? Ask your administrator.
-              </p>
             </form>
+            ) : null}
+
+            {view === 'identity' ? (
+            <form onSubmit={onRequestOtp} className="mt-8 space-y-5">
+              {err ? (
+                <div
+                  role="alert"
+                  className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                >
+                  {err}
+                </div>
+              ) : null}
+              <Input
+                label="Phone number or email"
+                type="text"
+                autoComplete="username"
+                required
+                value={forgotIdentity}
+                onChange={(e) => setForgotIdentity(e.target.value)}
+                placeholder="Admin phone or email"
+              />
+              <p className="text-xs text-gray-500">
+                Other staff cannot reset from here. Contact your shop admin.
+              </p>
+              <Button type="submit" size="lg" className="w-full" loading={loading}>
+                Send OTP
+              </Button>
+              <button
+                type="button"
+                className="block w-full text-center text-sm font-medium text-gray-600 hover:text-brand"
+                onClick={resetForgot}
+              >
+                Back to sign in
+              </button>
+            </form>
+            ) : null}
+
+            {view === 'otp' ? (
+            <form onSubmit={onVerifyOtp} className="mt-8 space-y-5">
+              {err ? (
+                <div
+                  role="alert"
+                  className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                >
+                  {err}
+                </div>
+              ) : null}
+              <Input
+                label="Email OTP"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                required
+                maxLength={6}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="6-digit code"
+              />
+              <Button type="submit" size="lg" className="w-full" loading={loading}>
+                Verify OTP
+              </Button>
+              <button
+                type="button"
+                className="block w-full text-center text-sm font-medium text-gray-600 hover:text-brand"
+                onClick={() => {
+                  setErr(null);
+                  setView('identity');
+                }}
+              >
+                Use a different account
+              </button>
+            </form>
+            ) : null}
+
+            {view === 'password' ? (
+            <form onSubmit={onResetPassword} className="mt-8 space-y-5">
+              {err ? (
+                <div
+                  role="alert"
+                  className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                >
+                  {err}
+                </div>
+              ) : null}
+              <PasswordInput
+                id="forgot-new-password"
+                label="New password"
+                autoComplete="new-password"
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                hint="Minimum 8 characters with uppercase, lowercase and number"
+              />
+              <PasswordInput
+                id="forgot-confirm-password"
+                label="Confirm password"
+                autoComplete="new-password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+              <Button type="submit" size="lg" className="w-full" loading={loading}>
+                Update password
+              </Button>
+              <button
+                type="button"
+                className="block w-full text-center text-sm font-medium text-gray-600 hover:text-brand"
+                onClick={resetForgot}
+              >
+                Back to sign in
+              </button>
+            </form>
+            ) : null}
 
             <p className="mt-8 flex items-center justify-center gap-1.5 text-xs text-gray-400">
               <Lock size={12} aria-hidden="true" />

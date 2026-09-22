@@ -19,24 +19,13 @@ export const loginSchema = z
   .transform(({ email, ...value }) => ({ ...value, identity: value.identity || email }));
 
 export const forgotPasswordSchema = z.object({
-  email: z.string().trim().toLowerCase().email('Enter a valid email address'),
+  identity: z.string().trim().min(3, 'Enter your phone number or email').max(200),
 });
 
-export const resetPasswordSchema = z
-  .object({
-    token: z.string().min(10),
-    password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters')
-      .regex(/[A-Z]/, 'Include at least one uppercase letter')
-      .regex(/[a-z]/, 'Include at least one lowercase letter')
-      .regex(/[0-9]/, 'Include at least one number'),
-    confirm: z.string().min(8),
-  })
-  .refine((d) => d.password === d.confirm, {
-    message: 'Passwords do not match',
-    path: ['confirm'],
-  });
+export const verifyForgotPasswordOtpSchema = z.object({
+  challenge_id: z.string().uuid(),
+  otp: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit OTP'),
+});
 
 /** Shop Admin password verification for protected deletes and edits */
 export const shopAdminPasswordBodySchema = z.object({
