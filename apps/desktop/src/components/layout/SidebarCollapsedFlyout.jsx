@@ -21,6 +21,7 @@ const SidebarCollapsedFlyout = ({
   return createPortal(
     <div
       role="menu"
+      tabIndex={-1}
       aria-label={title}
       className="fixed z-[80] w-52 overflow-y-auto rounded-md border border-gray-200 bg-surface py-1.5 shadow-pop [scrollbar-color:#D1D5DB_#FFFFFF] [scrollbar-width:thin]"
       style={style}

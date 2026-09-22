@@ -2,8 +2,8 @@ import { APP_NAME } from '@wrs/shared';
 
 import { env } from '../config/env.js';
 import { shopEmailService } from '../modules/shop-email/service.js';
-import { sendSmtpMessage } from './smtpTransport.js';
 import { badRequest } from '../utils/errors.js';
+import { sendSmtpMessage } from './smtpTransport.js';
 
 export async function sendPasswordOtpEmail({ shopId, ...message }) {
   return shopEmailService.sendPasswordOtp(shopId, message);
