@@ -15,28 +15,31 @@ const LABEL_VALUE_GAP = 1.4;
 
 /**
  * Physical sticker is 75 mm wide × 50 mm tall.
- * Page is 4 in wide (TSC TE244 print path) × 50 mm tall (one label). A square
- * 4×4 page feeds a second blank sticker. The token is centered on the 4 in
- * width, then inset for the print head.
+ * The print page must stay square (or portrait) or the TSC rotates it
+ * sideways, and it must stay 50 mm tall or a second blank sticker feeds.
+ * 50 × 50 mm is the only size that is both.
  */
 export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
-export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 101.6, heightMm: 50 });
+export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 50, heightMm: 50 });
 
 /**
- * Where the 75×50 token is drawn on the 4×4 page.
+ * Where the token is drawn on the print page. Width is clamped so text
+ * cannot run off a 50 mm square page.
  * @param {ReturnType<typeof normalizeTokenLayout>} layout
  */
 export function tokenContentOrigin(layout) {
   const pageW = Number(layout?.pageWidthMm) || TOKEN_PRINT_PAGE_MM.widthMm;
   const labelW = Number(layout?.widthMm) || TOKEN_LABEL_SIZE_MM.widthMm;
-  const gutterMm = Math.max(0, (pageW - labelW) / 2);
+  const boxW = Math.min(labelW, pageW);
+  const gutterMm = Math.max(0, (pageW - boxW) / 2);
   const headInset = Number(layout?.leftMarginMm) || DEFAULT_TOKEN_LAYOUT.leftMarginMm;
   const rightInset = Number(layout?.rightMarginMm) || DEFAULT_TOKEN_LAYOUT.rightMarginMm;
   const top = Number(layout?.topMarginMm) || DEFAULT_TOKEN_LAYOUT.topMarginMm;
+  const x = gutterMm + headInset;
   return {
-    x: Number((gutterMm + headInset).toFixed(2)),
+    x: Number(x.toFixed(2)),
     y: top,
-    widthMm: Number((labelW - headInset - rightInset).toFixed(2)),
+    widthMm: Number(Math.max(24, pageW - x - rightInset).toFixed(2)),
     gutterMm: Number(gutterMm.toFixed(2)),
   };
 }
@@ -464,7 +467,7 @@ function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
 
   const baseLayout = normalizeTokenLayout(settings);
   const pageFormat = [baseLayout.pageWidthMm, baseLayout.pageHeightMm];
-  const orientation = baseLayout.pageWidthMm >= baseLayout.pageHeightMm ? 'landscape' : 'portrait';
+  const orientation = baseLayout.pageWidthMm > baseLayout.pageHeightMm ? 'landscape' : 'portrait';
   const doc = new jsPDF({
     unit: 'mm',
     format: pageFormat,
