@@ -14,20 +14,25 @@ const BARCODE_GAP = 1.2;
 const LABEL_VALUE_GAP = 1.4;
 
 /**
- * Physical sticker is 75 mm wide × 50 mm tall. TSC TE244 (4×4 paper, 100% scale)
- * clips ~4 mm on the left, so content is inset.
+ * Physical sticker is 75 mm wide × 50 mm tall.
+ * TSC TE244 print dialog is 4×4 in at 100%. A landscape 75×50 PDF is rotated
+ * 90° by that driver, so the print page is a square 4×4 and the token is
+ * drawn in the top-left 75×50 with a left inset for the print-head gap.
  */
 export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
+export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 101.6, heightMm: 101.6 });
 
 const DEFAULT_TOKEN_LAYOUT = Object.freeze({
   widthMm: TOKEN_LABEL_SIZE_MM.widthMm,
   heightMm: TOKEN_LABEL_SIZE_MM.heightMm,
+  pageWidthMm: TOKEN_PRINT_PAGE_MM.widthMm,
+  pageHeightMm: TOKEN_PRINT_PAGE_MM.heightMm,
   minHeightMm: 0,
   fontSize: 7,
   pageMarginMm: 2,
-  leftMarginMm: 6,
+  leftMarginMm: 8,
   rightMarginMm: 2,
-  topMarginMm: 3,
+  topMarginMm: 4,
   bottomMarginMm: 2,
   slipPaddingMm: 1.6,
   barcodeMaxWidthMm: 40,
@@ -78,6 +83,8 @@ export function normalizeTokenLayout(settings = {}) {
   return {
     widthMm: rawSize.widthMm,
     heightMm: rawSize.heightMm,
+    pageWidthMm: DEFAULT_TOKEN_LAYOUT.pageWidthMm,
+    pageHeightMm: DEFAULT_TOKEN_LAYOUT.pageHeightMm,
     minHeightMm: 0,
     fontSize,
     lineHeightMm: Math.max(2.8, Number((fontSize * 0.48).toFixed(3))),
@@ -438,8 +445,8 @@ function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
   if (!prepared.length) return null;
 
   const baseLayout = normalizeTokenLayout(settings);
-  const pageFormat = [baseLayout.widthMm, baseLayout.heightMm];
-  const orientation = baseLayout.widthMm >= baseLayout.heightMm ? 'landscape' : 'portrait';
+  const pageFormat = [baseLayout.pageWidthMm, baseLayout.pageHeightMm];
+  const orientation = 'portrait';
   const doc = new jsPDF({
     unit: 'mm',
     format: pageFormat,
