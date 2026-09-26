@@ -13,8 +13,11 @@ const BARCODE_GAP = 1.2;
 /** Extra space (mm) between bold label and value — label width is measured in bold. */
 const LABEL_VALUE_GAP = 1.4;
 
-/** Physical token stock used on the shop label printer. */
-export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
+/**
+ * 75 × 50 mm stock as this printer feeds it: 50 mm across the head,
+ * 75 mm along the roll. Landscape 75×50 pages print sideways.
+ */
+export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 50, heightMm: 75 });
 
 const DEFAULT_TOKEN_LAYOUT = Object.freeze({
   widthMm: TOKEN_LABEL_SIZE_MM.widthMm,
@@ -26,6 +29,15 @@ const DEFAULT_TOKEN_LAYOUT = Object.freeze({
   barcodeMaxWidthMm: 34,
   barcodeMaxHeightMm: 8,
 });
+
+function pageSizeForLabelPrinter(widthMm, heightMm) {
+  const shortSide = Math.min(widthMm, heightMm);
+  const longSide = Math.max(widthMm, heightMm);
+  if (shortSide >= 45 && shortSide <= 55 && longSide >= 70 && longSide <= 80) {
+    return { widthMm: shortSide, heightMm: longSide };
+  }
+  return { widthMm, heightMm };
+}
 
 function clampedNumber(value, fallback, min, max) {
   const parsed = Number(value);
@@ -51,13 +63,17 @@ export function normalizeTokenLayout(settings = {}) {
     5.5,
     12
   );
-  return {
-    widthMm: legacy
+  const rawSize = pageSizeForLabelPrinter(
+    legacy
       ? TOKEN_LABEL_SIZE_MM.widthMm
-      : clampedNumber(settings.widthMm, DEFAULT_TOKEN_LAYOUT.widthMm, 50, 80),
-    heightMm: legacy
+      : clampedNumber(settings.widthMm, DEFAULT_TOKEN_LAYOUT.widthMm, 40, 80),
+    legacy
       ? TOKEN_LABEL_SIZE_MM.heightMm
-      : clampedNumber(settings.heightMm, DEFAULT_TOKEN_LAYOUT.heightMm, 40, 60),
+      : clampedNumber(settings.heightMm, DEFAULT_TOKEN_LAYOUT.heightMm, 40, 80)
+  );
+  return {
+    widthMm: rawSize.widthMm,
+    heightMm: rawSize.heightMm,
     minHeightMm: 0,
     fontSize,
     lineHeightMm: Math.max(2.8, Number((fontSize * 0.48).toFixed(3))),
@@ -421,11 +437,11 @@ function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
   const doc = new jsPDF({
     unit: 'mm',
     format: pageFormat,
-    orientation: 'landscape',
+    orientation: 'portrait',
   });
 
   prepared.forEach(({ target, barcode }, index) => {
-    if (index > 0) doc.addPage(pageFormat, 'landscape');
+    if (index > 0) doc.addPage(pageFormat, 'portrait');
     const layout = shrinkLayoutToFit(doc, target, barcode, baseLayout);
     const slipWidth = layout.widthMm - layout.pageMarginMm * 2;
     drawSlip(doc, target, barcode, layout.pageMarginMm, layout.pageMarginMm, slipWidth, layout);
