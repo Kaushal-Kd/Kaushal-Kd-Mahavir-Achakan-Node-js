@@ -52,7 +52,7 @@ const DEFAULT_TOKEN_LAYOUT = Object.freeze({
   pageMarginMm: 2,
   leftMarginMm: 8,
   rightMarginMm: 2,
-  topMarginMm: 4,
+  topMarginMm: 10,
   bottomMarginMm: 2,
   slipPaddingMm: 1.6,
   barcodeMaxWidthMm: 40,
