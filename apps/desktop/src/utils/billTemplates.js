@@ -142,6 +142,83 @@ function isThermal(paper) {
   return paper === 'thermal_58' || paper === 'thermal_80';
 }
 
+/** Keep default type up to 20 printed lines; shrink only in the 21–30 band. */
+export const BILL_ONE_PAGE_ROW_MIN = 21;
+export const BILL_ONE_PAGE_ROW_MAX = 30;
+
+function countAccessoryMap(map) {
+  let n = 0;
+  for (const list of map.values()) n += list.length;
+  return n;
+}
+
+/**
+ * Count product + accessory lines that actually print (not section/subtotal rows).
+ * @param {object|null|undefined} order
+ * @param {object} [itemsConfig]
+ */
+export function countBillPrintRows(order, itemsConfig = {}) {
+  const showAccessories = itemsConfig.show_accessories !== false;
+  const billOrder = {
+    ...order,
+    items: (order?.items || []).map(normalizeBillLine),
+    accessories: (order?.accessories || []).map(normalizeBillLine),
+  };
+  const parts = partitionOrderForBill(billOrder);
+  let rows = parts.rentItems.length + parts.saleItems.length;
+  if (showAccessories) {
+    rows += countAccessoryMap(parts.rentAccessoriesByItem);
+    rows += countAccessoryMap(parts.saleAccessoriesByItem);
+    rows += parts.rentExternal.length + parts.saleExternal.length;
+  }
+  rows += parts.saleDetachedFromProducts.length;
+  return rows;
+}
+
+function roundFontSize(value, min) {
+  return Math.max(min, Math.round(Number(value) * 10) / 10);
+}
+
+/**
+ * Shrink item-table type for A4/A5 bills with 21–30 printed lines so they
+ * stay on one page. Thermal and 31+ line bills keep the template font.
+ * @param {object} tpl
+ * @param {object|null|undefined} order
+ */
+export function applyBillPrintDensity(tpl, order) {
+  const rows = countBillPrintRows(order, tpl.items_config);
+  const compact =
+    !isThermal(tpl.paper_size) &&
+    rows >= BILL_ONE_PAGE_ROW_MIN &&
+    rows <= BILL_ONE_PAGE_ROW_MAX;
+  if (!compact) {
+    return {
+      ...tpl,
+      item_density: { compact: false, rows, pad_y: 7, pad_x: 10, head_pad_y: 8 },
+    };
+  }
+  const t = (rows - 20) / 10;
+  const scale = 1 - t * 0.3;
+  const base = Number(tpl.typography?.base_size) || 12;
+  const product = Number(tpl.typography?.product_size) || base;
+  const accessory = Number(tpl.typography?.accessory_size) || Math.max(6, base - 1);
+  return {
+    ...tpl,
+    typography: {
+      ...tpl.typography,
+      product_size: roundFontSize(product * scale, 7),
+      accessory_size: roundFontSize(accessory * scale, 6),
+    },
+    item_density: {
+      compact: true,
+      rows,
+      pad_y: Math.max(2, Math.round(7 - t * 4)),
+      pad_x: Math.max(6, Math.round(10 - t * 3)),
+      head_pad_y: Math.max(4, Math.round(8 - t * 3)),
+    },
+  };
+}
+
 function pageStyles(tpl) {
   const { paper_size, typography, colors, page_settings } = tpl;
   const thermal = isThermal(paper_size);
@@ -154,6 +231,10 @@ function pageStyles(tpl) {
   // Fall back to base_size for templates saved before these settings existed.
   const productSize = Number(typography.product_size) || typography.base_size;
   const accessorySize = Number(typography.accessory_size) || Math.max(6, typography.base_size - 1);
+  const density = tpl.item_density || { pad_y: 7, pad_x: 10, head_pad_y: 8 };
+  const itemPadY = Number(density.pad_y) || 7;
+  const itemPadX = Number(density.pad_x) || 10;
+  const headPadY = Number(density.head_pad_y) || 8;
   const rawVerticalOffset = Number(page_settings?.vertical_offset_in);
   const verticalOffsetIn = Number.isFinite(rawVerticalOffset)
     ? Math.min(4, Math.max(-2, rawVerticalOffset))
@@ -310,13 +391,13 @@ function pageStyles(tpl) {
         font-size: ${typography.base_size - 1}px;
         letter-spacing: 0.02em;
         text-transform: uppercase;
-        padding: 8px 10px;
+        padding: ${headPadY}px ${itemPadX}px;
         border: none;
       }
       table.items th:first-child { padding-left: 12px; }
       table.items th:last-child { padding-right: 12px; }
       table.items td {
-        padding: 7px 10px;
+        padding: ${itemPadY}px ${itemPadX}px;
         border-bottom: 1px solid ${colors.border};
         vertical-align: top;
         font-size: ${productSize}px;
@@ -716,8 +797,8 @@ function itemsBlock(tpl, order) {
   const cfg = tpl.items_config;
   const rows = [];
   const headers = [];
-  if (cfg.show_code) headers.push('<th>Item Code</th>');
   headers.push('<th>Item</th>');
+  if (cfg.show_code) headers.push('<th>Item Code</th>');
   if (cfg.show_qty) headers.push('<th class="right">Qty</th>');
   headers.push('<th class="right">Price</th>');
   if (cfg.show_discount) headers.push('<th class="right">Disc</th>');
@@ -746,11 +827,11 @@ function itemsBlock(tpl, order) {
 
   const pushLineRow = (line, { isAccessory, isSale, parentProduct }) => {
     const cells = [];
+    cells.push(`<td>${itemNameCell(line, { isAccessory, isSale, parentProduct })}</td>`);
     if (cfg.show_code) {
       const code = esc(line.code_snapshot || '—');
       cells.push(`<td><span class="item-code">${code}</span></td>`);
     }
-    cells.push(`<td>${itemNameCell(line, { isAccessory, isSale, parentProduct })}</td>`);
     if (cfg.show_qty) cells.push(`<td class="right">${line.qty}</td>`);
     cells.push(`<td class="right">${formatCurrency(line.price)}</td>`);
     if (cfg.show_discount)
@@ -1016,7 +1097,7 @@ export function renderBillHtml({
   renderOptions = {},
 }) {
   const billOrder = prepareOrderForBill(order);
-  const tpl = mergeTemplate(template);
+  const tpl = applyBillPrintDensity(mergeTemplate(template), billOrder);
   const shopInfo = {
     name: shop?.name || '',
     address: shop?.address || '',

@@ -2,12 +2,43 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  BILL_ONE_PAGE_ROW_MAX,
+  BILL_ONE_PAGE_ROW_MIN,
   DEFAULT_MANUAL_BILL_CONTENT,
   LETTER_PAD_PAGE_SETTINGS,
   SAMPLE_ORDER,
+  applyBillPrintDensity,
+  countBillPrintRows,
   mergeTemplate,
   renderBillHtml,
 } from './billTemplates.js';
+
+function orderWithLineCount(count) {
+  const items = [];
+  const accessories = [];
+  for (let i = 0; i < count; i += 1) {
+    const id = `item-${i + 1}`;
+    if (i % 3 === 2) {
+      accessories.push({
+        order_item_id: items[items.length - 1]?.id || id,
+        name_snapshot: `Accessory ${i + 1}`,
+        qty: 1,
+        price: 100,
+        total: 100,
+      });
+    } else {
+      items.push({
+        id,
+        name_snapshot: `Product ${i + 1}`,
+        code_snapshot: `P-${i + 1}`,
+        qty: 1,
+        price: 1000,
+        total: 1000,
+      });
+    }
+  }
+  return { ...SAMPLE_ORDER, items, accessories };
+}
 
 const shop = { name: 'Demo Shop', address: 'Main Road', phone: '9876543210' };
 
@@ -45,7 +76,7 @@ describe('bill template blank-paper controls', () => {
 
   it('prints bold product names and a separate item-code column', () => {
     const html = renderBillHtml({ order: SAMPLE_ORDER, shop });
-    assert.match(html, /<th>Item Code<\/th><th>Item<\/th>/);
+    assert.match(html, /<th>Item<\/th><th>Item Code<\/th>/);
     assert.match(html, /class="item-name"/);
     assert.match(html, /class="item-code"/);
   });
@@ -142,5 +173,35 @@ describe('bill template blank-paper controls', () => {
     const invoiceIdx = html.indexOf('Invoice no.');
     assert.ok(boxStart >= 0 && barcodeIdx > boxStart && invoiceIdx > barcodeIdx);
     assert.doesNotMatch(html, /class="bill-header"/);
+  });
+
+  it('keeps the default item font for short bills and for more than 30 rows', () => {
+    const shortTpl = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(12));
+    assert.equal(shortTpl.item_density.compact, false);
+    assert.equal(shortTpl.typography.product_size, null);
+    const longTpl = applyBillPrintDensity(
+      mergeTemplate({}),
+      orderWithLineCount(BILL_ONE_PAGE_ROW_MAX + 4)
+    );
+    assert.equal(longTpl.item_density.compact, false);
+    assert.equal(longTpl.typography.product_size, null);
+    const shortHtml = renderBillHtml({ order: orderWithLineCount(12), shop });
+    assert.match(shortHtml, /font-size: 12px;/);
+    assert.match(shortHtml, /padding: 7px 10px;/);
+  });
+
+  it('shrinks item type only when printed rows are between 21 and 30', () => {
+    const midCount = 25;
+    assert.ok(midCount >= BILL_ONE_PAGE_ROW_MIN && midCount <= BILL_ONE_PAGE_ROW_MAX);
+    assert.equal(countBillPrintRows(orderWithLineCount(midCount)), midCount);
+    const midTpl = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(midCount));
+    assert.equal(midTpl.item_density.compact, true);
+    assert.ok(midTpl.typography.product_size < 12);
+    assert.ok(midTpl.typography.accessory_size < 11);
+    const midHtml = renderBillHtml({ order: orderWithLineCount(midCount), shop });
+    assert.match(midHtml, new RegExp(`font-size: ${midTpl.typography.product_size}px;`));
+    assert.doesNotMatch(midHtml, /padding: 7px 10px;/);
+    const denser = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(30));
+    assert.ok(denser.typography.product_size < midTpl.typography.product_size);
   });
 });
