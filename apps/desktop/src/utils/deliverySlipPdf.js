@@ -15,12 +15,32 @@ const LABEL_VALUE_GAP = 1.4;
 
 /**
  * Physical sticker is 75 mm wide × 50 mm tall.
- * TSC TE244 print dialog is 4×4 in at 100%. A landscape 75×50 PDF is rotated
- * 90° by that driver, so the print page is a square 4×4 and the token is
- * drawn in the top-left 75×50 with a left inset for the print-head gap.
+ * TSC TE244 print dialog is 4×4 in at 100%. The driver rotates a landscape
+ * 75×50 PDF, so the page is a square 4×4. The 75 mm sticker sits in the
+ * center of that 101.6 mm print path — the left 13.3 mm of the page misses
+ * the label — so the token is centered, then inset for the print head.
  */
 export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
 export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 101.6, heightMm: 101.6 });
+
+/**
+ * Where the 75×50 token is drawn on the 4×4 page.
+ * @param {ReturnType<typeof normalizeTokenLayout>} layout
+ */
+export function tokenContentOrigin(layout) {
+  const pageW = Number(layout?.pageWidthMm) || TOKEN_PRINT_PAGE_MM.widthMm;
+  const labelW = Number(layout?.widthMm) || TOKEN_LABEL_SIZE_MM.widthMm;
+  const gutterMm = Math.max(0, (pageW - labelW) / 2);
+  const headInset = Number(layout?.leftMarginMm) || DEFAULT_TOKEN_LAYOUT.leftMarginMm;
+  const rightInset = Number(layout?.rightMarginMm) || DEFAULT_TOKEN_LAYOUT.rightMarginMm;
+  const top = Number(layout?.topMarginMm) || DEFAULT_TOKEN_LAYOUT.topMarginMm;
+  return {
+    x: Number((gutterMm + headInset).toFixed(2)),
+    y: top,
+    widthMm: Number((labelW - headInset - rightInset).toFixed(2)),
+    gutterMm: Number(gutterMm.toFixed(2)),
+  };
+}
 
 const DEFAULT_TOKEN_LAYOUT = Object.freeze({
   widthMm: TOKEN_LABEL_SIZE_MM.widthMm,
@@ -418,11 +438,10 @@ async function prepareSlipRows(targets) {
  * @returns {import('jspdf').jsPDF | null}
  */
 function shrinkLayoutToFit(doc, target, barcode, layout) {
-  const left = layout.leftMarginMm ?? layout.pageMarginMm;
-  const right = layout.rightMarginMm ?? layout.pageMarginMm;
+  const origin = tokenContentOrigin(layout);
   const top = layout.topMarginMm ?? layout.pageMarginMm;
   const bottom = layout.bottomMarginMm ?? layout.pageMarginMm;
-  const slipWidth = layout.widthMm - left - right;
+  const slipWidth = origin.widthMm;
   const maxHeight = layout.heightMm - top - bottom;
   const innerWidth = slipWidth - layout.slipPaddingMm * 2;
   let fitted = { ...layout };
@@ -456,11 +475,8 @@ function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
   prepared.forEach(({ target, barcode }, index) => {
     if (index > 0) doc.addPage(pageFormat, orientation);
     const layout = shrinkLayoutToFit(doc, target, barcode, baseLayout);
-    const left = layout.leftMarginMm ?? layout.pageMarginMm;
-    const top = layout.topMarginMm ?? layout.pageMarginMm;
-    const right = layout.rightMarginMm ?? layout.pageMarginMm;
-    const slipWidth = layout.widthMm - left - right;
-    drawSlip(doc, target, barcode, left, top, slipWidth, layout);
+    const origin = tokenContentOrigin(layout);
+    drawSlip(doc, target, barcode, origin.x, origin.y, origin.widthMm, layout);
   });
 
   return doc;

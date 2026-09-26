@@ -6,6 +6,7 @@ import {
   TOKEN_PRINT_PAGE_MM,
   buildAccessoryTokenSlipPdfDoc,
   normalizeTokenLayout,
+  tokenContentOrigin,
 } from './deliverySlipPdf.js';
 
 describe('normalizeTokenLayout', () => {
@@ -17,6 +18,13 @@ describe('normalizeTokenLayout', () => {
     assert.equal(layout.pageHeightMm, TOKEN_PRINT_PAGE_MM.heightMm);
     assert.equal(layout.leftMarginMm, 8);
     assert.equal(layout.fontSize, 7);
+  });
+
+  it('centers the 75 mm sticker on the 4×4 page then insets for the print head', () => {
+    const origin = tokenContentOrigin(normalizeTokenLayout());
+    assert.equal(origin.gutterMm, 13.3);
+    assert.equal(origin.x, 21.3);
+    assert.equal(origin.widthMm, 65);
   });
 
   it('treats the old A4 token settings as 75 × 50 mm labels', () => {

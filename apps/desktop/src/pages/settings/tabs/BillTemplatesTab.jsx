@@ -542,7 +542,7 @@ const BillTemplatesTab = () => {
 
               <Section
                 title="Booking token printing"
-                description="Prints on a 4×4 in page (TSC TE244) with the 75 × 50 mm token in the top-left, inset so the first letters are not cut."
+                description="Prints on a 4×4 in page (TSC TE244). The 75 × 50 mm token is centered on the 4 inch path and inset so nothing is cut."
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input
