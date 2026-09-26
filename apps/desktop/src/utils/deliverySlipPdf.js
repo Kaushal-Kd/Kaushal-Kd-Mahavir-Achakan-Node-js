@@ -14,17 +14,17 @@ const BARCODE_GAP = 1.2;
 const LABEL_VALUE_GAP = 1.4;
 
 /**
- * Physical sticker is 75 mm wide × 50 mm tall.
- * The print page must stay square (or portrait) or the TSC rotates it
- * sideways, and it must stay 50 mm tall or a second blank sticker feeds.
- * 50 × 50 mm is the only size that is both.
+ * Physical sticker is 75 mm wide × 50 mm tall on a 4 in TSC TE244.
+ * The print page is a square 4×4 so Chrome/TSC does not rotate it.
+ * The 75 mm sticker is centered on that 4 in path (13.3 mm gutter) and
+ * inset for the print head — a 50 mm-wide page sits too far left and
+ * the first letters print off the label.
  */
 export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
-export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 50, heightMm: 50 });
+export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 101.6, heightMm: 101.6 });
 
 /**
- * Where the token is drawn on the print page. Width is clamped so text
- * cannot run off a 50 mm square page.
+ * Where the 75×50 token is drawn on the 4×4 page.
  * @param {ReturnType<typeof normalizeTokenLayout>} layout
  */
 export function tokenContentOrigin(layout) {
@@ -36,10 +36,11 @@ export function tokenContentOrigin(layout) {
   const rightInset = Number(layout?.rightMarginMm) || DEFAULT_TOKEN_LAYOUT.rightMarginMm;
   const top = Number(layout?.topMarginMm) || DEFAULT_TOKEN_LAYOUT.topMarginMm;
   const x = gutterMm + headInset;
+  const widthMm = Math.min(boxW - headInset - rightInset, pageW - x - rightInset);
   return {
     x: Number(x.toFixed(2)),
     y: top,
-    widthMm: Number(Math.max(24, pageW - x - rightInset).toFixed(2)),
+    widthMm: Number(Math.max(24, widthMm).toFixed(2)),
     gutterMm: Number(gutterMm.toFixed(2)),
   };
 }
@@ -52,7 +53,7 @@ const DEFAULT_TOKEN_LAYOUT = Object.freeze({
   minHeightMm: 0,
   fontSize: 7,
   pageMarginMm: 2,
-  leftMarginMm: 8,
+  leftMarginMm: 9,
   rightMarginMm: 2,
   topMarginMm: 10,
   bottomMarginMm: 2,

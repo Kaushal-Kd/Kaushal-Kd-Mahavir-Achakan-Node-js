@@ -542,7 +542,7 @@ const BillTemplatesTab = () => {
 
               <Section
                 title="Booking token printing"
-                description="Each token is a 50 × 50 mm page (one 75 × 50 mm sticker, upright). Text is inset so the TSC does not cut the first letters."
+                description="Prints a 4×4 in page with the 75 × 50 mm token centered and inset. In the print dialog use paper 4 × 4 or 4 × 2 (not 2 × 4) at 100% scale."
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input

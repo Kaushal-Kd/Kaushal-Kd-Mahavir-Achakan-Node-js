@@ -11,21 +11,21 @@ import {
 } from './deliverySlipPdf.js';
 
 describe('normalizeTokenLayout', () => {
-  it('defaults to 75 × 50 mm content on a 50 × 50 mm page', () => {
+  it('defaults to 75 × 50 mm content on a square 4×4 page', () => {
     const layout = normalizeTokenLayout();
     assert.equal(layout.widthMm, TOKEN_LABEL_SIZE_MM.widthMm);
     assert.equal(layout.heightMm, TOKEN_LABEL_SIZE_MM.heightMm);
     assert.equal(layout.pageWidthMm, TOKEN_PRINT_PAGE_MM.widthMm);
     assert.equal(layout.pageHeightMm, TOKEN_PRINT_PAGE_MM.heightMm);
-    assert.equal(layout.leftMarginMm, 8);
+    assert.equal(layout.leftMarginMm, 9);
     assert.equal(layout.fontSize, 7);
   });
 
-  it('insets text on the 50 mm square page so the TSC does not rotate or clip', () => {
+  it('centers the 75 mm sticker on the 4 in path then insets for the print head', () => {
     const origin = tokenContentOrigin(normalizeTokenLayout());
-    assert.equal(origin.gutterMm, 0);
-    assert.equal(origin.x, 8);
-    assert.equal(origin.widthMm, 40);
+    assert.equal(origin.gutterMm, 13.3);
+    assert.equal(origin.x, 22.3);
+    assert.equal(origin.widthMm, 64);
   });
 
   it('treats the old A4 token settings as 75 × 50 mm labels', () => {
@@ -37,9 +37,9 @@ describe('normalizeTokenLayout', () => {
     });
     assert.equal(layout.widthMm, 75);
     assert.equal(layout.heightMm, 50);
-    assert.equal(layout.pageWidthMm, 50);
-    assert.equal(layout.pageHeightMm, 50);
-    assert.equal(layout.leftMarginMm, 8);
+    assert.equal(layout.pageWidthMm, 101.6);
+    assert.equal(layout.pageHeightMm, 101.6);
+    assert.equal(layout.leftMarginMm, 9);
   });
 
   it('keeps 75 × 50 when the template stores the swapped 50 × 75 pair', () => {
@@ -56,7 +56,7 @@ describe('normalizeTokenLayout', () => {
 });
 
 describe('token PDF page', () => {
-  it('builds a 50 × 50 mm portrait page so one token is one upright label', async () => {
+  it('builds a square 4×4 portrait page so the TSC does not rotate the token', async () => {
     const doc = await buildAccessoryTokenSlipPdfDoc({
       slipKind: 'accessory',
       order_number: 'NM-202609122006',
@@ -67,11 +67,11 @@ describe('token PDF page', () => {
       accessories: [{ category_name: 'MALA', name_snapshot: 'MARUN NEW BROCH VALLI' }],
     });
     assert.ok(doc);
-    assert.equal(Number(doc.internal.pageSize.getWidth().toFixed(1)), 50);
-    assert.equal(Number(doc.internal.pageSize.getHeight().toFixed(1)), 50);
+    assert.equal(Number(doc.internal.pageSize.getWidth().toFixed(1)), 101.6);
+    assert.equal(Number(doc.internal.pageSize.getHeight().toFixed(1)), 101.6);
   });
 
-  it('prints a square 50 mm page so the TSC does not rotate or feed a blank sticker', () => {
+  it('prints a 4×4 page with the token inset onto the centered 75 mm sticker', () => {
     const html = buildTokenPrintHtml(
       [
         {
@@ -87,8 +87,7 @@ describe('token PDF page', () => {
       {},
       'Accessory token'
     );
-    assert.match(html, /@page \{ size: 50mm 50mm;/);
-    assert.match(html, /height: 50mm;/);
-    assert.equal(html.includes('page-break-after: always'), true);
+    assert.match(html, /@page \{ size: 101\.6mm 101\.6mm;/);
+    assert.match(html, /padding: 10mm 2mm 2mm 22\.3mm;/);
   });
 });
