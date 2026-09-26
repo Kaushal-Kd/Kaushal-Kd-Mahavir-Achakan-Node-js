@@ -1151,7 +1151,7 @@ const CreateOrder = ({ mode, orderId }) => {
   const displayLines = useMemo(() => sortLinesForBookingTable(lines), [lines]);
   const showLineReorder = displayLines.length > 1;
   const bookingTableColSpan =
-    (gstEnabled ? 11 : 10) - (displaySalesman ? 0 : 1) + (showLineReorder ? 2 : 0);
+    (gstEnabled ? 12 : 11) - (displaySalesman ? 0 : 1) + (showLineReorder ? 2 : 0);
 
   const [dragTarget, setDragTarget] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
@@ -5229,6 +5229,9 @@ const CreateOrder = ({ mode, orderId }) => {
                     <TableHeaderLabel>Name</TableHeaderLabel>
                   </th>
                   <th className="text-left">
+                    <TableHeaderLabel>Status</TableHeaderLabel>
+                  </th>
+                  <th className="text-left">
                     <TableHeaderLabel>Notes</TableHeaderLabel>
                   </th>
                   <th className="text-right">
@@ -5453,6 +5456,46 @@ const CreateOrder = ({ mode, orderId }) => {
                               </div>
                             ) : null}
                           </td>
+                          <td className="px-2 py-1.5">
+                            {line.line_kind === 'standalone_accessory' ? (
+                              <div className="flex items-center gap-1 whitespace-nowrap">
+                                <select
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[4.5rem]"
+                                  value={line.type === 'sell' ? 'sell' : 'rent'}
+                                  onChange={(e) => {
+                                    const nextType = e.target.value === 'sell' ? 'sell' : 'rent';
+                                    const nextPrice = accessoryPriceForType(line, nextType);
+                                    setProductField(line.line_id, {
+                                      type: nextType,
+                                      price: nextPrice,
+                                    });
+                                  }}
+                                >
+                                  <option value="rent">Rent</option>
+                                  <option value="sell">Sell</option>
+                                </select>
+                                <select
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[8rem]"
+                                  value={normalizeAccessoryOrderStatus(line.accessory_order_status)}
+                                  onChange={(e) =>
+                                    setProductField(line.line_id, {
+                                      accessory_order_status: normalizeAccessoryOrderStatus(
+                                        e.target.value
+                                      ),
+                                    })
+                                  }
+                                >
+                                  {ACCESSORY_ORDER_STATUS_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                      {o.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-gray-400">—</span>
+                            )}
+                          </td>
                           {line.line_kind !== 'standalone_accessory' ? (
                             <LineNotesCell
                               notes={line.tailor_notes}
@@ -5561,40 +5604,7 @@ const CreateOrder = ({ mode, orderId }) => {
                           ) : null}
                           <td className="px-2 py-1.5">
                             {line.line_kind === 'standalone_accessory' ? (
-                              <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                                <select
-                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[4.5rem]"
-                                  value={line.type === 'sell' ? 'sell' : 'rent'}
-                                  onChange={(e) => {
-                                    const nextType = e.target.value === 'sell' ? 'sell' : 'rent';
-                                    const nextPrice = accessoryPriceForType(line, nextType);
-                                    setProductField(line.line_id, {
-                                      type: nextType,
-                                      price: nextPrice,
-                                    });
-                                  }}
-                                >
-                                  <option value="rent">Rent</option>
-                                  <option value="sell">Sell</option>
-                                </select>
-                                <select
-                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[8rem]"
-                                  value={normalizeAccessoryOrderStatus(line.accessory_order_status)}
-                                  onChange={(e) =>
-                                    setProductField(line.line_id, {
-                                      accessory_order_status: normalizeAccessoryOrderStatus(
-                                        e.target.value
-                                      ),
-                                    })
-                                  }
-                                >
-                                  {ACCESSORY_ORDER_STATUS_OPTIONS.map((o) => (
-                                    <option key={o.value} value={o.value}>
-                                      {o.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                              <span className="text-[10px] text-gray-400">—</span>
                             ) : (
                               <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                                 <button
@@ -5782,6 +5792,42 @@ const CreateOrder = ({ mode, orderId }) => {
                                 </div>
                               </div>
                             </td>
+                            <td className="px-2 py-1.5">
+                              <div className="flex items-center gap-1 whitespace-nowrap">
+                                <select
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[4.5rem]"
+                                  value={a.type === 'sell' ? 'sell' : 'rent'}
+                                  onChange={(e) => {
+                                    const nextType = e.target.value === 'sell' ? 'sell' : 'rent';
+                                    const nextPrice = accessoryPriceForType(a, nextType);
+                                    setAccessoryField(line.line_id, a.line_id, {
+                                      type: nextType,
+                                      price: nextPrice,
+                                    });
+                                  }}
+                                >
+                                  <option value="rent">Rent</option>
+                                  <option value="sell">Sell</option>
+                                </select>
+                                <select
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[8rem]"
+                                  value={normalizeAccessoryOrderStatus(a.accessory_order_status)}
+                                  onChange={(e) =>
+                                    setAccessoryField(line.line_id, a.line_id, {
+                                      accessory_order_status: normalizeAccessoryOrderStatus(
+                                        e.target.value
+                                      ),
+                                    })
+                                  }
+                                >
+                                  {ACCESSORY_ORDER_STATUS_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                      {o.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </td>
                             <td className="px-2 py-1.5 text-[10px] text-gray-400">—</td>
                             <td className="px-2 py-1.5">
                               <div className="flex items-center justify-end">
@@ -5858,42 +5904,7 @@ const CreateOrder = ({ mode, orderId }) => {
                             {displaySalesman ? (
                               <td className="px-2 py-1.5 text-[10px] text-gray-400">—</td>
                             ) : null}
-                            <td className="px-2 py-1.5">
-                              <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                                <select
-                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[4.5rem]"
-                                  value={a.type === 'sell' ? 'sell' : 'rent'}
-                                  onChange={(e) => {
-                                    const nextType = e.target.value === 'sell' ? 'sell' : 'rent';
-                                    const nextPrice = accessoryPriceForType(a, nextType);
-                                    setAccessoryField(line.line_id, a.line_id, {
-                                      type: nextType,
-                                      price: nextPrice,
-                                    });
-                                  }}
-                                >
-                                  <option value="rent">Rent</option>
-                                  <option value="sell">Sell</option>
-                                </select>
-                                <select
-                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white min-w-[8rem]"
-                                  value={normalizeAccessoryOrderStatus(a.accessory_order_status)}
-                                  onChange={(e) =>
-                                    setAccessoryField(line.line_id, a.line_id, {
-                                      accessory_order_status: normalizeAccessoryOrderStatus(
-                                        e.target.value
-                                      ),
-                                    })
-                                  }
-                                >
-                                  {ACCESSORY_ORDER_STATUS_OPTIONS.map((o) => (
-                                    <option key={o.value} value={o.value}>
-                                      {o.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </td>
+                            <td className="px-2 py-1.5 text-[10px] text-gray-400 text-center">—</td>
                             <td className="px-2 py-1.5 text-center">
                               <button
                                 type="button"
