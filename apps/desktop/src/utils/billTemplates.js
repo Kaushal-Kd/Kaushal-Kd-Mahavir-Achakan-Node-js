@@ -274,6 +274,11 @@ function pageStyles(tpl) {
         color: ${colors.muted};
         margin-bottom: 2px;
       }
+      .meta-box .meta-row + .meta-row {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid ${colors.border};
+      }
       .meta-box .meta-value { font-size: ${typography.base_size}px; font-weight: 700; color: #111827; }
       .meta-box .meta-value.brand { color: ${brand}; }
       .meta-box .meta-hint { margin-top: 2px; font-size: ${typography.base_size - 2}px; color: ${colors.muted}; }
@@ -467,7 +472,6 @@ function headerBlock(tpl, shop, order) {
   const contactHtml = [addressHtml, phoneHtml].filter(Boolean).join('');
   const docTitle = esc(header_config.title || 'Invoice');
   const orderNo = order?.order_number ? esc(order.order_number) : '';
-  const bookingDate = order?.booking_date ? formatDate(order.booking_date) : '';
 
   if (thermal) {
     return `
@@ -476,26 +480,17 @@ function headerBlock(tpl, shop, order) {
         <div class="shop-name" style="font-size:15px">${esc(shop.name)}</div>
         ${contactHtml}
         <div class="doc-title" style="font-size:13px;margin-top:4px">${docTitle}</div>
-        ${orderNo ? `<div class="muted">#${orderNo}${bookingDate ? ` · ${bookingDate}` : ''}</div>` : ''}
+        ${orderNo ? `<div class="muted">#${orderNo}</div>` : ''}
       </div>
       <div class="brand-rule" style="margin-bottom:6px"></div>
     `;
   }
 
+  if (!logoHtml) return '';
+
   return `
     <header class="bill-header">
-      <div class="bill-header-brand">
-        ${logoHtml}
-        <div>
-          <div class="shop-name">${esc(shop.name)}</div>
-          ${contactHtml}
-        </div>
-      </div>
-      <div class="bill-header-doc">
-        <div class="doc-title">${docTitle}</div>
-        ${orderNo ? `<div class="doc-sub">No. <strong>${orderNo}</strong></div>` : ''}
-        ${bookingDate ? `<div class="doc-sub muted">Date: ${bookingDate}</div>` : ''}
-      </div>
+      <div class="bill-header-brand">${logoHtml}</div>
     </header>
     <div class="brand-rule"></div>
   `;
@@ -540,13 +535,15 @@ function customerBlock(tpl, order, renderOptions = {}) {
   const showReference =
     bill_info_config.show_reference !== false && String(order.reference_name || '').trim();
   const showRemarks = bill_info_config.show_booking_notes !== false && orderCustomerRemarks(order);
+  const orderNo = String(order?.order_number || '').trim();
   if (
     !bill_info_config.show_customer &&
     !showPickupReturn &&
     !showOrderDate &&
     !showAddress &&
     !showReference &&
-    !showRemarks
+    !showRemarks &&
+    !orderNo
   ) {
     return '';
   }
@@ -596,23 +593,37 @@ function customerBlock(tpl, order, renderOptions = {}) {
         .filter(Boolean)
         .join('');
 
-  const metaBoxes = [];
-  if (showOrderDate) {
-    const dateLabel = String(renderOptions.orderDateLabel || 'Date').trim() || 'Date';
-    metaBoxes.push(`
-      <div class="meta-box">
-        <div class="meta-label">${esc(dateLabel)}</div>
-        <div class="meta-value brand">${formatDate(order.booking_date)}</div>
+  const bookingDate = order?.booking_date ? formatDate(order.booking_date) : '';
+  const dateLabel =
+    String(renderOptions.orderDateLabel || (showPickupReturn ? 'Booking date' : 'Date')).trim() ||
+    'Date';
+  const metaRows = [];
+  if (orderNo) {
+    metaRows.push(`
+      <div class="meta-row">
+        <div class="meta-label">Invoice no.</div>
+        <div class="meta-value brand">${esc(orderNo)}</div>
       </div>
     `);
-  } else if (showPickupReturn) {
-    metaBoxes.push(`
-      <div class="meta-box">
+  }
+  if (bookingDate && (showPickupReturn || showOrderDate)) {
+    metaRows.push(`
+      <div class="meta-row">
+        <div class="meta-label">${esc(dateLabel)}</div>
+        <div class="meta-value">${bookingDate}</div>
+      </div>
+    `);
+  }
+  if (showPickupReturn) {
+    metaRows.push(`
+      <div class="meta-row">
         <div class="meta-label">Pickup · Return</div>
         <div class="meta-value brand">${formatDate(order.pickup_date)} — ${formatDate(order.return_date)}</div>
       </div>
     `);
   }
+  const metaBoxes =
+    metaRows.length > 0 ? [`<div class="meta-box">${metaRows.join('')}</div>`] : [];
   const metaCol =
     metaBoxes.length > 0
       ? `<div class="meta-col"><div class="meta-stack">${metaBoxes.join('')}</div></div>`
@@ -931,7 +942,7 @@ function renderManualTextSegment(text, scalarTokens) {
   ).replace(/\r?\n/g, '<br>');
 }
 
-function manualBillBody({ tpl, billOrder, order, shopInfo, renderOptions, billNotesHtml }) {
+function manualBillBody({ tpl, billOrder, order, shopInfo, renderOptions }) {
   const source = String(tpl.custom_content?.text || DEFAULT_MANUAL_BILL_CONTENT);
   const blocks = {
     header: headerBlock(tpl, shopInfo, order),
@@ -939,7 +950,7 @@ function manualBillBody({ tpl, billOrder, order, shopInfo, renderOptions, billNo
     items: itemsBlock(tpl, billOrder),
     totals: totalsBlock(tpl, billOrder),
     footer: footerBlock(tpl, renderOptions),
-    notes: billNotesBlock(billNotesHtml),
+    notes: '',
   };
   const scalarTokens = {
     shop_name: shopInfo.name,
@@ -974,7 +985,7 @@ export function renderBillHtml({
   template,
   shop,
   title,
-  billNotesHtml = '',
+  billNotesHtml: _billNotesHtml = '',
   renderOptions = {},
 }) {
   const billOrder = prepareOrderForBill(order);
@@ -988,14 +999,13 @@ export function renderBillHtml({
     title || [shopInfo.name, order?.order_number].filter(Boolean).join(' — ') || 'Invoice';
 
   const body = tpl.custom_content?.enabled
-    ? manualBillBody({ tpl, billOrder, order, shopInfo, renderOptions, billNotesHtml })
+    ? manualBillBody({ tpl, billOrder, order, shopInfo, renderOptions })
     : `
       ${headerBlock(tpl, shopInfo, order)}
       ${customerBlock(tpl, order, renderOptions)}
       ${itemsBlock(tpl, billOrder)}
       ${totalsBlock(tpl, billOrder)}
       ${footerBlock(tpl, renderOptions)}
-      ${billNotesBlock(billNotesHtml)}
     `;
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(docTitle)}</title>${pageStyles(tpl)}</head><body><div class="bill-document">${body}</div></body></html>`;

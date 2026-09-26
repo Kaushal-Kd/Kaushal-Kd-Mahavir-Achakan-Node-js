@@ -98,4 +98,31 @@ describe('bill template blank-paper controls', () => {
     assert.match(html, /INV-0001/);
     assert.match(html, /<table class="items">/);
   });
+
+  it('keeps booking date with pickup and return in one A4 meta box', () => {
+    const html = renderBillHtml({
+      order: SAMPLE_ORDER,
+      shop,
+      billNotesHtml: '<p>Shop-wide notes must not print</p>',
+    });
+    assert.doesNotMatch(html, /<div class="shop-name">/);
+    assert.doesNotMatch(html, /class="bill-header"/);
+    assert.doesNotMatch(html, /Main Road/);
+    assert.doesNotMatch(html, /Ph: /);
+    assert.doesNotMatch(html, /Date: /);
+    assert.doesNotMatch(html, /<section class="bill-notes-card">/);
+    assert.doesNotMatch(html, /Shop-wide notes must not print/);
+    assert.equal(html.match(/class="meta-box"/g)?.length, 1);
+    const boxStart = html.indexOf('class="meta-box"');
+    const invoiceIdx = html.indexOf('Invoice no.');
+    const bookingIdx = html.indexOf('Booking date');
+    const pickupIdx = html.indexOf('Pickup · Return');
+    assert.ok(
+      boxStart >= 0 &&
+        invoiceIdx > boxStart &&
+        bookingIdx > invoiceIdx &&
+        pickupIdx > bookingIdx
+    );
+    assert.match(html, /INV-0001/);
+  });
 });
