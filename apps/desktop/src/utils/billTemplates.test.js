@@ -124,5 +124,19 @@ describe('bill template blank-paper controls', () => {
         pickupIdx > bookingIdx
     );
     assert.match(html, /INV-0001/);
+    assert.doesNotMatch(html, /data-bill-code=/);
+  });
+
+  it('prints a bill barcode at the top only when the template enables it', () => {
+    const off = renderBillHtml({ order: SAMPLE_ORDER, shop });
+    assert.doesNotMatch(off, /data-bill-code=/);
+    const html = renderBillHtml({
+      order: SAMPLE_ORDER,
+      shop,
+      template: { header_config: { show_barcode: true } },
+    });
+    assert.match(html, /class="bill-barcode"/);
+    assert.match(html, /data-bill-code="BILL:INV-0001"/);
+    assert.ok(html.indexOf('data-bill-code="BILL:INV-0001"') < html.indexOf('Bill to'));
   });
 });

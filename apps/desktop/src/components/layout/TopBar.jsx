@@ -14,7 +14,8 @@ import { salesApi } from '../../lib/api/sales.js';
 import Badge from '../ui/Badge.jsx';
 import { useIsMobileNav } from '../../hooks/useBreakpoint.js';
 import { lazyRetry } from '../../lib/lazyRetry.js';
-import { useUIStore } from '../../stores/uiStore.js';
+import { toast, useUIStore } from '../../stores/uiStore.js';
+import { resolveBillFromScan } from '../../utils/billBarcode.js';
 import ShopSelector from './ShopSelector.jsx';
 import SyncIndicator from './SyncIndicator.jsx';
 import UserMenu from './UserMenu.jsx';
@@ -183,14 +184,34 @@ const TopBar = () => {
     setScannerOpen(true);
   }, []);
 
-  const handleScannedCode = useCallback((scanned) => {
-    const code = String(scanned || '').trim();
-    if (!code) return;
-    setScannerOpen(false);
-    setSearch(code);
-    setDebouncedSearch(code);
-    setDropdownOpen(true);
-  }, []);
+  const handleScannedCode = useCallback(
+    async (scanned) => {
+      const code = String(scanned || '').trim();
+      if (!code) return;
+      setScannerOpen(false);
+      const resolved = await resolveBillFromScan({
+        scanned: code,
+        listOrders: (params) => ordersApi.list(params),
+        listSales: (params) => salesApi.list(params),
+      });
+      if (resolved.kind === 'booking') {
+        navigate(`/booking/${resolved.id}`);
+        return;
+      }
+      if (resolved.kind === 'sale') {
+        navigate(`/sales/${resolved.id}/edit`);
+        return;
+      }
+      if (resolved.kind === 'missing') {
+        toast.error(`Bill ${resolved.billNo} was not found`);
+        return;
+      }
+      setSearch(code);
+      setDebouncedSearch(code);
+      setDropdownOpen(true);
+    },
+    [navigate]
+  );
 
   const searchDropdown = dropdownOpen ? (
     <div className="absolute top-[calc(100%+0.35rem)] left-0 right-0 rounded-md border border-gray-200 bg-surface shadow-pop z-40 max-h-[min(22rem,70vh)] overflow-auto p-1">
@@ -224,6 +245,12 @@ const TopBar = () => {
             setDropdownOpen(true);
           }}
           onFocus={() => setDropdownOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleScannedCode(search);
+            }
+          }}
           placeholder="Search bookings, products, sales…"
           className="w-full min-w-0 flex-1 bg-transparent outline-none text-sm text-gray-700 placeholder:text-gray-400"
           aria-label="Search"

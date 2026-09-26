@@ -25,6 +25,8 @@ import {
   sortAccessoriesByDisplayOrder,
 } from '../lib/bookingAccessoryCart.js';
 
+import { renderBillBarcodeMarkup } from './billBarcode.js';
+
 export const PAPER_SIZES = [
   { id: 'A4', label: 'A4 — Standard', widthMm: 210, heightMm: 297 },
   { id: 'A5', label: 'A5 — Compact', widthMm: 148, heightMm: 210 },
@@ -55,6 +57,7 @@ export const DEFAULT_TEMPLATE = {
     show_logo: true,
     show_address: true,
     show_phone: true,
+    show_barcode: false,
     title: 'Invoice',
   },
   bill_info_config: {
@@ -211,6 +214,21 @@ function pageStyles(tpl) {
       .doc-sub { margin-top: 2px; font-size: ${typography.base_size - 1}px; color: #374151; }
       .doc-sub strong { color: ${brand}; font-weight: 700; }
       .brand-rule { height: 2px; background: ${brand}; border-radius: 1px; margin-bottom: 12px; }
+      .bill-barcode-wrap {
+        display: flex;
+        justify-content: flex-end;
+        margin: 0 0 10px;
+      }
+      .bill-barcode {
+        display: inline-block;
+        text-align: right;
+        max-width: 240px;
+      }
+      .bill-barcode svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
 
       .info-card {
         border: 1px solid ${colors.border};
@@ -443,6 +461,8 @@ function pageStyles(tpl) {
         .item-acc td { font-size: ${Math.max(6, accessorySize - 1)}px; }
         .bill-header { flex-direction: column; }
         .bill-header-doc { text-align: left; }
+        .bill-barcode-wrap { justify-content: center; }
+        .bill-barcode { text-align: center; max-width: 100%; }
         .sig-row { display: block; }
         .sig { margin-top: 14px; }
         .item-acc td:first-child { padding-left: 8px; }
@@ -454,9 +474,17 @@ function pageStyles(tpl) {
   `;
 }
 
+function billBarcodeHtml(tpl, order) {
+  if (!tpl.header_config?.show_barcode) return '';
+  const orderNo = String(order?.order_number || order?.bill_no || '').trim();
+  const markup = renderBillBarcodeMarkup(orderNo, { thermal: isThermal(tpl.paper_size) });
+  return markup ? `<div class="bill-barcode-wrap">${markup}</div>` : '';
+}
+
 function headerBlock(tpl, shop, order) {
   const { header_config, logo_url, logo_width, logo_height, paper_size } = tpl;
   const thermal = isThermal(paper_size);
+  const barcodeHtml = billBarcodeHtml(tpl, order);
   const logoHtml =
     header_config.show_logo && logo_url
       ? `<img src="${esc(logo_url)}" alt="logo" style="max-width:${logo_width}px;max-height:${logo_height}px;object-fit:contain"/>`
@@ -476,6 +504,7 @@ function headerBlock(tpl, shop, order) {
   if (thermal) {
     return `
       <div style="text-align:center;margin-bottom:4px">
+        ${barcodeHtml}
         ${logoHtml}
         <div class="shop-name" style="font-size:15px">${esc(shop.name)}</div>
         ${contactHtml}
@@ -486,11 +515,12 @@ function headerBlock(tpl, shop, order) {
     `;
   }
 
-  if (!logoHtml) return '';
+  if (!logoHtml && !barcodeHtml) return '';
 
   return `
     <header class="bill-header">
       <div class="bill-header-brand">${logoHtml}</div>
+      ${barcodeHtml}
     </header>
     <div class="brand-rule"></div>
   `;

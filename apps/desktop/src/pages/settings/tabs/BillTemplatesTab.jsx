@@ -608,7 +608,10 @@ const BillTemplatesTab = () => {
               </Section>
 
               {/* Header */}
-              <Section title="Header" description="What appears at the top of every bill.">
+              <Section
+                title="Header"
+                description="What appears at the top of every bill. Enable bill barcode to print a scannable code that opens that bill from the top-bar scanner."
+              >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input
                     label="Header title"
@@ -623,7 +626,7 @@ const BillTemplatesTab = () => {
                     onChange={(e) => updateDraft({ logo_url: e.target.value })}
                   />
                 </div>
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <Toggle
                     size="sm"
                     label="Show logo"
@@ -641,6 +644,12 @@ const BillTemplatesTab = () => {
                     label="Show phone"
                     checked={!!draft.header_config?.show_phone}
                     onChange={(v) => updateSection('header_config', { show_phone: v })}
+                  />
+                  <Toggle
+                    size="sm"
+                    label="Print bill barcode"
+                    checked={!!draft.header_config?.show_barcode}
+                    onChange={(v) => updateSection('header_config', { show_barcode: v })}
                   />
                 </div>
               </Section>
