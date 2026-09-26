@@ -5,12 +5,13 @@ import {
   TOKEN_LABEL_SIZE_MM,
   TOKEN_PRINT_PAGE_MM,
   buildAccessoryTokenSlipPdfDoc,
+  buildTokenPrintHtml,
   normalizeTokenLayout,
   tokenContentOrigin,
 } from './deliverySlipPdf.js';
 
 describe('normalizeTokenLayout', () => {
-  it('defaults to 75 × 50 mm content on a square 4×4 page', () => {
+  it('defaults to 75 × 50 mm content on a 4 in × 50 mm page', () => {
     const layout = normalizeTokenLayout();
     assert.equal(layout.widthMm, TOKEN_LABEL_SIZE_MM.widthMm);
     assert.equal(layout.heightMm, TOKEN_LABEL_SIZE_MM.heightMm);
@@ -37,6 +38,7 @@ describe('normalizeTokenLayout', () => {
     assert.equal(layout.widthMm, 75);
     assert.equal(layout.heightMm, 50);
     assert.equal(layout.pageWidthMm, 101.6);
+    assert.equal(layout.pageHeightMm, 50);
     assert.equal(layout.leftMarginMm, 8);
   });
 
@@ -54,7 +56,7 @@ describe('normalizeTokenLayout', () => {
 });
 
 describe('token PDF page', () => {
-  it('builds a square 4×4 portrait page so the TSC does not rotate the token', async () => {
+  it('builds a 4 in × 50 mm page so one token is one label', async () => {
     const doc = await buildAccessoryTokenSlipPdfDoc({
       slipKind: 'accessory',
       order_number: 'NM-202609122006',
@@ -66,6 +68,27 @@ describe('token PDF page', () => {
     });
     assert.ok(doc);
     assert.equal(Number(doc.internal.pageSize.getWidth().toFixed(1)), 101.6);
-    assert.equal(Number(doc.internal.pageSize.getHeight().toFixed(1)), 101.6);
+    assert.equal(Number(doc.internal.pageSize.getHeight().toFixed(1)), 50);
+  });
+
+  it('prints one 50 mm-tall page so the TSC does not feed a blank sticker', () => {
+    const html = buildTokenPrintHtml(
+      [
+        {
+          target: {
+            slipKind: 'accessory',
+            order_number: 'NM-1',
+            customer_name: 'Test',
+            accessorySegments: [],
+          },
+          barcode: null,
+        },
+      ],
+      {},
+      'Accessory token'
+    );
+    assert.match(html, /@page \{ size: 101\.6mm 50mm;/);
+    assert.match(html, /height: 50mm;/);
+    assert.equal(html.includes('page-break-after: always'), true);
   });
 });

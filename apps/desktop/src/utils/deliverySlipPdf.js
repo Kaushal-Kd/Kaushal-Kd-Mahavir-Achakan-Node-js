@@ -6,7 +6,7 @@ import {
   resolveSlipProductCode,
 } from '../lib/deliverySlipFormat.js';
 import { barcodeToDataUrl } from './barcodePdf.js';
-import { pdfSafeText, printJsPdfDoc } from './tablePdf.js';
+import { pdfSafeText } from './tablePdf.js';
 
 const BLACK = [0, 0, 0];
 const BARCODE_GAP = 1.2;
@@ -15,13 +15,12 @@ const LABEL_VALUE_GAP = 1.4;
 
 /**
  * Physical sticker is 75 mm wide × 50 mm tall.
- * TSC TE244 print dialog is 4×4 in at 100%. The driver rotates a landscape
- * 75×50 PDF, so the page is a square 4×4. The 75 mm sticker sits in the
- * center of that 101.6 mm print path — the left 13.3 mm of the page misses
- * the label — so the token is centered, then inset for the print head.
+ * Page is 4 in wide (TSC TE244 print path) × 50 mm tall (one label). A square
+ * 4×4 page feeds a second blank sticker. The token is centered on the 4 in
+ * width, then inset for the print head.
  */
 export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
-export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 101.6, heightMm: 101.6 });
+export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 101.6, heightMm: 50 });
 
 /**
  * Where the 75×50 token is drawn on the 4×4 page.
@@ -465,7 +464,7 @@ function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
 
   const baseLayout = normalizeTokenLayout(settings);
   const pageFormat = [baseLayout.pageWidthMm, baseLayout.pageHeightMm];
-  const orientation = 'portrait';
+  const orientation = baseLayout.pageWidthMm >= baseLayout.pageHeightMm ? 'landscape' : 'portrait';
   const doc = new jsPDF({
     unit: 'mm',
     format: pageFormat,
@@ -524,14 +523,142 @@ export async function downloadAccessoryTokenSlipPdf(filename, target, settings =
   doc.save(safeName);
 }
 
+function escapeTokenHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function accessorySegmentsHtml(segments) {
+  const list = Array.isArray(segments) ? segments : [];
+  if (!list.length) return '—';
+  return list
+    .map((seg, idx) => {
+      const category = seg.category ? `<b>${escapeTokenHtml(seg.category)}</b>` : '';
+      const name = seg.name ? ` ${escapeTokenHtml(seg.name)}` : '';
+      return `${idx > 0 ? ', ' : ''}${category}${name}`;
+    })
+    .join('');
+}
+
+function tokenSlipSectionHtml(target, barcode) {
+  const fields = buildTokenSlipFields(target);
+  const rows = fields
+    .map((field) => {
+      const value = field.richSegments
+        ? accessorySegmentsHtml(field.richSegments)
+        : escapeTokenHtml(field.value || '—');
+      return `<div class="row"><b>${escapeTokenHtml(field.label)}:</b><span>${value}</span></div>`;
+    })
+    .join('');
+
+  let barcodeBlock = '';
+  if (!isAccessorySlip(target)) {
+    barcodeBlock = barcode?.dataUrl
+      ? `<div class="row"><b>PRODUCT BARCODE:</b></div><img class="bc" src="${barcode.dataUrl}" alt="" />`
+      : `<div class="row"><b>PRODUCT BARCODE:</b><span>—</span></div>`;
+  }
+
+  return `<section class="token">${rows}${barcodeBlock}</section>`;
+}
+
+export function buildTokenPrintHtml(prepared, settings = {}, title = 'Token') {
+  const layout = normalizeTokenLayout(settings);
+  const origin = tokenContentOrigin(layout);
+  const pages = prepared.map(({ target, barcode }) => tokenSlipSectionHtml(target, barcode)).join('');
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${escapeTokenHtml(title)}</title>
+<style>
+  @page { size: ${layout.pageWidthMm}mm ${layout.pageHeightMm}mm; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  * { box-sizing: border-box; }
+  .token {
+    width: ${layout.pageWidthMm}mm;
+    height: ${layout.pageHeightMm}mm;
+    padding: ${origin.y}mm ${layout.rightMarginMm}mm 2mm ${origin.x}mm;
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: ${layout.fontSize}pt;
+    line-height: 1.35;
+    color: #000;
+    overflow: hidden;
+    page-break-after: always;
+  }
+  .token:last-child { page-break-after: auto; }
+  .row { display: flex; gap: 1.4mm; align-items: flex-start; }
+  .row b { white-space: nowrap; }
+  .bc { display: block; margin-top: 1mm; max-width: 40mm; height: 7mm; object-fit: contain; }
+</style>
+</head>
+<body>${pages}</body>
+</html>`;
+}
+
+function printTokenHtml(html, title) {
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText =
+    'position:fixed;left:-10000px;top:0;width:0;height:0;border:0;visibility:hidden;pointer-events:none';
+  document.body.appendChild(frame);
+
+  const doc = frame.contentWindow?.document;
+  if (!doc) {
+    document.body.removeChild(frame);
+    return;
+  }
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+  try {
+    doc.title = title;
+  } catch {
+    /* noop */
+  }
+
+  const win = frame.contentWindow;
+  const cleanup = () => {
+    setTimeout(() => {
+      try {
+        document.body.removeChild(frame);
+      } catch {
+        /* noop */
+      }
+    }, 500);
+  };
+
+  let printed = false;
+  const triggerPrintOnce = () => {
+    if (printed) return;
+    printed = true;
+    try {
+      win?.focus();
+      win?.print();
+    } catch {
+      cleanup();
+    }
+  };
+
+  if (typeof win?.addEventListener === 'function') {
+    win.addEventListener('afterprint', cleanup, { once: true });
+  }
+  const schedulePrint = () => setTimeout(triggerPrintOnce, 350);
+  frame.addEventListener('load', schedulePrint, { once: true });
+  setTimeout(schedulePrint, 600);
+}
+
 /**
  * @param {object[]} orders — per-product slip targets
  * @param {string} [title]
  */
 export async function printDeliverySlipPdf(orders, title = 'Print slips', settings = {}) {
-  const doc = await buildDeliverySlipPdfDoc(orders, settings);
-  if (!doc) return;
-  printJsPdfDoc(doc, title);
+  const prepared = await prepareSlipRows(orders);
+  if (!prepared.length) return;
+  printTokenHtml(buildTokenPrintHtml(prepared, settings, title), title);
 }
 
 /**
@@ -539,7 +666,6 @@ export async function printDeliverySlipPdf(orders, title = 'Print slips', settin
  * @param {string} [title]
  */
 export async function printAccessoryTokenSlipPdf(target, title = 'Accessory token', settings = {}) {
-  const doc = await buildAccessoryTokenSlipPdfDoc(target, settings);
-  if (!doc) return;
-  printJsPdfDoc(doc, title);
+  if (!target) return;
+  printTokenHtml(buildTokenPrintHtml([{ target, barcode: null }], settings, title), title);
 }
