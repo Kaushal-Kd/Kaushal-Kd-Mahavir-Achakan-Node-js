@@ -542,7 +542,7 @@ const BillTemplatesTab = () => {
 
               <Section
                 title="Booking token printing"
-                description="75 × 50 mm stock is printed as 50 mm wide × 75 mm tall so text is upright on the label printer."
+                description="Prints a 75 × 50 mm page with a left inset so TSC TE244 4×4 / 100% scale does not cut the first letters."
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input
@@ -551,10 +551,10 @@ const BillTemplatesTab = () => {
                     max={80}
                     step="1"
                     label="Token width (mm)"
-                    value={draft.page_settings?.token_width_mm ?? 50}
+                    value={draft.page_settings?.token_width_mm ?? 75}
                     onChange={(e) =>
                       updateSection('page_settings', {
-                        token_width_mm: Math.min(80, Math.max(40, Number(e.target.value) || 50)),
+                        token_width_mm: Math.min(80, Math.max(40, Number(e.target.value) || 75)),
                       })
                     }
                   />
@@ -564,10 +564,10 @@ const BillTemplatesTab = () => {
                     max={80}
                     step="1"
                     label="Token height (mm)"
-                    value={draft.page_settings?.token_height_mm ?? 75}
+                    value={draft.page_settings?.token_height_mm ?? 50}
                     onChange={(e) =>
                       updateSection('page_settings', {
-                        token_height_mm: Math.min(80, Math.max(40, Number(e.target.value) || 75)),
+                        token_height_mm: Math.min(80, Math.max(40, Number(e.target.value) || 50)),
                       })
                     }
                   />

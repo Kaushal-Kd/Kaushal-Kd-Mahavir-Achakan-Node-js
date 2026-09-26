@@ -30,7 +30,7 @@ test('product tokens show booking notes and exclude catalog remarks', () => {
     ],
   });
 
-  assert.equal(fields.find((field) => field.label === 'Product notes')?.value, 'Shorten sleeves');
+  assert.equal(fields.find((field) => field.label === 'Notes')?.value, 'Shorten sleeves');
   assert.equal(
     fields.some((field) => field.label === 'Product remarks'),
     false

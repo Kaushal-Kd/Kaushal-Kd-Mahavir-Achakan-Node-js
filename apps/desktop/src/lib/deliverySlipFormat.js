@@ -103,13 +103,13 @@ export function buildAccessoryTokenSlipFields(target) {
   const customerName = pdfSafeText(resolveSlipCustomerName(target));
 
   return [
-    { label: 'Order No', value: pdfSafeText(target?.order_number || '') || '—' },
+    { label: 'Order', value: pdfSafeText(target?.order_number || '') || '—' },
     { label: 'Address', value: address || '—', wrap: true },
-    { label: 'Customer name', value: customerName || '—', wrap: true },
-    { label: 'Pickup date', value: formatSlipDate(target?.pickup_date) || '—' },
-    { label: 'Return Date', value: formatSlipDate(target?.return_date) || '—' },
+    { label: 'Customer', value: customerName || '—', wrap: true },
+    { label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—' },
+    { label: 'Return', value: formatSlipDate(target?.return_date) || '—' },
     {
-      label: 'Acc name',
+      label: 'Acc',
       richSegments: Array.isArray(target?.accessorySegments) ? target.accessorySegments : [],
     },
   ];
@@ -166,11 +166,11 @@ export function buildProductTokenSlipFields(target) {
 
   return [
     { label: 'Address', value: address || '—', wrap: true },
-    { label: 'Order No', value: pdfSafeText(target?.order_number || '') || '—' },
-    { label: 'Pickup date', value: formatSlipDate(target?.pickup_date) || '—' },
-    { label: 'Return Date', value: formatSlipDate(target?.return_date) || '—' },
-    { label: 'Product code', value: productCode || '—' },
-    { label: 'Product notes', value: bookingNotes || '—', wrap: true },
+    { label: 'Order', value: pdfSafeText(target?.order_number || '') || '—' },
+    { label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—' },
+    { label: 'Return', value: formatSlipDate(target?.return_date) || '—' },
+    { label: 'Code', value: productCode || '—' },
+    { label: 'Notes', value: bookingNotes || '—', wrap: true },
   ];
 }
 
