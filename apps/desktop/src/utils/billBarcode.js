@@ -31,13 +31,14 @@ export function parseBillBarcodeValue(scanned) {
  * Uses the live DOM when available (print + preview). Node tests get a data stub.
  *
  * @param {string} encoded
- * @param {{ text?: string, height?: number, width?: number }} [opts]
+ * @param {{ text?: string, height?: number, width?: number, displayValue?: boolean }} [opts]
  * @returns {string} SVG markup
  */
 export function renderBillBarcodeSvg(encoded, opts = {}) {
   const value = String(encoded || '').trim();
   if (!value) return '';
   const text = String(opts.text || parseBillBarcodeValue(value) || value).trim();
+  const displayValue = opts.displayValue !== false;
   if (typeof document === 'undefined') {
     return `<svg class="bill-barcode-svg" data-value="${escapeXml(value)}" role="img" aria-label="${escapeXml(text)}"></svg>`;
   }
@@ -45,10 +46,10 @@ export function renderBillBarcodeSvg(encoded, opts = {}) {
   try {
     JsBarcode(svg, value, {
       format: 'CODE128',
-      width: opts.width ?? 1.6,
-      height: opts.height ?? 40,
+      width: opts.width ?? 1.4,
+      height: opts.height ?? 32,
       fontSize: 11,
-      displayValue: true,
+      displayValue,
       text,
       margin: 0,
       background: '#ffffff',
@@ -62,7 +63,7 @@ export function renderBillBarcodeSvg(encoded, opts = {}) {
 
 /**
  * @param {unknown} orderNumber
- * @param {{ thermal?: boolean }} [opts]
+ * @param {{ thermal?: boolean, displayValue?: boolean }} [opts]
  * @returns {string} HTML
  */
 export function renderBillBarcodeMarkup(orderNumber, opts = {}) {
@@ -71,8 +72,9 @@ export function renderBillBarcodeMarkup(orderNumber, opts = {}) {
   const billNo = parseBillBarcodeValue(encoded);
   const svg = renderBillBarcodeSvg(encoded, {
     text: billNo,
-    height: opts.thermal ? 32 : 40,
-    width: opts.thermal ? 1.3 : 1.6,
+    height: opts.thermal ? 28 : 32,
+    width: opts.thermal ? 1.2 : 1.4,
+    displayValue: opts.displayValue,
   });
   if (!svg) return '';
   return `<div class="bill-barcode" data-bill-code="${escapeXml(encoded)}">${svg}</div>`;
