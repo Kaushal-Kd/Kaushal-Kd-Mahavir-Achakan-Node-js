@@ -28,6 +28,7 @@ async function getTokenLayout() {
   const settings = template?.page_settings || {};
   return {
     widthMm: settings.token_width_mm,
+    heightMm: settings.token_height_mm,
     minHeightMm: settings.token_min_height_mm,
     fontSize: settings.token_font_size,
     pageMarginMm: settings.token_page_margin_mm,

@@ -9,20 +9,22 @@ import { barcodeToDataUrl } from './barcodePdf.js';
 import { pdfSafeText, printJsPdfDoc } from './tablePdf.js';
 
 const BLACK = [0, 0, 0];
-const GAP_ROW = 6;
-const COL_GAP = 5;
-const BARCODE_MAX_WIDTH_MM = 42;
-const BARCODE_MAX_HEIGHT_MM = 14;
-const BARCODE_GAP = 2;
+const BARCODE_GAP = 1.2;
 /** Extra space (mm) between bold label and value — label width is measured in bold. */
-const LABEL_VALUE_GAP = 2;
+const LABEL_VALUE_GAP = 1.4;
+
+/** Physical token stock used on the shop label printer. */
+export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
 
 const DEFAULT_TOKEN_LAYOUT = Object.freeze({
-  widthMm: 92,
+  widthMm: TOKEN_LABEL_SIZE_MM.widthMm,
+  heightMm: TOKEN_LABEL_SIZE_MM.heightMm,
   minHeightMm: 0,
-  fontSize: 9,
-  pageMarginMm: 10,
-  slipPaddingMm: 4,
+  fontSize: 7,
+  pageMarginMm: 1.5,
+  slipPaddingMm: 1.8,
+  barcodeMaxWidthMm: 34,
+  barcodeMaxHeightMm: 8,
 });
 
 function clampedNumber(value, fallback, min, max) {
@@ -31,15 +33,45 @@ function clampedNumber(value, fallback, min, max) {
   return Math.min(max, Math.max(min, parsed));
 }
 
+function looksLikeLegacyA4Token(settings = {}) {
+  const width = Number(settings.widthMm);
+  const height = Number(settings.heightMm);
+  const margin = Number(settings.pageMarginMm);
+  const legacyWidth = !Number.isFinite(width) || width >= 90;
+  const missingHeight = !Number.isFinite(height) || height <= 0;
+  const legacyMargin = !Number.isFinite(margin) || margin >= 8;
+  return legacyWidth && missingHeight && legacyMargin;
+}
+
 export function normalizeTokenLayout(settings = {}) {
-  const fontSize = clampedNumber(settings.fontSize, DEFAULT_TOKEN_LAYOUT.fontSize, 6, 18);
+  const legacy = looksLikeLegacyA4Token(settings);
+  const fontSize = clampedNumber(
+    settings.fontSize,
+    DEFAULT_TOKEN_LAYOUT.fontSize,
+    5.5,
+    12
+  );
   return {
-    widthMm: clampedNumber(settings.widthMm, DEFAULT_TOKEN_LAYOUT.widthMm, 50, 190),
-    minHeightMm: clampedNumber(settings.minHeightMm, DEFAULT_TOKEN_LAYOUT.minHeightMm, 0, 280),
+    widthMm: legacy
+      ? TOKEN_LABEL_SIZE_MM.widthMm
+      : clampedNumber(settings.widthMm, DEFAULT_TOKEN_LAYOUT.widthMm, 50, 80),
+    heightMm: legacy
+      ? TOKEN_LABEL_SIZE_MM.heightMm
+      : clampedNumber(settings.heightMm, DEFAULT_TOKEN_LAYOUT.heightMm, 40, 60),
+    minHeightMm: 0,
     fontSize,
-    lineHeightMm: Math.max(3.5, Number((fontSize * 0.56).toFixed(3))),
-    pageMarginMm: clampedNumber(settings.pageMarginMm, DEFAULT_TOKEN_LAYOUT.pageMarginMm, 3, 25),
-    slipPaddingMm: clampedNumber(settings.slipPaddingMm, DEFAULT_TOKEN_LAYOUT.slipPaddingMm, 2, 10),
+    lineHeightMm: Math.max(2.8, Number((fontSize * 0.48).toFixed(3))),
+    pageMarginMm: legacy
+      ? DEFAULT_TOKEN_LAYOUT.pageMarginMm
+      : clampedNumber(settings.pageMarginMm, DEFAULT_TOKEN_LAYOUT.pageMarginMm, 0.8, 4),
+    slipPaddingMm: clampedNumber(
+      settings.slipPaddingMm,
+      DEFAULT_TOKEN_LAYOUT.slipPaddingMm,
+      1.2,
+      4
+    ),
+    barcodeMaxWidthMm: DEFAULT_TOKEN_LAYOUT.barcodeMaxWidthMm,
+    barcodeMaxHeightMm: DEFAULT_TOKEN_LAYOUT.barcodeMaxHeightMm,
   };
 }
 
@@ -197,10 +229,12 @@ function measureBarcodeBlockHeight(target, barcode, innerWidth, layout) {
   let h = layout.lineHeightMm;
   if (!barcode?.dataUrl) return h + layout.lineHeightMm;
   const aspect = barcode.widthPx / barcode.heightPx;
-  let imgW = Math.min(BARCODE_MAX_WIDTH_MM, innerWidth);
+  const maxW = layout.barcodeMaxWidthMm ?? 34;
+  const maxH = layout.barcodeMaxHeightMm ?? 8;
+  let imgW = Math.min(maxW, innerWidth);
   let imgH = imgW / aspect;
-  if (imgH > BARCODE_MAX_HEIGHT_MM) {
-    imgH = BARCODE_MAX_HEIGHT_MM;
+  if (imgH > maxH) {
+    imgH = maxH;
     imgW = imgH * aspect;
   }
   h += imgH + BARCODE_GAP;
@@ -292,10 +326,12 @@ function drawBarcodeBlock(doc, x, y, innerWidth, barcode, layout) {
   }
 
   const aspect = barcode.widthPx / barcode.heightPx;
-  let imgW = Math.min(BARCODE_MAX_WIDTH_MM, innerWidth);
+  const maxW = layout.barcodeMaxWidthMm ?? 34;
+  const maxH = layout.barcodeMaxHeightMm ?? 8;
+  let imgW = Math.min(maxW, innerWidth);
   let imgH = imgW / aspect;
-  if (imgH > BARCODE_MAX_HEIGHT_MM) {
-    imgH = BARCODE_MAX_HEIGHT_MM;
+  if (imgH > maxH) {
+    imgH = maxH;
     imgW = imgH * aspect;
   }
 
@@ -315,14 +351,17 @@ function drawBarcodeBlock(doc, x, y, innerWidth, barcode, layout) {
 function drawSlip(doc, target, barcode, x, startY, slipWidth, layout) {
   const innerWidth = slipWidth - layout.slipPaddingMm * 2;
   const measuredHeight = measureSlipHeight(doc, target, innerWidth, barcode, layout);
-  const slipHeight = Math.max(measuredHeight, layout.minHeightMm);
+  const slipHeight = Math.min(
+    Math.max(measuredHeight, layout.minHeightMm || 0),
+    layout.heightMm - layout.pageMarginMm * 2
+  );
   const fields = buildTokenSlipFields(target);
 
   doc.setDrawColor(...BLACK);
-  doc.setLineWidth(0.25);
+  doc.setLineWidth(0.2);
   doc.rect(x, startY, slipWidth, slipHeight);
 
-  let y = startY + layout.slipPaddingMm + 3;
+  let y = startY + layout.slipPaddingMm + 2;
   y = drawFields(doc, x + layout.slipPaddingMm, y, innerWidth, fields, layout);
   if (!isAccessorySlip(target)) {
     drawBarcodeBlock(doc, x + layout.slipPaddingMm, y, innerWidth, barcode, layout);
@@ -354,42 +393,43 @@ async function prepareSlipRows(targets) {
  * @param {Array<{ target: object, barcode: { dataUrl: string, widthPx: number, heightPx: number } | null }>} prepared
  * @returns {import('jspdf').jsPDF | null}
  */
+function shrinkLayoutToFit(doc, target, barcode, layout) {
+  const slipWidth = layout.widthMm - layout.pageMarginMm * 2;
+  const maxHeight = layout.heightMm - layout.pageMarginMm * 2;
+  const innerWidth = slipWidth - layout.slipPaddingMm * 2;
+  let fitted = { ...layout };
+  for (let step = 0; step < 6; step += 1) {
+    const needed = measureSlipHeight(doc, target, innerWidth, barcode, fitted);
+    if (needed <= maxHeight) return fitted;
+    const nextFont = Math.max(5.5, fitted.fontSize - 0.5);
+    fitted = {
+      ...fitted,
+      fontSize: nextFont,
+      lineHeightMm: Math.max(2.6, Number((nextFont * 0.46).toFixed(3))),
+      slipPaddingMm: Math.max(1.2, fitted.slipPaddingMm - 0.2),
+      barcodeMaxHeightMm: Math.max(6, (fitted.barcodeMaxHeightMm ?? 8) - 0.8),
+    };
+  }
+  return fitted;
+}
+
 function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
   if (!prepared.length) return null;
 
-  const layout = normalizeTokenLayout(settings);
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-  const pageH = doc.internal.pageSize.getHeight();
-  const pageW = doc.internal.pageSize.getWidth();
-  const usableWidth = pageW - layout.pageMarginMm * 2;
-  const slipsPerRow = Math.max(
-    1,
-    Math.min(3, Math.floor((usableWidth + COL_GAP) / (layout.widthMm + COL_GAP))) || 1
-  );
-  const slipWidth = Math.min(layout.widthMm, usableWidth);
-  const innerWidth = slipWidth - layout.slipPaddingMm * 2;
+  const baseLayout = normalizeTokenLayout(settings);
+  const pageFormat = [baseLayout.widthMm, baseLayout.heightMm];
+  const doc = new jsPDF({
+    unit: 'mm',
+    format: pageFormat,
+    orientation: 'landscape',
+  });
 
-  let y = layout.pageMarginMm;
-
-  for (let i = 0; i < prepared.length; i += slipsPerRow) {
-    const rowSlips = prepared.slice(i, i + slipsPerRow);
-    const heights = rowSlips.map(({ target, barcode }) =>
-      Math.max(measureSlipHeight(doc, target, innerWidth, barcode, layout), layout.minHeightMm)
-    );
-    const rowH = Math.max(...heights, 0) + GAP_ROW;
-
-    if (y + rowH > pageH - layout.pageMarginMm && y > layout.pageMarginMm) {
-      doc.addPage();
-      y = layout.pageMarginMm;
-    }
-
-    rowSlips.forEach(({ target, barcode }, col) => {
-      const x = layout.pageMarginMm + col * (slipWidth + COL_GAP);
-      drawSlip(doc, target, barcode, x, y, slipWidth, layout);
-    });
-
-    y += rowH;
-  }
+  prepared.forEach(({ target, barcode }, index) => {
+    if (index > 0) doc.addPage(pageFormat, 'landscape');
+    const layout = shrinkLayoutToFit(doc, target, barcode, baseLayout);
+    const slipWidth = layout.widthMm - layout.pageMarginMm * 2;
+    drawSlip(doc, target, barcode, layout.pageMarginMm, layout.pageMarginMm, slipWidth, layout);
+  });
 
   return doc;
 }

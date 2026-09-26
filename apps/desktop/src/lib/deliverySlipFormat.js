@@ -105,7 +105,7 @@ export function buildAccessoryTokenSlipFields(target) {
   return [
     { label: 'Order No', value: pdfSafeText(target?.order_number || '') || '—' },
     { label: 'Address', value: address || '—', wrap: true },
-    { label: 'Customer name', value: customerName || '—' },
+    { label: 'Customer name', value: customerName || '—', wrap: true },
     { label: 'Pickup date', value: formatSlipDate(target?.pickup_date) || '—' },
     { label: 'Return Date', value: formatSlipDate(target?.return_date) || '—' },
     {

@@ -1,36 +1,40 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { normalizeTokenLayout } from './deliverySlipPdf.js';
+import { TOKEN_LABEL_SIZE_MM, normalizeTokenLayout } from './deliverySlipPdf.js';
 
 describe('normalizeTokenLayout', () => {
-  it('keeps the established two-column defaults', () => {
-    assert.deepEqual(normalizeTokenLayout(), {
+  it('defaults to 75 × 50 mm label stock', () => {
+    const layout = normalizeTokenLayout();
+    assert.equal(layout.widthMm, TOKEN_LABEL_SIZE_MM.widthMm);
+    assert.equal(layout.heightMm, TOKEN_LABEL_SIZE_MM.heightMm);
+    assert.equal(layout.fontSize, 7);
+    assert.equal(layout.pageMarginMm, 1.5);
+    assert.ok(layout.lineHeightMm < 4);
+  });
+
+  it('treats the old A4 token settings as 75 × 50 mm labels', () => {
+    const layout = normalizeTokenLayout({
       widthMm: 92,
       minHeightMm: 0,
       fontSize: 9,
-      lineHeightMm: 5.04,
       pageMarginMm: 10,
-      slipPaddingMm: 4,
     });
+    assert.equal(layout.widthMm, 75);
+    assert.equal(layout.heightMm, 50);
+    assert.equal(layout.pageMarginMm, 1.5);
   });
 
-  it('clamps unsafe values while allowing a manual minimum height', () => {
-    assert.deepEqual(
-      normalizeTokenLayout({
-        widthMm: 500,
-        minHeightMm: 120,
-        fontSize: 3,
-        pageMarginMm: -4,
-      }),
-      {
-        widthMm: 190,
-        minHeightMm: 120,
-        fontSize: 6,
-        lineHeightMm: 3.5,
-        pageMarginMm: 3,
-        slipPaddingMm: 4,
-      }
-    );
+  it('keeps an explicit 75 × 50 layout and clamps unsafe values', () => {
+    const layout = normalizeTokenLayout({
+      widthMm: 75,
+      heightMm: 50,
+      fontSize: 3,
+      pageMarginMm: 2,
+    });
+    assert.equal(layout.widthMm, 75);
+    assert.equal(layout.heightMm, 50);
+    assert.equal(layout.fontSize, 5.5);
+    assert.equal(layout.pageMarginMm, 2);
   });
 });

@@ -542,64 +542,60 @@ const BillTemplatesTab = () => {
 
               <Section
                 title="Booking token printing"
-                description="Adjust product-wise and accessory token size for the default template. Height is a minimum, so long notes are never clipped."
+                description="Tokens print one label per page on 75 × 50 mm stock. Text shrinks automatically so nothing is cut off."
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input
                     type="number"
                     min={50}
-                    max={190}
+                    max={80}
                     step="1"
                     label="Token width (mm)"
-                    value={draft.page_settings?.token_width_mm ?? 92}
+                    value={draft.page_settings?.token_width_mm ?? 75}
                     onChange={(e) =>
                       updateSection('page_settings', {
-                        token_width_mm: Math.min(190, Math.max(50, Number(e.target.value) || 92)),
+                        token_width_mm: Math.min(80, Math.max(50, Number(e.target.value) || 75)),
                       })
                     }
                   />
                   <Input
                     type="number"
-                    min={0}
-                    max={280}
+                    min={40}
+                    max={60}
                     step="1"
-                    label="Minimum token height (mm)"
-                    hint="Use 0 for automatic height."
-                    value={draft.page_settings?.token_min_height_mm ?? 0}
+                    label="Token height (mm)"
+                    value={draft.page_settings?.token_height_mm ?? 50}
                     onChange={(e) =>
                       updateSection('page_settings', {
-                        token_min_height_mm: Math.min(
-                          280,
-                          Math.max(0, Number(e.target.value) || 0)
-                        ),
+                        token_height_mm: Math.min(60, Math.max(40, Number(e.target.value) || 50)),
                       })
                     }
                   />
                   <Input
                     type="number"
-                    min={6}
-                    max={18}
+                    min={5.5}
+                    max={12}
                     step="0.5"
                     label="Token font size (pt)"
-                    value={draft.page_settings?.token_font_size ?? 9}
+                    value={draft.page_settings?.token_font_size ?? 7}
                     onChange={(e) =>
                       updateSection('page_settings', {
-                        token_font_size: Math.min(18, Math.max(6, Number(e.target.value) || 9)),
+                        token_font_size: Math.min(12, Math.max(5.5, Number(e.target.value) || 7)),
                       })
                     }
                   />
                   <Input
                     type="number"
-                    min={3}
-                    max={25}
-                    step="1"
+                    min={0.8}
+                    max={4}
+                    step="0.1"
                     label="Page margin (mm)"
-                    value={draft.page_settings?.token_page_margin_mm ?? 10}
+                    value={draft.page_settings?.token_page_margin_mm ?? 1.5}
                     onChange={(e) =>
                       updateSection('page_settings', {
                         token_page_margin_mm: Math.min(
-                          25,
-                          Math.max(3, Number(e.target.value) || 10)
+                          4,
+                          Math.max(0.8, Number(e.target.value) || 1.5)
                         ),
                       })
                     }
