@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   BILL_ONE_PAGE_ROW_MAX,
   BILL_ONE_PAGE_ROW_MIN,
+  BILL_ONE_PAGE_COMPACT_AT,
   DEFAULT_MANUAL_BILL_CONTENT,
   LETTER_PAD_PAGE_SETTINGS,
   SAMPLE_ORDER,
@@ -59,7 +60,7 @@ describe('bill template blank-paper controls', () => {
       template: { page_settings: { letterhead_top_in: 1.5, letterhead_bottom_in: 0.5 } },
     });
     assert.match(html, /padding-top: calc\(14mm \+ 1\.5in\)/);
-    assert.match(html, /padding-bottom: calc\(16mm \+ 0\.5in\)/);
+    assert.match(html, /padding-bottom: calc\(6mm \+ 0\.5in\)/);
   });
 
   it('uses Mahavir Achakan letter-pad clearance on the A4 preset', () => {
@@ -71,14 +72,22 @@ describe('bill template blank-paper controls', () => {
       template: { page_settings: LETTER_PAD_PAGE_SETTINGS },
     });
     assert.match(html, /padding-top: calc\(14mm \+ 0\.75in\)/);
-    assert.match(html, /padding-bottom: calc\(16mm \+ 0\.15in\)/);
+    assert.match(html, /padding-bottom: calc\(6mm \+ 0\.15in\)/);
   });
 
   it('prints bold product names and a separate item-code column', () => {
     const html = renderBillHtml({ order: SAMPLE_ORDER, shop });
-    assert.match(html, /<th>Item<\/th><th>Item Code<\/th>/);
+    assert.match(html, /<th class="col-item">Item<\/th><th class="col-code">Item Code<\/th>/);
     assert.match(html, /class="item-name"/);
     assert.match(html, /class="item-code"/);
+    assert.match(html, /\.item-code \{[^}]*white-space: nowrap/);
+    assert.match(html, /th\.col-qty[^}]*width: 1%/);
+    assert.match(html, /table\.items td \{[^}]*border-right: 1px solid #d1d5db/);
+    assert.match(html, /table\.items th \{[^}]*border-right: 1px solid/);
+    assert.match(html, /class="item-acc"/);
+    assert.match(html, /table\.items \.item-acc td:first-child \{[^}]*padding-left: 36px/);
+    assert.match(html, /tbody tr\.item-acc td \{[^}]*background: #fff/);
+    assert.match(html, /class="acc-indent"/);
   });
 
   it('prints both distinct customer mobile numbers', () => {
@@ -93,6 +102,22 @@ describe('bill template blank-paper controls', () => {
     });
     assert.match(html, /9000000001/);
     assert.match(html, /9000000002/);
+  });
+
+  it('prints contact no. 2 name in brackets after the second number', () => {
+    const html = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        pickup_number: '9825497629',
+        customer_phone: '9825497629',
+        customer_phone2: '9512997629',
+        customer: { phone1: '9825497629', phone2: '9512997629', phone2_name: 'POTE' },
+      },
+      shop,
+    });
+    assert.match(html, /9825497629/);
+    assert.match(html, /9512997629 \(POTE\)/);
+    assert.doesNotMatch(html, /9825497629 \(POTE\)/);
   });
 
   it('prints the configured vertical offset in inches', () => {
@@ -130,7 +155,7 @@ describe('bill template blank-paper controls', () => {
     assert.match(html, /<table class="items">/);
   });
 
-  it('keeps booking date with pickup and return in one A4 meta box', () => {
+  it('keeps booking date in the A4 meta box and pickup/return as two rows on the left', () => {
     const html = renderBillHtml({
       order: SAMPLE_ORDER,
       shop,
@@ -143,17 +168,22 @@ describe('bill template blank-paper controls', () => {
     assert.doesNotMatch(html, /Date: /);
     assert.doesNotMatch(html, /<section class="bill-notes-card">/);
     assert.doesNotMatch(html, /Shop-wide notes must not print/);
+    assert.doesNotMatch(html, /Pickup · Return/);
     assert.equal(html.match(/class="meta-box"/g)?.length, 1);
     const boxStart = html.indexOf('class="meta-box"');
     const invoiceIdx = html.indexOf('Invoice no.');
     const bookingIdx = html.indexOf('Booking date');
-    const pickupIdx = html.indexOf('Pickup · Return');
+    const pickupIdx = html.indexOf('Pickup:');
+    const returnIdx = html.indexOf('Return:');
+    const boxWrapIdx = html.indexOf('class="pickup-return-box"');
     assert.ok(
       boxStart >= 0 &&
         invoiceIdx > boxStart &&
-        bookingIdx > invoiceIdx &&
-        pickupIdx > bookingIdx
+        bookingIdx > invoiceIdx
     );
+    assert.ok(boxWrapIdx >= 0 && pickupIdx > boxWrapIdx && returnIdx > pickupIdx && pickupIdx < boxStart);
+    assert.match(html, /\.pickup-return-box \{[^}]*width: max-content/);
+    assert.doesNotMatch(html, /Bill to/);
     assert.match(html, /INV-0001/);
     assert.doesNotMatch(html, /data-bill-code=/);
   });
@@ -175,24 +205,215 @@ describe('bill template blank-paper controls', () => {
     assert.doesNotMatch(html, /class="bill-header"/);
   });
 
-  it('keeps the default item font for short bills and for more than 30 rows', () => {
-    const shortTpl = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(12));
+  it('labels name, address then phone and keeps reference and remarks at the bottom', () => {
+    const html = renderBillHtml({ order: SAMPLE_ORDER, shop });
+    const nameIdx = html.indexOf('>Name:</span>');
+    const addressIdx = html.indexOf('>Address:</span>');
+    const phoneIdx = html.indexOf('>Phone no:</span>');
+    const itemsIdx = html.indexOf('table class="items"');
+    const bottomIdx = html.indexOf('class="bill-bottom"');
+    const refIdx = html.indexOf('>Reference<');
+    const remarksIdx = html.indexOf('>Remarks<');
+    const securityIdx = html.indexOf('>Security<');
+    const grandIdx = html.indexOf('Grand total');
+    assert.doesNotMatch(html, /Bill to/);
+    assert.ok(nameIdx >= 0 && addressIdx > nameIdx && phoneIdx > addressIdx && itemsIdx > phoneIdx);
+    assert.match(html, /Rahul Sharma/);
+    assert.match(html, /12 MG Road, Ahmedabad, Gujarat/);
+    assert.match(html, /class="pickup-return-box"/);
+    assert.ok(bottomIdx > itemsIdx);
+    assert.ok(remarksIdx > bottomIdx && refIdx > remarksIdx);
+    assert.ok(securityIdx > refIdx && grandIdx > securityIdx);
+    assert.ok(refIdx > itemsIdx && remarksIdx > itemsIdx);
+    assert.match(html, /class="notes-box remarks-highlight"/);
+    assert.match(html, /\.remarks-highlight \{[^}]*background: #fef9c3/);
+    assert.doesNotMatch(html.slice(nameIdx, itemsIdx), />Reference</);
+    assert.doesNotMatch(html.slice(nameIdx, itemsIdx), />Remarks</);
+    assert.doesNotMatch(html.slice(html.indexOf('class="totals"'), grandIdx), />Security</);
+    assert.match(html, /class="notes-card"/);
+    assert.match(html, />Payable amount</);
+    assert.match(html, /₹4,350/);
+    assert.match(html, /Priya Sharma/);
+    assert.match(html, /Handle embroidery with care/);
+    assert.match(html, /₹1,000/);
+  });
+
+  it('prints live booking deposit_amount as security below remarks', () => {
+    const html = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        security_deposit: 0,
+        deposit_amount: 2000,
+      },
+      shop,
+    });
+    const remarksIdx = html.indexOf('>Remarks<');
+    const refIdx = html.indexOf('>Reference<');
+    const securityIdx = html.indexOf('>Security<');
+    const grandIdx = html.indexOf('Grand total');
+    assert.ok(remarksIdx >= 0 && refIdx > remarksIdx && securityIdx > refIdx && grandIdx > securityIdx);
+    assert.match(html, /₹2,000/);
+    assert.doesNotMatch(html.slice(html.indexOf('class="totals"'), grandIdx), />Security</);
+  });
+
+  it('prints payable as unpaid security plus bill balance and skips paid security', () => {
+    const unpaidHtml = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        security_deposit: 0,
+        deposit_amount: 5000,
+        paid_security_amt: false,
+        balance: 9150,
+      },
+      shop,
+    });
+    assert.match(unpaidHtml, /class="notes-card"/);
+    assert.match(unpaidHtml, />Payable amount</);
+    assert.match(unpaidHtml, /₹14,150/);
+    assert.match(unpaidHtml, /table\.totals tr\.payable \{[^}]*page-break-before: avoid/);
+    const paidHtml = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        security_deposit: 0,
+        deposit_amount: 5000,
+        paid_security_amt: true,
+        balance: 9150,
+      },
+      shop,
+    });
+    assert.match(paidHtml, />Security</);
+    assert.match(paidHtml, /₹5,000/);
+    assert.match(paidHtml, /₹9,150/);
+    assert.doesNotMatch(paidHtml, /₹14,150/);
+  });
+
+  it('leaves money cells blank when the amount is zero', () => {
+    const html = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        items: [
+          {
+            id: 'item-1',
+            name_snapshot: 'Free sherwani',
+            code_snapshot: 'SH-0',
+            qty: 1,
+            price: 0,
+            discount: 0,
+            tax: 0,
+            total: 0,
+          },
+          {
+            id: 'item-2',
+            name_snapshot: 'Paid sherwani',
+            code_snapshot: 'SH-1',
+            qty: 1,
+            price: 11000,
+            discount: 0,
+            tax: 0,
+            total: 11000,
+          },
+        ],
+        accessories: [],
+        subtotal: 11000,
+        discount_amount: 0,
+        tax_amount: 0,
+        security_deposit: 0,
+        total_amount: 11000,
+        paid_amount: 0,
+        balance: 11000,
+      },
+      shop,
+    });
+    assert.doesNotMatch(html, /₹0(?![\d,])/);
+    assert.match(html, /₹11,000/);
+    assert.match(html, /Free sherwani/);
+  });
+
+  it('prints live booking discount_total above grand total', () => {
+    const html = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        discount_amount: 0,
+        discount_total: 500,
+        tax_amount: 0,
+        tax_total: 0,
+        security_deposit: 0,
+        deposit_amount: 0,
+        subtotal: 12150,
+        total_amount: 11650,
+      },
+      shop,
+    });
+    const discountIdx = html.indexOf('>Discount<');
+    const grandIdx = html.indexOf('Grand total');
+    assert.ok(discountIdx >= 0 && grandIdx > discountIdx);
+    assert.match(html, /₹500/);
+    assert.match(html, /₹12,150/);
+    assert.match(html, /₹11,650/);
+  });
+
+  it('prints rent and sale subtotal quantities in the qty column', () => {
+    const html = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        items: [
+          {
+            id: 'r1',
+            name_snapshot: 'Sherwani',
+            code_snapshot: 'S-1',
+            qty: 1,
+            price: 11000,
+            total: 11000,
+          },
+          {
+            id: 's1',
+            name_snapshot: 'Sold sherwani',
+            code_snapshot: 'X-1',
+            qty: 2,
+            price: 500,
+            total: 1000,
+            type: 'sell',
+          },
+        ],
+        accessories: [
+          {
+            order_item_id: 'r1',
+            name_snapshot: 'Safa',
+            qty: 1,
+            price: 400,
+            total: 400,
+          },
+          {
+            order_item_id: 's1',
+            name_snapshot: 'Mojdi',
+            qty: 1,
+            price: 350,
+            total: 350,
+            type: 'sell',
+          },
+        ],
+      },
+      shop,
+    });
+    assert.match(html, />Rent subtotal<\/td><td class="right col-qty subtotal-qty">2<\/td>/);
+    assert.match(html, />Sale subtotal<\/td><td class="right col-qty subtotal-qty">3<\/td>/);
+  });
+
+  it('keeps the default item font for 1 to 20 table lines', () => {
+    const shortTpl = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(6));
     assert.equal(shortTpl.item_density.compact, false);
     assert.equal(shortTpl.typography.product_size, null);
-    const longTpl = applyBillPrintDensity(
-      mergeTemplate({}),
-      orderWithLineCount(BILL_ONE_PAGE_ROW_MAX + 4)
-    );
-    assert.equal(longTpl.item_density.compact, false);
-    assert.equal(longTpl.typography.product_size, null);
+    const twenty = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(20));
+    assert.equal(twenty.item_density.compact, false);
+    assert.equal(twenty.typography.product_size, null);
     const shortHtml = renderBillHtml({ order: orderWithLineCount(12), shop });
     assert.match(shortHtml, /font-size: 12px;/);
     assert.match(shortHtml, /padding: 7px 10px;/);
   });
 
-  it('shrinks item type only when printed rows are between 21 and 30', () => {
+  it('shrinks table type from 21 lines and holds compact size at 30 to 35', () => {
     const midCount = 25;
-    assert.ok(midCount >= BILL_ONE_PAGE_ROW_MIN && midCount <= BILL_ONE_PAGE_ROW_MAX);
+    assert.ok(midCount >= BILL_ONE_PAGE_ROW_MIN && midCount < BILL_ONE_PAGE_COMPACT_AT);
     assert.equal(countBillPrintRows(orderWithLineCount(midCount)), midCount);
     const midTpl = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(midCount));
     assert.equal(midTpl.item_density.compact, true);
@@ -201,7 +422,21 @@ describe('bill template blank-paper controls', () => {
     const midHtml = renderBillHtml({ order: orderWithLineCount(midCount), shop });
     assert.match(midHtml, new RegExp(`font-size: ${midTpl.typography.product_size}px;`));
     assert.doesNotMatch(midHtml, /padding: 7px 10px;/);
-    const denser = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(30));
-    assert.ok(denser.typography.product_size < midTpl.typography.product_size);
+    const compactTpl = applyBillPrintDensity(
+      mergeTemplate({}),
+      orderWithLineCount(BILL_ONE_PAGE_COMPACT_AT)
+    );
+    assert.ok(compactTpl.typography.product_size < midTpl.typography.product_size);
+    const thirtyFive = applyBillPrintDensity(
+      mergeTemplate({}),
+      orderWithLineCount(BILL_ONE_PAGE_ROW_MAX)
+    );
+    assert.equal(thirtyFive.typography.product_size, compactTpl.typography.product_size);
+    const overflow = applyBillPrintDensity(
+      mergeTemplate({}),
+      orderWithLineCount(BILL_ONE_PAGE_ROW_MAX + 6)
+    );
+    assert.equal(overflow.item_density.compact, true);
+    assert.equal(overflow.typography.product_size, compactTpl.typography.product_size);
   });
 });

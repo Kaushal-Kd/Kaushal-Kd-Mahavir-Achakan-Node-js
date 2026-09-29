@@ -37,7 +37,7 @@ export const PAPER_SIZES = [
 /**
  * New A4 letter-pad templates. Artwork: docs/reference/mahavir-achakan-letterpad.pdf
  * (210×297 mm page, 210×251 mm marked print window). Bill CSS already pads 14mm
- * top / 16mm bottom, so these inches only clear the remaining preprinted header.
+ * top / 6mm bottom, so these inches only clear the remaining preprinted header.
  */
 export const LETTER_PAD_PAGE_SETTINGS = {
   letterhead_top_in: 0.75,
@@ -120,6 +120,74 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
+function formatBillAmount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || Math.abs(n) < 0.005) return '';
+  return formatCurrency(n);
+}
+
+function formatBillQty(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || Math.abs(n) < 0.0005) return '';
+  return Number.isInteger(n) ? String(n) : String(round2(n));
+}
+
+function sumPrintedQty(lines) {
+  return (lines || []).reduce((sum, line) => sum + (Number(line?.qty) || 0), 0);
+}
+
+function sumAccessoryMapQty(map) {
+  let n = 0;
+  if (!map) return 0;
+  for (const list of map.values()) n += sumPrintedQty(list);
+  return n;
+}
+
+function firstBillMoney(order, keys) {
+  for (const key of keys) {
+    const n = Number(order?.[key]);
+    if (Number.isFinite(n) && Math.abs(n) >= 0.005) return n;
+  }
+  return 0;
+}
+
+function orderBillDiscount(order) {
+  return firstBillMoney(order, ['discount_amount', 'discount_total']);
+}
+
+function orderBillTax(order) {
+  return firstBillMoney(order, ['tax_amount', 'tax_total']);
+}
+
+function orderBillSecurity(order) {
+  return firstBillMoney(order, ['security_deposit', 'deposit_amount']);
+}
+
+function orderSecurityIsPaid(order) {
+  if (order?.paid_security_amt === true || order?.deposit_received === true) return true;
+  const expected = orderBillSecurity(order);
+  const held = Number(order?.security_held_amount);
+  return expected > 0 && Number.isFinite(held) && held >= expected - 0.005;
+}
+
+function orderUnpaidSecurity(order) {
+  const expected = orderBillSecurity(order);
+  if (expected <= 0) return 0;
+  const held = Number(order?.security_held_amount);
+  if (Number.isFinite(held) && held >= 0) return round2(Math.max(0, expected - held));
+  return orderSecurityIsPaid(order) ? 0 : expected;
+}
+
+function orderBillBalance(order) {
+  const n = Number(order?.balance);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
+function orderPayableAmount(order, billBalance) {
+  const pending = Number.isFinite(Number(billBalance)) ? Math.max(0, Number(billBalance)) : orderBillBalance(order);
+  return round2(orderUnpaidSecurity(order) + pending);
+}
+
 export function mergeTemplate(tpl) {
   const base = DEFAULT_TEMPLATE;
   return {
@@ -143,9 +211,12 @@ function isThermal(paper) {
   return paper === 'thermal_58' || paper === 'thermal_80';
 }
 
-/** Keep default type up to 20 printed lines; shrink only in the 21–30 band. */
+/** Normal table type for 1–20 printed lines. Shrink starts at 21. */
 export const BILL_ONE_PAGE_ROW_MIN = 21;
-export const BILL_ONE_PAGE_ROW_MAX = 30;
+/** Compact size that keeps ~30–35 lines on one page. */
+export const BILL_ONE_PAGE_COMPACT_AT = 30;
+/** Hold the compact size through this many lines; longer bills stay this small. */
+export const BILL_ONE_PAGE_ROW_MAX = 35;
 
 function countAccessoryMap(map) {
   let n = 0;
@@ -154,7 +225,7 @@ function countAccessoryMap(map) {
 }
 
 /**
- * Count product + accessory lines that actually print (not section/subtotal rows).
+ * Count product + accessory lines that actually print, plus section/subtotal rows.
  * @param {object|null|undefined} order
  * @param {object} [itemsConfig]
  */
@@ -173,6 +244,18 @@ export function countBillPrintRows(order, itemsConfig = {}) {
     rows += parts.rentExternal.length + parts.saleExternal.length;
   }
   rows += parts.saleDetachedFromProducts.length;
+  const hasRentSection =
+    parts.rentItems.length > 0 ||
+    (showAccessories &&
+      (countAccessoryMap(parts.rentAccessoriesByItem) > 0 || parts.rentExternal.length > 0));
+  const hasSaleSection =
+    parts.saleItems.length > 0 ||
+    (showAccessories &&
+      (countAccessoryMap(parts.saleAccessoriesByItem) > 0 || parts.saleExternal.length > 0)) ||
+    parts.saleDetachedFromProducts.length > 0;
+  if (hasRentSection && hasSaleSection) rows += 4;
+  else if (hasSaleSection) rows += 1;
+  if (showAccessories && parts.rentExternal.length > 0) rows += 1;
   return rows;
 }
 
@@ -181,25 +264,28 @@ function roundFontSize(value, min) {
 }
 
 /**
- * Shrink item-table type for A4/A5 bills with 21–30 printed lines so they
- * stay on one page. Thermal and 31+ line bills keep the template font.
+ * Shrink item-table type on A4/A5 so extra lines stay on one page.
+ * 1–20 lines keep the normal font; 21–29 ease down; 30–35 use compact type.
+ * Thermal bills keep the template font. Bills longer than 35 stay compact.
  * @param {object} tpl
  * @param {object|null|undefined} order
  */
 export function applyBillPrintDensity(tpl, order) {
   const rows = countBillPrintRows(order, tpl.items_config);
-  const compact =
-    !isThermal(tpl.paper_size) &&
-    rows >= BILL_ONE_PAGE_ROW_MIN &&
-    rows <= BILL_ONE_PAGE_ROW_MAX;
-  if (!compact) {
-    return {
-      ...tpl,
-      item_density: { compact: false, rows, pad_y: 7, pad_x: 10, head_pad_y: 8 },
-    };
+  const defaultDensity = {
+    compact: false,
+    rows,
+    pad_y: 7,
+    pad_x: 10,
+    head_pad_y: 8,
+    section_pad_y: 6,
+  };
+  if (isThermal(tpl.paper_size) || rows < BILL_ONE_PAGE_ROW_MIN) {
+    return { ...tpl, item_density: defaultDensity };
   }
-  const t = (rows - 20) / 10;
-  const scale = 1 - t * 0.3;
+  const ramp = Math.max(1, BILL_ONE_PAGE_COMPACT_AT - (BILL_ONE_PAGE_ROW_MIN - 1));
+  const t = Math.min(1, (rows - (BILL_ONE_PAGE_ROW_MIN - 1)) / ramp);
+  const scale = 1 - t * 0.28;
   const base = Number(tpl.typography?.base_size) || 12;
   const product = Number(tpl.typography?.product_size) || base;
   const accessory = Number(tpl.typography?.accessory_size) || Math.max(6, base - 1);
@@ -207,15 +293,16 @@ export function applyBillPrintDensity(tpl, order) {
     ...tpl,
     typography: {
       ...tpl.typography,
-      product_size: roundFontSize(product * scale, 7),
-      accessory_size: roundFontSize(accessory * scale, 6),
+      product_size: roundFontSize(product * scale, 8),
+      accessory_size: roundFontSize(accessory * scale, 7),
     },
     item_density: {
       compact: true,
       rows,
-      pad_y: Math.max(2, Math.round(7 - t * 4)),
-      pad_x: Math.max(6, Math.round(10 - t * 3)),
-      head_pad_y: Math.max(4, Math.round(8 - t * 3)),
+      pad_y: Math.max(2, Math.round(7 - t * 5)),
+      pad_x: Math.max(5, Math.round(10 - t * 4)),
+      head_pad_y: Math.max(3, Math.round(8 - t * 5)),
+      section_pad_y: Math.max(2, Math.round(6 - t * 4)),
     },
   };
 }
@@ -228,14 +315,16 @@ function pageStyles(tpl) {
     ? `size: ${size.widthMm}mm auto; margin: 3mm;`
     : `size: ${size.widthMm}mm ${size.heightMm}mm; margin: 8mm;`;
   const brand = colors.brand || '#0C6EE1';
-  const docPad = thermal ? '3mm 2.5mm 4mm' : '14mm 12mm 16mm';
+  const docPad = thermal ? '3mm 2.5mm 4mm' : '14mm 12mm 6mm';
   // Fall back to base_size for templates saved before these settings existed.
   const productSize = Number(typography.product_size) || typography.base_size;
   const accessorySize = Number(typography.accessory_size) || Math.max(6, typography.base_size - 1);
-  const density = tpl.item_density || { pad_y: 7, pad_x: 10, head_pad_y: 8 };
+  const density = tpl.item_density || { pad_y: 7, pad_x: 10, head_pad_y: 8, section_pad_y: 6 };
   const itemPadY = Number(density.pad_y) || 7;
   const itemPadX = Number(density.pad_x) || 10;
   const headPadY = Number(density.head_pad_y) || 8;
+  const sectionPadY = Number(density.section_pad_y) || 6;
+  const tableLineHeight = density.compact ? 1.15 : 1.35;
   const rawVerticalOffset = Number(page_settings?.vertical_offset_in);
   const verticalOffsetIn = Number.isFinite(rawVerticalOffset)
     ? Math.min(4, Math.max(-2, rawVerticalOffset))
@@ -261,7 +350,7 @@ function pageStyles(tpl) {
       .bill-document {
         padding: ${docPad};
         ${thermal ? '' : `padding-top: calc(14mm + ${letterheadTopIn}in);`}
-        ${thermal ? '' : `padding-bottom: calc(16mm + ${letterheadBottomIn}in);`}
+        ${thermal ? '' : `padding-bottom: calc(6mm + ${letterheadBottomIn}in);`}
         position: relative;
         top: ${verticalOffsetIn}in;
         ${thermal ? '' : 'max-width: 210mm; margin: 0 auto;'}
@@ -295,7 +384,7 @@ function pageStyles(tpl) {
       }
       .doc-sub { margin-top: 2px; font-size: ${typography.base_size - 1}px; color: #374151; }
       .doc-sub strong { color: ${brand}; font-weight: 700; }
-      .brand-rule { height: 2px; background: ${brand}; border-radius: 1px; margin-bottom: 12px; }
+      .brand-rule { height: 2px; background: ${brand}; border-radius: 1px; margin-bottom: 8px; }
       .meta-box .bill-barcode {
         display: block;
         margin: 0 0 8px auto;
@@ -311,8 +400,8 @@ function pageStyles(tpl) {
         border: 1px solid ${colors.border};
         border-radius: 4px;
         background: #fafafa;
-        padding: 12px 14px;
-        margin-bottom: 12px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
       }
       .info-grid-single { grid-template-columns: 1fr; }
       .info-grid {
@@ -335,13 +424,51 @@ function pageStyles(tpl) {
         color: #111827;
         word-break: break-word;
       }
+      .customer-field {
+        display: grid;
+        grid-template-columns: 72px 1fr;
+        gap: 6px 8px;
+        margin-top: 3px;
+        align-items: start;
+      }
+      .customer-field:first-of-type { margin-top: 2px; }
+      .pickup-return-box {
+        display: inline-block;
+        width: max-content;
+        max-width: 100%;
+        margin-top: 8px;
+        border: 1px solid ${colors.border};
+        border-radius: 4px;
+        padding: 4px 8px;
+        background: #fff;
+      }
+      .pickup-return-box .customer-field {
+        grid-template-columns: auto auto;
+        margin-top: 2px;
+        gap: 6px 10px;
+      }
+      .pickup-return-box .customer-field:first-of-type { margin-top: 0; }
+      .pickup-return-box .field-label,
+      .pickup-return-box .field-value {
+        font-weight: 700;
+        color: #111827;
+        white-space: nowrap;
+      }
+      .field-label {
+        font-size: ${typography.base_size - 1}px;
+        font-weight: 700;
+        color: #4b5563;
+        padding-top: 1px;
+      }
+      .field-value { color: #111827; font-weight: 600; word-break: break-word; }
+      .field-value.phone { font-weight: 700; }
       .customer-line { margin-top: 2px; color: #374151; }
       .customer-line.phone { font-weight: 600; color: #111827; }
       .detail-row { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
       .detail-label { font-size: ${typography.base_size - 2}px; font-weight: 600; color: ${colors.muted}; min-width: 64px; }
       .detail-value { color: #111827; font-weight: 600; }
       .notes-box {
-        margin-top: 8px;
+        margin-top: 4px;
         padding: 8px 10px;
         background: #fff;
         border: 1px solid ${colors.border};
@@ -351,6 +478,13 @@ function pageStyles(tpl) {
         color: #374151;
         white-space: pre-wrap;
         line-height: 1.3;
+      }
+      .remarks-highlight {
+        background: #fef9c3;
+        border: 1px solid #facc15;
+        border-left: 3px solid #ca8a04;
+        color: #111827;
+        font-weight: 700;
       }
       .meta-col { min-width: 140px; }
       .meta-stack { display: flex; flex-direction: column; gap: 8px; }
@@ -379,12 +513,18 @@ function pageStyles(tpl) {
       .meta-box .meta-hint { margin-top: 2px; font-size: ${typography.base_size - 2}px; color: ${colors.muted}; }
 
       .items-wrap {
-        border: 1px solid ${colors.border};
+        border: 1px solid #4b5563;
         border-radius: 4px;
         overflow: hidden;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
       }
-      table.items { width: 100%; border-collapse: collapse; font-size: ${typography.base_size}px; margin: 0; }
+      table.items {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: ${typography.base_size}px;
+        margin: 0;
+        line-height: ${tableLineHeight};
+      }
       table.items th {
         background: ${brand};
         color: #fff;
@@ -393,36 +533,72 @@ function pageStyles(tpl) {
         letter-spacing: 0.02em;
         text-transform: uppercase;
         padding: ${headPadY}px ${itemPadX}px;
-        border: none;
+        border-top: none;
+        border-bottom: 1px solid #1d4ed8;
+        border-left: none;
+        border-right: 1px solid rgba(255, 255, 255, 0.55);
       }
+      table.items th:last-child { border-right: none; }
       table.items th:first-child { padding-left: 12px; }
       table.items th:last-child { padding-right: 12px; }
       table.items td {
         padding: ${itemPadY}px ${itemPadX}px;
-        border-bottom: 1px solid ${colors.border};
+        border-top: none;
+        border-bottom: 1px solid #d1d5db;
+        border-left: none;
+        border-right: 1px solid #d1d5db;
         vertical-align: top;
         font-size: ${productSize}px;
+      }
+      table.items td:last-child { border-right: none; }
+      table.items th.col-code,
+      table.items td.col-code {
+        white-space: nowrap;
+        width: 1%;
+        padding-left: 6px;
+        padding-right: 6px;
+      }
+      table.items th.col-qty,
+      table.items td.col-qty,
+      table.items th.col-num,
+      table.items td.col-num {
+        white-space: nowrap;
+        width: 1%;
+        padding-left: 4px;
+        padding-right: 4px;
       }
       .item-code {
         font-weight: 700;
         color: #111827;
         font-size: ${Math.max(6, productSize - 1)}px;
+        white-space: nowrap;
       }
       .item-name { font-weight: 700; color: #111827; }
       table.items td:first-child { padding-left: 12px; }
       table.items td:last-child { padding-right: 12px; }
-      table.items tbody tr:last-child td { border-bottom: none; }
       table.items tbody tr:nth-child(even) td { background: #fafafa; }
-      .item-acc td { font-size: ${accessorySize}px; }
-      .item-acc td .muted { font-size: ${Math.max(6, accessorySize - 1)}px; }
-      .item-acc td:first-child { padding-left: 22px; color: #4b5563; }
+      table.items .item-acc td { font-size: ${accessorySize}px; }
+      table.items .item-acc td .muted { font-size: ${Math.max(6, accessorySize - 1)}px; }
+      table.items .item-acc td:first-child {
+        padding-left: 36px;
+        color: #4b5563;
+      }
+      table.items tbody tr.item-acc td,
+      table.items tbody tr.item-acc.item-sale td,
+      table.items tbody tr:nth-child(even).item-acc td {
+        background: #fff;
+      }
+      .acc-indent { display: inline-block; min-width: 1.25em; }
       .section-row td {
         font-weight: 700;
         font-size: ${typography.base_size - 1}px;
         background: #f3f4f6;
         color: #374151;
-        padding: 6px 12px;
-        border-bottom: 1px solid ${colors.border};
+        padding: ${sectionPadY}px 12px;
+        border-top: none;
+        border-bottom: 1px solid #d1d5db;
+        border-left: none;
+        border-right: none;
       }
       .section-row-sale td {
         background: #e8f2fc;
@@ -433,19 +609,48 @@ function pageStyles(tpl) {
       .section-subtotal td {
         font-weight: 700;
         font-size: ${typography.base_size - 1}px;
-        padding: 6px 12px;
-        border-bottom: 1px solid ${colors.border};
+        padding: ${sectionPadY}px 12px;
+        border-top: none;
+        border-bottom: 1px solid #d1d5db;
+        border-left: none;
+        border-right: 1px solid #d1d5db;
       }
+      .section-subtotal td:last-child { border-right: none; }
       .subtotal-row-rent td { background: #f9fafb; color: #374151; }
       .subtotal-row-sale td { background: #fffbeb; color: #374151; }
       .subtotal-row-sale td:last-child { color: #b45309; }
       .item-sale td { background: #f0f7ff; }
+      table.items tbody tr.item-acc td { background: #fff; }
 
+      .bill-bottom {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 4px;
+        margin-top: 2px;
+        ${thermal ? 'flex-direction: column;' : ''}
+      }
+      .bill-bottom-notes {
+        flex: 1;
+        min-width: 0;
+      }
+      .bill-bottom-notes .section-label { margin-bottom: 2px; }
+      .bill-bottom-notes .notes-block + .notes-block { margin-top: 10px; }
+      .notes-card {
+        display: inline-block;
+        max-width: 100%;
+        min-width: 200px;
+        border: 1px solid #9ca3af;
+        border-radius: 4px;
+        padding: 8px 10px;
+        background: #fff;
+      }
       .totals-wrap {
         display: flex;
         justify-content: flex-end;
-        margin-bottom: 14px;
-        margin-top: 4px;
+        flex-shrink: 0;
+        ${thermal ? 'width: 100%;' : ''}
       }
       table.totals {
         width: ${thermal ? '100%' : 'min(280px, 100%)'};
@@ -454,8 +659,11 @@ function pageStyles(tpl) {
         border-radius: 4px;
         overflow: hidden;
         font-size: ${typography.base_size}px;
+        line-height: 1.2;
+        page-break-inside: avoid;
+        break-inside: avoid;
       }
-      table.totals td { padding: 6px 12px; border-bottom: 1px solid ${colors.border}; }
+      table.totals td { padding: 3px 12px; border-bottom: 1px solid ${colors.border}; }
       table.totals tr:last-child td { border-bottom: none; }
       table.totals td:first-child { color: #4b5563; }
       table.totals .grand td {
@@ -470,9 +678,21 @@ function pageStyles(tpl) {
         font-weight: 700;
         font-size: ${typography.base_size + 1}px;
         border-bottom: none;
-        padding: 8px 12px;
+        padding: 5px 12px;
       }
-      table.totals .balance td { font-weight: 700; color: ${brand}; }
+      table.totals .balance td { font-weight: 700; color: ${brand}; page-break-after: avoid; break-after: avoid; }
+      table.totals .payable td {
+        background: #111827;
+        color: #fff;
+        font-weight: 700;
+        font-size: ${typography.base_size + 1}px;
+        padding: 5px 12px;
+        border-bottom: none;
+        page-break-before: avoid;
+        break-before: avoid;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
       table.totals .credit-applied td { font-weight: 600; color: ${brand}; }
       table.totals .credit-applied-detail td {
         padding-top: 2px;
@@ -488,14 +708,14 @@ function pageStyles(tpl) {
       .terms-card {
         border: 1px solid ${colors.border};
         border-radius: 4px;
-        padding: 10px 12px;
-        margin-top: 12px;
+        padding: 8px 12px;
+        margin-top: 8px;
         background: #fafafa;
       }
       .terms-card .section-label { margin-bottom: 3px; }
       .foot {
-        margin-top: 14px;
-        padding-top: 10px;
+        margin-top: 8px;
+        padding-top: 6px;
         border-top: 1px solid ${colors.border};
         font-size: ${typography.base_size - 1}px;
         font-weight: 600;
@@ -518,7 +738,7 @@ function pageStyles(tpl) {
       .bill-notes-body ul, .bill-notes-body ol { margin: 6px 0 6px 1.2em; padding: 0; }
       .bill-notes-body li { margin: 4px 0; }
       .bill-notes-body p { margin: 4px 0; }
-      .sig-row { display: flex; justify-content: space-between; gap: 32px; margin-top: 28px; padding: 0 4px; }
+      .sig-row { display: flex; justify-content: space-between; gap: 32px; margin-top: 16px; padding: 0 4px; }
       .sig {
         flex: 1;
         border-top: 1px solid #9ca3af;
@@ -535,17 +755,33 @@ function pageStyles(tpl) {
         .meta-col .meta-box { text-align: left; }
         table.items th { padding: 2px 4px; font-size: ${Math.max(6, typography.base_size - 1)}px; }
         table.items td { padding: 2px 4px; font-size: ${Math.max(6, productSize - 1)}px; }
-        .item-acc td { font-size: ${Math.max(6, accessorySize - 1)}px; }
+        table.items .item-acc td { font-size: ${Math.max(6, accessorySize - 1)}px; }
         .bill-header { flex-direction: column; }
         .bill-header-doc { text-align: left; }
         .meta-box .bill-barcode { margin-left: 0; margin-right: auto; max-width: 100%; }
         .sig-row { display: block; }
         .sig { margin-top: 14px; }
-        .item-acc td:first-child { padding-left: 8px; }
+        table.items .item-acc td:first-child { padding-left: 20px; }
       `
           : ''
       }
-      @media print { .no-print { display: none; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+      @media print {
+        .no-print { display: none; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        table.items th { border-right: 1px solid rgba(255, 255, 255, 0.7) !important; }
+        table.items th:last-child { border-right: none !important; }
+        table.items td { border-right: 1px solid #d1d5db !important; border-bottom: 1px solid #d1d5db !important; }
+        table.items td:last-child { border-right: none !important; }
+        table.items tbody tr.item-acc td { background: #fff !important; }
+        table.totals { page-break-inside: avoid; break-inside: avoid; }
+        table.totals tr.balance { page-break-after: avoid; break-after: avoid; }
+        table.totals tr.payable {
+          page-break-before: avoid;
+          break-before: avoid;
+          page-break-inside: avoid;
+          break-inside: avoid;
+        }
+      }
     </style>
   `;
 }
@@ -609,23 +845,58 @@ function orderCustomerAddress(order) {
   return String(order.customer?.address || order.customer_address || '').trim();
 }
 
-function orderCustomerPhones(order) {
-  const values = [
-    order.customer?.phone1,
-    order.customer_phone,
-    order.pickup_number,
-    order.customer?.phone2,
-    order.customer_phone2,
-  ];
-  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].slice(
-    0,
-    2
-  );
+function orderPhone2Name(order) {
+  return String(
+    order.customer?.phone2_name || order.customer_phone2_name || order.contact2_name || ''
+  ).trim();
+}
+
+function orderCustomerPhoneLines(order) {
+  const phone1 = String(
+    order.customer?.phone1 || order.customer_phone || order.pickup_number || ''
+  ).trim();
+  const phone2 = String(order.customer?.phone2 || order.customer_phone2 || '').trim();
+  const phone2Name = orderPhone2Name(order);
+  const lines = [];
+  const seen = new Set();
+  const keyOf = (value) => String(value).replace(/\D/g, '') || value;
+  if (phone1) {
+    lines.push({ number: phone1, name: '' });
+    seen.add(keyOf(phone1));
+  }
+  if (phone2 && !seen.has(keyOf(phone2))) {
+    lines.push({ number: phone2, name: phone2Name });
+  }
+  return lines.slice(0, 2);
+}
+
+function formatBillPhoneLine(line) {
+  const number = esc(line.number);
+  const name = String(line.name || '').trim();
+  if (!name) return number;
+  return `${number} (${esc(name)})`;
 }
 
 /** Per-order remarks entered on the booking form (not shop-wide bill notes). */
 function orderCustomerRemarks(order) {
   return String(order.customer_notes || '').trim();
+}
+
+function customerField(label, valueHtml) {
+  if (!valueHtml) return '';
+  return `<div class="customer-field"><span class="field-label">${esc(label)}</span><span class="field-value">${valueHtml}</span></div>`;
+}
+
+function orderReferenceName(order) {
+  return String(order?.reference_name || '').trim();
+}
+
+function showBillReference(tpl, order) {
+  return tpl.bill_info_config.show_reference !== false && orderReferenceName(order);
+}
+
+function showBillRemarks(tpl, order) {
+  return tpl.bill_info_config.show_booking_notes !== false && orderCustomerRemarks(order);
 }
 
 function customerBlock(tpl, order, renderOptions = {}) {
@@ -637,62 +908,33 @@ function customerBlock(tpl, order, renderOptions = {}) {
   const showOrderDate = !!renderOptions.showOrderDate && !!order?.booking_date;
   const showAddress =
     bill_info_config.show_customer_address !== false && orderCustomerAddress(order);
-  const showReference =
-    bill_info_config.show_reference !== false && String(order.reference_name || '').trim();
-  const showRemarks = bill_info_config.show_booking_notes !== false && orderCustomerRemarks(order);
   const orderNo = String(order?.order_number || '').trim();
-  if (
-    !bill_info_config.show_customer &&
-    !showPickupReturn &&
-    !showOrderDate &&
-    !showAddress &&
-    !showReference &&
-    !showRemarks &&
-    !orderNo
-  ) {
+  if (!bill_info_config.show_customer && !showPickupReturn && !showOrderDate && !showAddress && !orderNo) {
     return '';
   }
   const thermal = isThermal(paper_size);
-  const phones = orderCustomerPhones(order);
+  const phones = orderCustomerPhoneLines(order);
+  const name = orderCustomerName(order);
+  const phoneHtml = phones.length ? phones.map((line) => formatBillPhoneLine(line)).join('<br>') : '';
+  const pickupReturnFields = showPickupReturn
+    ? `<div class="pickup-return-box">${customerField('Pickup:', order.pickup_date ? esc(formatDate(order.pickup_date)) : '—')}${customerField('Return:', order.return_date ? esc(formatDate(order.return_date)) : '—')}</div>`
+    : '';
 
   const customerCol = bill_info_config.show_customer
     ? `
       <div class="info-col">
-        <div class="section-label">Bill to</div>
-        <div class="customer-name">${esc(orderCustomerName(order))}</div>
-        ${phones.map((phone) => `<div class="customer-line phone">${esc(phone)}</div>`).join('')}
-        ${showAddress ? `<div class="customer-line">${esc(orderCustomerAddress(order))}</div>` : ''}
-        ${
-          showReference
-            ? `
-          <div class="detail-row">
-            <span class="detail-label">Reference</span>
-            <span class="detail-value">${esc(order.reference_name)}</span>
-          </div>
-        `
-            : ''
-        }
-        ${
-          showRemarks
-            ? `
-          <div class="detail-row" style="display:block">
-            <div class="detail-label">Remarks</div>
-            <div class="notes-box">${esc(orderCustomerRemarks(order))}</div>
-          </div>
-        `
-            : ''
-        }
+        ${customerField('Name:', name ? `<span class="customer-name">${esc(name)}</span>` : '—')}
+        ${showAddress ? customerField('Address:', esc(orderCustomerAddress(order))) : ''}
+        ${customerField('Phone no:', phoneHtml)}
+        ${pickupReturnFields}
       </div>
     `
     : [
         showAddress
           ? `<div class="info-col"><div class="section-label">Address</div><div class="customer-line">${esc(orderCustomerAddress(order))}</div></div>`
           : '',
-        showReference
-          ? `<div class="info-col"><div class="section-label">Reference</div><div class="detail-value">${esc(order.reference_name)}</div></div>`
-          : '',
-        showRemarks
-          ? `<div class="info-col"><div class="section-label">Remarks</div><div class="notes-box">${esc(orderCustomerRemarks(order))}</div></div>`
+        pickupReturnFields
+          ? `<div class="info-col">${pickupReturnFields}</div>`
           : '',
       ]
         .filter(Boolean)
@@ -720,14 +962,6 @@ function customerBlock(tpl, order, renderOptions = {}) {
       <div class="meta-row">
         <div class="meta-label">${esc(dateLabel)}</div>
         <div class="meta-value">${bookingDate}</div>
-      </div>
-    `);
-  }
-  if (showPickupReturn) {
-    metaRows.push(`
-      <div class="meta-row">
-        <div class="meta-label">Pickup · Return</div>
-        <div class="meta-value brand">${formatDate(order.pickup_date)} — ${formatDate(order.return_date)}</div>
       </div>
     `);
   }
@@ -789,7 +1023,7 @@ function itemNameCell(line, { isAccessory, isSale, parentProduct }) {
     const accTag = givenLabel
       ? `<span class="muted">(acc. · ${esc(givenLabel)})</span>`
       : '<span class="muted">(acc.)</span>';
-    return `${parentPart}${catPart}${esc(line.name_snapshot)} ${accTag}${saleTag}`;
+    return `<span class="acc-indent"></span>${parentPart}${catPart}${esc(line.name_snapshot)} ${accTag}${saleTag}`;
   }
   return `<span class="item-name">${esc(line.name_snapshot)}</span>${saleTag}`;
 }
@@ -798,13 +1032,13 @@ function itemsBlock(tpl, order) {
   const cfg = tpl.items_config;
   const rows = [];
   const headers = [];
-  headers.push('<th>Item</th>');
-  if (cfg.show_code) headers.push('<th>Item Code</th>');
-  if (cfg.show_qty) headers.push('<th class="right">Qty</th>');
-  headers.push('<th class="right">Price</th>');
-  if (cfg.show_discount) headers.push('<th class="right">Disc</th>');
-  if (cfg.show_tax) headers.push('<th class="right">Tax</th>');
-  headers.push('<th class="right">Total</th>');
+  headers.push('<th class="col-item">Item</th>');
+  if (cfg.show_code) headers.push('<th class="col-code">Item Code</th>');
+  if (cfg.show_qty) headers.push('<th class="right col-qty">Qty</th>');
+  headers.push('<th class="right col-num">Price</th>');
+  if (cfg.show_discount) headers.push('<th class="right col-num">Disc</th>');
+  if (cfg.show_tax) headers.push('<th class="right col-num">Tax</th>');
+  headers.push('<th class="right col-num">Total</th>');
   const colSpan = headers.length;
 
   const billOrder = {
@@ -825,20 +1059,31 @@ function itemsBlock(tpl, order) {
     parts.saleDetachedFromProducts.length > 0;
   const showRentSaleHeaders = hasRentSection && hasSaleSection;
   const { rentSubtotal, saleSubtotal } = computeRentSaleSubtotalsFromPartition(parts);
+  const rentQty =
+    sumPrintedQty(parts.rentItems) +
+    (cfg.show_accessories
+      ? sumAccessoryMapQty(parts.rentAccessoriesByItem) + sumPrintedQty(parts.rentExternal)
+      : 0);
+  const saleQty =
+    sumPrintedQty(parts.saleItems) +
+    sumPrintedQty((parts.saleDetachedFromProducts || []).map((row) => row.accessory)) +
+    (cfg.show_accessories
+      ? sumAccessoryMapQty(parts.saleAccessoriesByItem) + sumPrintedQty(parts.saleExternal)
+      : 0);
 
   const pushLineRow = (line, { isAccessory, isSale, parentProduct }) => {
     const cells = [];
     cells.push(`<td>${itemNameCell(line, { isAccessory, isSale, parentProduct })}</td>`);
     if (cfg.show_code) {
       const code = esc(line.code_snapshot || '—');
-      cells.push(`<td><span class="item-code">${code}</span></td>`);
+      cells.push(`<td class="col-code"><span class="item-code">${code}</span></td>`);
     }
-    if (cfg.show_qty) cells.push(`<td class="right">${line.qty}</td>`);
-    cells.push(`<td class="right">${formatCurrency(line.price)}</td>`);
+    if (cfg.show_qty) cells.push(`<td class="right col-qty">${line.qty}</td>`);
+    cells.push(`<td class="right col-num">${formatBillAmount(line.price)}</td>`);
     if (cfg.show_discount)
-      cells.push(`<td class="right">${formatCurrency(line.discount || 0)}</td>`);
-    if (cfg.show_tax) cells.push(`<td class="right">${formatCurrency(line.tax || 0)}</td>`);
-    cells.push(`<td class="right">${formatCurrency(line.total)}</td>`);
+      cells.push(`<td class="right col-num">${formatBillAmount(line.discount)}</td>`);
+    if (cfg.show_tax) cells.push(`<td class="right col-num">${formatBillAmount(line.tax)}</td>`);
+    cells.push(`<td class="right col-num">${formatBillAmount(line.total)}</td>`);
     const classes = [];
     if (isAccessory) classes.push('item-acc');
     if (isSale) classes.push('item-sale');
@@ -851,14 +1096,16 @@ function itemsBlock(tpl, order) {
     rows.push(`<tr class="${cls}"><td colspan="${colSpan}">${esc(label)}</td></tr>`);
   };
 
-  const pushSubtotalRow = (label, amount, kind) => {
+  const pushSubtotalRow = (label, amount, qty, kind) => {
     const kindClass = kind === 'sale' ? 'subtotal-row-sale' : 'subtotal-row-rent';
-    rows.push(
-      `<tr class="section-subtotal ${kindClass}">` +
-        `<td colspan="${colSpan - 1}">${esc(label)}</td>` +
-        `<td class="right">${formatCurrency(amount)}</td>` +
-        `</tr>`
-    );
+    const labelColSpan = cfg.show_code ? 2 : 1;
+    const cells = [`<td colspan="${labelColSpan}">${esc(label)}</td>`];
+    if (cfg.show_qty) cells.push(`<td class="right col-qty subtotal-qty">${formatBillQty(qty)}</td>`);
+    cells.push('<td class="right col-num"></td>');
+    if (cfg.show_discount) cells.push('<td class="col-num"></td>');
+    if (cfg.show_tax) cells.push('<td class="col-num"></td>');
+    cells.push(`<td class="right col-num">${formatBillAmount(amount)}</td>`);
+    rows.push(`<tr class="section-subtotal ${kindClass}">${cells.join('')}</tr>`);
   };
 
   if (showRentSaleHeaders && hasRentSection) {
@@ -883,7 +1130,7 @@ function itemsBlock(tpl, order) {
   }
 
   if (showRentSaleHeaders && hasRentSection) {
-    pushSubtotalRow('Rent subtotal', rentSubtotal, 'rent');
+    pushSubtotalRow('Rent subtotal', rentSubtotal, rentQty, 'rent');
   }
 
   if (hasSaleSection) {
@@ -909,7 +1156,7 @@ function itemsBlock(tpl, order) {
       }
     }
     if (showRentSaleHeaders) {
-      pushSubtotalRow('Sale subtotal', saleSubtotal, 'sale');
+      pushSubtotalRow('Sale subtotal', saleSubtotal, saleQty, 'sale');
     }
   }
 
@@ -971,8 +1218,8 @@ function totalsBlock(tpl, order) {
   const pay = summarizeBillPaymentTotals(order);
 
   const splitRows = showSplit
-    ? `<tr class="rent-subtotal"><td>Rent subtotal</td><td class="right">${formatCurrency(rentSubtotal)}</td></tr>
-        <tr class="sale-subtotal"><td>Sale subtotal</td><td class="right">${formatCurrency(saleSubtotal)}</td></tr>`
+    ? `<tr class="rent-subtotal"><td>Rent subtotal</td><td class="right">${formatBillAmount(rentSubtotal)}</td></tr>
+        <tr class="sale-subtotal"><td>Sale subtotal</td><td class="right">${formatBillAmount(saleSubtotal)}</td></tr>`
     : '';
 
   const creditDetailRow =
@@ -981,24 +1228,56 @@ function totalsBlock(tpl, order) {
       : '';
 
   const paymentRows = pay.hasCredit
-    ? `<tr class="credit-applied"><td>Credit note applied</td><td class="right">${formatCurrency(pay.creditNoteApplied)}</td></tr>
+    ? `<tr class="credit-applied"><td>Credit note applied</td><td class="right">${formatBillAmount(pay.creditNoteApplied)}</td></tr>
         ${creditDetailRow}
-        ${pay.cashPaid > 0 ? `<tr><td>Paid (cash)</td><td class="right">${formatCurrency(pay.cashPaid)}</td></tr>` : ''}
-        <tr class="balance"><td>You give</td><td class="right">${formatCurrency(pay.balance)}</td></tr>`
-    : `<tr><td>Paid</td><td class="right">${formatCurrency(order.paid_amount || 0)}</td></tr>
-        <tr class="balance"><td>Balance due</td><td class="right">${formatCurrency(order.balance || 0)}</td></tr>`;
+        ${pay.cashPaid > 0 ? `<tr><td>Paid (cash)</td><td class="right">${formatBillAmount(pay.cashPaid)}</td></tr>` : ''}
+        <tr class="balance"><td>You give</td><td class="right">${formatBillAmount(pay.balance)}</td></tr>`
+    : `<tr><td>Paid</td><td class="right">${formatBillAmount(order.paid_amount)}</td></tr>
+        <tr class="balance"><td>Balance due</td><td class="right">${formatBillAmount(order.balance)}</td></tr>`;
+
+  const discountAmount = orderBillDiscount(order);
+  const taxAmount = orderBillTax(order);
+  const securityAmount = orderBillSecurity(order);
+  const billBalance = pay.hasCredit ? pay.balance : orderBillBalance(order);
+  const payableAmount = orderPayableAmount(order, billBalance);
+  const notesInner = [
+    showBillRemarks(tpl, order)
+      ? `<div class="notes-block"><div class="section-label">Remarks</div><div class="notes-box remarks-highlight">${esc(orderCustomerRemarks(order))}</div></div>`
+      : '',
+    showBillReference(tpl, order)
+      ? `<div class="notes-block"><div class="section-label">Reference</div><div class="detail-value">${esc(orderReferenceName(order))}</div></div>`
+      : '',
+    securityAmount
+      ? `<div class="notes-block"><div class="section-label">Security</div><div class="detail-value">${formatBillAmount(securityAmount)}</div></div>`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('');
 
   return `
-    <div class="totals-wrap">
-      <table class="totals">
-        ${splitRows}
-        <tr><td>Subtotal</td><td class="right">${formatCurrency(order.subtotal || order.total_amount)}</td></tr>
-        ${order.discount_amount ? `<tr><td>Discount</td><td class="right">${formatCurrency(order.discount_amount)}</td></tr>` : ''}
-        ${order.tax_amount ? `<tr><td>Tax</td><td class="right">${formatCurrency(order.tax_amount)}</td></tr>` : ''}
-        ${order.security_deposit ? `<tr><td>Security deposit</td><td class="right">${formatCurrency(order.security_deposit)}</td></tr>` : ''}
-        <tr class="grand-total"><td>Grand total</td><td class="right">${formatCurrency(order.total_amount)}</td></tr>
-        ${paymentRows}
-      </table>
+    <div class="bill-bottom">
+      <div class="bill-bottom-notes">
+        ${notesInner ? `<div class="notes-card">${notesInner}</div>` : ''}
+      </div>
+      <div class="totals-wrap">
+        <table class="totals">
+          ${splitRows}
+          <tr><td>Subtotal</td><td class="right">${formatBillAmount(order.subtotal || order.total_amount)}</td></tr>
+          ${
+            discountAmount
+              ? `<tr class="bill-discount"><td>Discount</td><td class="right">${formatBillAmount(discountAmount)}</td></tr>`
+              : ''
+          }
+          ${
+            taxAmount
+              ? `<tr><td>Tax</td><td class="right">${formatBillAmount(taxAmount)}</td></tr>`
+              : ''
+          }
+          <tr class="grand-total"><td>Grand total</td><td class="right">${formatBillAmount(order.total_amount)}</td></tr>
+          ${paymentRows}
+          <tr class="payable"><td>Payable amount</td><td class="right">${formatBillAmount(payableAmount)}</td></tr>
+        </table>
+      </div>
     </div>
   `;
 }
@@ -1067,8 +1346,8 @@ function manualBillBody({ tpl, billOrder, order, shopInfo, renderOptions }) {
     customer_name: order?.pickup_name || order?.customer_name || '',
     pickup_date: order?.pickup_date ? formatDate(order.pickup_date) : '',
     return_date: order?.return_date ? formatDate(order.return_date) : '',
-    total: formatCurrency(
-      billOrder?.total_amount ?? billOrder?.grand_total ?? billOrder?.total ?? 0
+    total: formatBillAmount(
+      billOrder?.total_amount ?? billOrder?.grand_total ?? billOrder?.total
     ),
   };
   const blockPattern = /{{\s*(header|customer|items|totals|footer|notes)\s*}}/gi;

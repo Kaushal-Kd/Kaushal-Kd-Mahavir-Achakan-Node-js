@@ -20,6 +20,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    host: true,
+    allowedHosts: true,
+    ...(process.env.WRS_NGROK
+      ? { hmr: { protocol: 'wss', clientPort: 443 } }
+      : {}),
     proxy: {
       '/api': {
         target: 'http://localhost:4000',

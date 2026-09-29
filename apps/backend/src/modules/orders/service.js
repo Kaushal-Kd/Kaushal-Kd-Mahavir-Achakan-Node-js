@@ -1068,6 +1068,7 @@ function applyItemsToCollectLineSelect(qb) {
     'c.name as customer_name',
     'c.phone1 as customer_phone',
     'c.phone2 as customer_phone2',
+    'c.phone2_name as customer_phone2_name',
     'c.whatsapp as customer_whatsapp',
     'c.address as customer_address',
     knex.raw('COALESCE(oi.code_snapshot, p.code) as product_code'),
@@ -1144,6 +1145,7 @@ function buildAccessoryOnlyPrepareLinesQb(shopId, query, opts = {}) {
     'c.name as customer_name',
     'c.phone1 as customer_phone',
     'c.phone2 as customer_phone2',
+    'c.phone2_name as customer_phone2_name',
     'c.whatsapp as customer_whatsapp',
     'c.address as customer_address',
     knex.raw('NULL as product_code'),
@@ -1220,6 +1222,7 @@ export async function listItemsToCollect(shopId, query) {
     'c.name as customer_name',
     'c.phone1 as customer_phone',
     'c.phone2 as customer_phone2',
+    'c.phone2_name as customer_phone2_name',
     'c.whatsapp as customer_whatsapp',
     'c.address as customer_address',
     'o.sales_person_id',
@@ -1323,6 +1326,7 @@ export async function listItemsToPrepare(shopId, query) {
     'c.name as customer_name',
     'c.phone1 as customer_phone',
     'c.phone2 as customer_phone2',
+    'c.phone2_name as customer_phone2_name',
     'c.whatsapp as customer_whatsapp',
     'c.address as customer_address',
     'o.sales_person_id',
@@ -1565,6 +1569,8 @@ export async function getOrder(shopId, id) {
   orderPayload.replacement_requirements = await listOrderReplacementRequirements(knex, shopId, id);
   if (customer) {
     orderPayload.customer_phone = customer.phone1;
+    orderPayload.customer_phone2 = customer.phone2;
+    orderPayload.customer_phone2_name = customer.phone2_name;
     orderPayload.customer_whatsapp = customer.whatsapp;
   }
   await attachNextBookingAlerts(knex, shopId, orderPayload);

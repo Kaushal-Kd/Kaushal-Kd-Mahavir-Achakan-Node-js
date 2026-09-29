@@ -4596,21 +4596,16 @@ const CreateOrder = ({ mode, orderId }) => {
             <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
               Customer Details
             </h3>
-            <div className="flex items-center gap-2">
-              <span className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-medium text-gray-700">
-                {gstEnabled ? 'Legacy GST Bill' : 'Kaccha Bill'}
-              </span>
-              {gstEnabled ? (
-                <label className="flex items-center gap-2 text-xs text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={igstBill}
-                    onChange={(e) => setIgstBill(e.target.checked)}
-                  />
-                  IGST Bill
-                </label>
-              ) : null}
-            </div>
+            {gstEnabled ? (
+              <label className="flex items-center gap-2 text-xs text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={igstBill}
+                  onChange={(e) => setIgstBill(e.target.checked)}
+                />
+                IGST Bill
+              </label>
+            ) : null}
           </div>
 
           <div ref={customerFieldRef} className="grid grid-cols-1 md:grid-cols-6 gap-2">
