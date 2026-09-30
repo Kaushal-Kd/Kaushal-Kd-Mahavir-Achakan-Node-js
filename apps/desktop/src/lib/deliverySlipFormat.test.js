@@ -24,6 +24,7 @@ test('product tokens show booking notes and exclude catalog remarks', () => {
       {
         id: 'item-1',
         code_snapshot: 'P-2',
+        name_snapshot: 'Marun sherwani',
         tailor_notes: 'Shorten sleeves',
         product_catalog_notes: 'Gold embroidery catalog remark',
       },
@@ -31,9 +32,30 @@ test('product tokens show booking notes and exclude catalog remarks', () => {
   });
 
   assert.equal(fields.find((field) => field.label === 'Notes')?.value, 'Shorten sleeves');
+  assert.equal(fields.find((field) => field.label === 'Name')?.value, 'Marun sherwani');
   assert.equal(
     fields.some((field) => field.label === 'Product remarks'),
     false
   );
   assert.equal(JSON.stringify(fields).includes('Gold embroidery catalog remark'), false);
+});
+
+test('product token field toggles hide code and still print the name', () => {
+  const fields = buildProductTokenSlipFields(
+    {
+      order_number: 'BOOK-2',
+      items: [{ id: 'item-2', code_snapshot: 'P-9', name_snapshot: 'Golden copper' }],
+    },
+    { product: { code: false, name: true, notes: false } }
+  );
+
+  assert.equal(
+    fields.some((field) => field.key === 'code'),
+    false
+  );
+  assert.equal(fields.find((field) => field.key === 'name')?.value, 'Golden copper');
+  assert.equal(
+    fields.some((field) => field.key === 'notes'),
+    false
+  );
 });

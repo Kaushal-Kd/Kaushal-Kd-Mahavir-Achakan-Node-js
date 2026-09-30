@@ -93,26 +93,97 @@ export function buildAccessoryTokenSegments(accessories, options = {}) {
     .filter((seg) => seg.category || seg.name);
 }
 
+export const DEFAULT_PRODUCT_TOKEN_FIELDS = Object.freeze({
+  address: true,
+  order: true,
+  pickup: true,
+  return: true,
+  code: true,
+  name: true,
+  notes: true,
+  barcode: true,
+});
+
+export const DEFAULT_ACCESSORY_TOKEN_FIELDS = Object.freeze({
+  order: true,
+  address: true,
+  customer: true,
+  pickup: true,
+  return: true,
+  accessories: true,
+});
+
+export const PRODUCT_TOKEN_FIELD_OPTIONS = Object.freeze([
+  { key: 'address', label: 'Address' },
+  { key: 'order', label: 'Order' },
+  { key: 'pickup', label: 'Pickup' },
+  { key: 'return', label: 'Return' },
+  { key: 'code', label: 'Code' },
+  { key: 'name', label: 'Product name' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'barcode', label: 'Barcode' },
+]);
+
+export const ACCESSORY_TOKEN_FIELD_OPTIONS = Object.freeze([
+  { key: 'order', label: 'Order' },
+  { key: 'address', label: 'Address' },
+  { key: 'customer', label: 'Customer' },
+  { key: 'pickup', label: 'Pickup' },
+  { key: 'return', label: 'Return' },
+  { key: 'accessories', label: 'Accessories' },
+]);
+
+/**
+ * @param {object} [saved]
+ */
+export function mergeTokenFields(saved = {}) {
+  return {
+    product: { ...DEFAULT_PRODUCT_TOKEN_FIELDS, ...(saved.product || {}) },
+    accessory: { ...DEFAULT_ACCESSORY_TOKEN_FIELDS, ...(saved.accessory || {}) },
+  };
+}
+
+/**
+ * @param {object} [fields]
+ * @param {'product' | 'accessory'} kind
+ * @param {string} key
+ */
+export function isTokenFieldEnabled(fields, kind, key) {
+  const group = kind === 'accessory' ? fields?.accessory : fields?.product;
+  if (!group || group[key] === undefined) return true;
+  return group[key] !== false;
+}
+
+function filterTokenFields(rows, fields, kind) {
+  return rows.filter((row) => isTokenFieldEnabled(fields, kind, row.key));
+}
+
 /**
  * Field rows for one pack-with-rent accessory token slip (one per booking).
  * @param {object} target — slip target with slipKind accessory + accessorySegments
- * @returns {Array<{ label: string, value?: string, wrap?: boolean, richSegments?: Array<{ category: string, name: string }> }>}
+ * @param {object} [fields]
+ * @returns {Array<{ key: string, label: string, value?: string, wrap?: boolean, richSegments?: Array<{ category: string, name: string }> }>}
  */
-export function buildAccessoryTokenSlipFields(target) {
+export function buildAccessoryTokenSlipFields(target, fields) {
   const address = pdfSafeText(resolveSlipOrderAddress(target));
   const customerName = pdfSafeText(resolveSlipCustomerName(target));
 
-  return [
-    { label: 'Order', value: pdfSafeText(target?.order_number || '') || '—' },
-    { label: 'Address', value: address || '—', wrap: true },
-    { label: 'Customer', value: customerName || '—', wrap: true },
-    { label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—' },
-    { label: 'Return', value: formatSlipDate(target?.return_date) || '—' },
-    {
-      label: 'Acc',
-      richSegments: Array.isArray(target?.accessorySegments) ? target.accessorySegments : [],
-    },
-  ];
+  return filterTokenFields(
+    [
+      { key: 'order', label: 'Order', value: pdfSafeText(target?.order_number || '') || '—' },
+      { key: 'address', label: 'Address', value: address || '—', wrap: true },
+      { key: 'customer', label: 'Customer', value: customerName || '—', wrap: true },
+      { key: 'pickup', label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—' },
+      { key: 'return', label: 'Return', value: formatSlipDate(target?.return_date) || '—' },
+      {
+        key: 'accessories',
+        label: 'Acc',
+        richSegments: Array.isArray(target?.accessorySegments) ? target.accessorySegments : [],
+      },
+    ],
+    fields,
+    'accessory'
+  );
 }
 
 /**
@@ -154,24 +225,40 @@ export function resolveSlipProductBookingNotes(item, row) {
 }
 
 /**
+ * Product display name for print-slip tokens.
+ * @param {object} [item]
+ * @returns {string}
+ */
+export function resolveSlipProductName(item) {
+  return String(item?.name_snapshot || item?.product_name || '').trim();
+}
+
+/**
  * Field rows for one per-product token slip.
  * @param {object} target — slip target with order fields + items[0]
- * @returns {Array<{ label: string, value: string, wrap?: boolean }>}
+ * @param {object} [fields]
+ * @returns {Array<{ key: string, label: string, value: string, wrap?: boolean }>}
  */
-export function buildProductTokenSlipFields(target) {
+export function buildProductTokenSlipFields(target, fields) {
   const item = Array.isArray(target?.items) ? target.items[0] : null;
   const address = pdfSafeText(resolveSlipOrderAddress(target));
   const productCode = pdfSafeText(resolveSlipProductCode(item, target));
+  const productName = pdfSafeText(resolveSlipProductName(item));
   const bookingNotes = pdfSafeText(resolveSlipProductBookingNotes(item, target));
 
-  return [
-    { label: 'Address', value: address || '—', wrap: true },
-    { label: 'Order', value: pdfSafeText(target?.order_number || '') || '—' },
-    { label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—' },
-    { label: 'Return', value: formatSlipDate(target?.return_date) || '—' },
-    { label: 'Code', value: productCode || '—' },
-    { label: 'Notes', value: bookingNotes || '—', wrap: true },
-  ];
+  return filterTokenFields(
+    [
+      { key: 'address', label: 'Address', value: address || '—', wrap: true },
+      { key: 'order', label: 'Order', value: pdfSafeText(target?.order_number || '') || '—' },
+      { key: 'pickup', label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—' },
+      { key: 'return', label: 'Return', value: formatSlipDate(target?.return_date) || '—' },
+      { key: 'code', label: 'Code', value: productCode || '—' },
+      { key: 'name', label: 'Name', value: productName || '—', wrap: true },
+      { key: 'notes', label: 'Notes', value: bookingNotes || '—', wrap: true },
+    ],
+    fields,
+    'product'
+  );
 }
 
 /**

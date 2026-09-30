@@ -16,6 +16,10 @@ import { useSelectedShopName } from '../../../hooks/useSelectedShopName.js';
 import { configurationsApi } from '../../../lib/api/configurations.js';
 import { billTemplatesApi } from '../../../lib/api/billTemplates.js';
 import { getApiErrorMessage } from '../../../lib/apiError.js';
+import {
+  ACCESSORY_TOKEN_FIELD_OPTIONS,
+  PRODUCT_TOKEN_FIELD_OPTIONS,
+} from '../../../lib/deliverySlipFormat.js';
 import { useAuthStore } from '../../../stores/authStore.js';
 import { useShopStore } from '../../../stores/shopStore.js';
 import { toast } from '../../../stores/uiStore.js';
@@ -73,6 +77,23 @@ const PAPER_SHORT = {
 };
 
 const paperLabelShort = (id) => PAPER_SHORT[id] || id;
+
+function tokenSideMarginMm(settings, key) {
+  const specific = Number(settings?.[key]);
+  if (Number.isFinite(specific)) return specific;
+  const shared = Number(settings?.token_page_margin_mm);
+  return Number.isFinite(shared) ? shared : 1.5;
+}
+
+function clampTokenSideMarginMm(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(15, Math.max(0, parsed));
+}
+
+function tokenFieldChecked(settings, kind, key) {
+  return settings?.token_fields?.[kind]?.[key] !== false;
+}
 
 /* ---------- main ---------- */
 
@@ -216,6 +237,20 @@ const BillTemplatesTab = () => {
   const updateDraft = (patch) => setDraft((d) => ({ ...d, ...patch }));
   const updateSection = (section, patch) =>
     setDraft((d) => ({ ...d, [section]: { ...(d[section] || {}), ...patch } }));
+  const updateTokenField = (kind, key, value) =>
+    setDraft((d) => ({
+      ...d,
+      page_settings: {
+        ...(d.page_settings || {}),
+        token_fields: {
+          ...(d.page_settings?.token_fields || {}),
+          [kind]: {
+            ...(d.page_settings?.token_fields?.[kind] || {}),
+            [key]: value,
+          },
+        },
+      },
+    }));
 
   const handleSave = () => {
     if (!current) return;
@@ -542,7 +577,7 @@ const BillTemplatesTab = () => {
 
               <Section
                 title="Booking token printing"
-                description="Prints a 75 × 50 mm landscape page that matches the sticker. Print dialog: paper USER (2.85 × 1.97 in), Actual size, margins None. TSC Printing Preferences: Orientation Portrait (stock is already wide × short). Do not pick Landscape or 2 × 4 — that stands the token upright."
+                description="Same 75 × 50 mm landscape page on every PC — do not change width/height per computer. TSC Edit Stock must be Width 72.4 mm (2.85 in) × Height 50.0 mm (1.97 in), liner 1.3 mm (0.05 in) L/R, Die-Cut, Orientation Portrait. Width is the long side (across the head); Height is one sticker feed. If Width is 50 and Height is 72.4, the token splits across labels. Print dialog: paper USER, Actual size, margins None. Preview must look wide, not tall."
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input
@@ -584,22 +619,84 @@ const BillTemplatesTab = () => {
                       })
                     }
                   />
+                </div>
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input
                     type="number"
-                    min={0.8}
-                    max={4}
+                    min={0}
+                    max={15}
                     step="0.1"
-                    label="Page margin (mm)"
-                    value={draft.page_settings?.token_page_margin_mm ?? 1.5}
+                    label="Left margin (mm)"
+                    value={tokenSideMarginMm(draft.page_settings, 'token_margin_left_mm')}
                     onChange={(e) =>
                       updateSection('page_settings', {
-                        token_page_margin_mm: Math.min(
-                          4,
-                          Math.max(0.8, Number(e.target.value) || 1.5)
-                        ),
+                        token_margin_left_mm: clampTokenSideMarginMm(e.target.value),
                       })
                     }
                   />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={15}
+                    step="0.1"
+                    label="Top margin (mm)"
+                    value={tokenSideMarginMm(draft.page_settings, 'token_margin_top_mm')}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        token_margin_top_mm: clampTokenSideMarginMm(e.target.value),
+                      })
+                    }
+                  />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={15}
+                    step="0.1"
+                    label="Right margin (mm)"
+                    value={tokenSideMarginMm(draft.page_settings, 'token_margin_right_mm')}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        token_margin_right_mm: clampTokenSideMarginMm(e.target.value),
+                      })
+                    }
+                  />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={15}
+                    step="0.1"
+                    label="Bottom margin (mm)"
+                    value={tokenSideMarginMm(draft.page_settings, 'token_margin_bottom_mm')}
+                    onChange={(e) =>
+                      updateSection('page_settings', {
+                        token_margin_bottom_mm: clampTokenSideMarginMm(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+                <p className="mt-4 text-sm font-medium text-gray-800">Product token fields</p>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {PRODUCT_TOKEN_FIELD_OPTIONS.map((field) => (
+                    <Toggle
+                      key={`product-${field.key}`}
+                      size="sm"
+                      label={field.label}
+                      checked={tokenFieldChecked(draft.page_settings, 'product', field.key)}
+                      onChange={(v) => updateTokenField('product', field.key, v)}
+                    />
+                  ))}
+                </div>
+                <p className="mt-4 text-sm font-medium text-gray-800">Accessory token fields</p>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {ACCESSORY_TOKEN_FIELD_OPTIONS.map((field) => (
+                    <Toggle
+                      key={`accessory-${field.key}`}
+                      size="sm"
+                      label={field.label}
+                      checked={tokenFieldChecked(draft.page_settings, 'accessory', field.key)}
+                      onChange={(v) => updateTokenField('accessory', field.key, v)}
+                    />
+                  ))}
                 </div>
               </Section>
 

@@ -32,6 +32,11 @@ async function getTokenLayout() {
     minHeightMm: settings.token_min_height_mm,
     fontSize: settings.token_font_size,
     pageMarginMm: settings.token_page_margin_mm,
+    leftMarginMm: settings.token_margin_left_mm,
+    topMarginMm: settings.token_margin_top_mm,
+    rightMarginMm: settings.token_margin_right_mm,
+    bottomMarginMm: settings.token_margin_bottom_mm,
+    tokenFields: settings.token_fields,
   };
 }
 

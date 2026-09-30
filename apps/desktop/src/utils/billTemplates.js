@@ -24,6 +24,7 @@ import {
   partitionOrderForBill,
   sortAccessoriesByDisplayOrder,
 } from '../lib/bookingAccessoryCart.js';
+import { mergeTokenFields } from '../lib/deliverySlipFormat.js';
 
 import { renderBillBarcodeMarkup } from './billBarcode.js';
 
@@ -104,6 +105,7 @@ export const DEFAULT_TEMPLATE = {
     token_min_height_mm: 0,
     token_font_size: 7,
     token_page_margin_mm: 1.5,
+    token_fields: mergeTokenFields(),
   },
   custom_content: {
     enabled: false,
@@ -198,7 +200,11 @@ export function mergeTemplate(tpl) {
     footer_config: { ...base.footer_config, ...(tpl?.footer_config || {}) },
     typography: { ...base.typography, ...(tpl?.typography || {}) },
     colors: { ...base.colors, ...(tpl?.colors || {}) },
-    page_settings: { ...base.page_settings, ...(tpl?.page_settings || {}) },
+    page_settings: {
+      ...base.page_settings,
+      ...(tpl?.page_settings || {}),
+      token_fields: mergeTokenFields(tpl?.page_settings?.token_fields),
+    },
     custom_content: { ...base.custom_content, ...(tpl?.custom_content || {}) },
     logo_url: tpl?.logo_url || null,
     logo_width: tpl?.logo_width || 120,

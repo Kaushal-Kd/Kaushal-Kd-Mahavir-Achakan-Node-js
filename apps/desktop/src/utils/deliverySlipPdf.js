@@ -3,6 +3,8 @@ import { jsPDF } from 'jspdf';
 import {
   buildAccessoryTokenSlipFields,
   buildProductTokenSlipFields,
+  isTokenFieldEnabled,
+  mergeTokenFields,
   resolveSlipProductCode,
 } from '../lib/deliverySlipFormat.js';
 import { barcodeToDataUrl } from './barcodePdf.js';
@@ -15,8 +17,9 @@ const LABEL_VALUE_GAP = 1.4;
 
 /**
  * Physical sticker is 75 mm wide × 50 mm tall (landscape) on a TSC TE244.
- * The print page must match that size. A 4×4 page on USER 2.85×1.97 in stock
- * makes Chrome/TSC rotate the token (text stands upright / overflows the die-cut).
+ * The print page matches that size on every PC. TSC stock must be
+ * 72.4 × 50 mm (2.85 × 1.97 in) — never 50 × 72.4, or one page feeds
+ * 1.5 stickers and the token splits. A 4×4 page on USER stock rotates it.
  */
 export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
 export const TOKEN_PRINT_PAGE_MM = TOKEN_LABEL_SIZE_MM;
@@ -75,6 +78,11 @@ function clampedNumber(value, fallback, min, max) {
   return Math.min(max, Math.max(min, parsed));
 }
 
+function resolveSideMargin(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return clampedNumber(value, fallback, 0, 15);
+}
+
 function looksLikeLegacyA4Token(settings = {}) {
   const width = Number(settings.widthMm);
   const height = Number(settings.heightMm);
@@ -106,9 +114,21 @@ export function normalizeTokenLayout(settings = {}) {
     : clampedNumber(
         settings.pageMarginMm,
         DEFAULT_TOKEN_LAYOUT.pageMarginMm,
-        0.8,
-        4
+        0,
+        15
       );
+  const leftMarginMm = legacy
+    ? pageMarginMm
+    : resolveSideMargin(settings.leftMarginMm, pageMarginMm);
+  const rightMarginMm = legacy
+    ? pageMarginMm
+    : resolveSideMargin(settings.rightMarginMm, pageMarginMm);
+  const topMarginMm = legacy
+    ? pageMarginMm
+    : resolveSideMargin(settings.topMarginMm, pageMarginMm);
+  const bottomMarginMm = legacy
+    ? pageMarginMm
+    : resolveSideMargin(settings.bottomMarginMm, pageMarginMm);
   return {
     widthMm: rawSize.widthMm,
     heightMm: rawSize.heightMm,
@@ -118,10 +138,10 @@ export function normalizeTokenLayout(settings = {}) {
     fontSize,
     lineHeightMm: Math.max(2.8, Number((fontSize * 0.48).toFixed(3))),
     pageMarginMm,
-    leftMarginMm: pageMarginMm,
-    rightMarginMm: pageMarginMm,
-    topMarginMm: pageMarginMm,
-    bottomMarginMm: pageMarginMm,
+    leftMarginMm,
+    rightMarginMm,
+    topMarginMm,
+    bottomMarginMm,
     slipPaddingMm: clampedNumber(
       settings.slipPaddingMm,
       DEFAULT_TOKEN_LAYOUT.slipPaddingMm,
@@ -130,6 +150,7 @@ export function normalizeTokenLayout(settings = {}) {
     ),
     barcodeMaxWidthMm: DEFAULT_TOKEN_LAYOUT.barcodeMaxWidthMm,
     barcodeMaxHeightMm: DEFAULT_TOKEN_LAYOUT.barcodeMaxHeightMm,
+    tokenFields: mergeTokenFields(settings.tokenFields),
   };
 }
 
@@ -145,10 +166,15 @@ function isAccessorySlip(target) {
  * @param {object} target
  * @returns {Array<{ label: string, value?: string, wrap?: boolean, richSegments?: Array<{ category: string, name: string }> }>}
  */
-function buildTokenSlipFields(target) {
+function buildTokenSlipFields(target, layout) {
+  const fields = layout?.tokenFields;
   return isAccessorySlip(target)
-    ? buildAccessoryTokenSlipFields(target)
-    : buildProductTokenSlipFields(target);
+    ? buildAccessoryTokenSlipFields(target, fields)
+    : buildProductTokenSlipFields(target, fields);
+}
+
+function showProductBarcode(layout) {
+  return isTokenFieldEnabled(layout?.tokenFields, 'product', 'barcode');
 }
 
 /**
@@ -283,7 +309,7 @@ function measureFieldsHeight(doc, fields, innerWidth, layout) {
  * @returns {number}
  */
 function measureBarcodeBlockHeight(target, barcode, innerWidth, layout) {
-  if (isAccessorySlip(target)) return 0;
+  if (isAccessorySlip(target) || !showProductBarcode(layout)) return 0;
   let h = layout.lineHeightMm;
   if (!barcode?.dataUrl) return h + layout.lineHeightMm;
   const aspect = barcode.widthPx / barcode.heightPx;
@@ -307,7 +333,7 @@ function measureBarcodeBlockHeight(target, barcode, innerWidth, layout) {
  * @returns {number}
  */
 function measureSlipHeight(doc, target, innerWidth, barcode, layout) {
-  const fields = buildTokenSlipFields(target);
+  const fields = buildTokenSlipFields(target, layout);
   return (
     layout.slipPaddingMm * 2 +
     2 +
@@ -412,11 +438,11 @@ function drawSlip(doc, target, barcode, x, startY, slipWidth, layout) {
     layout.heightMm - (layout.topMarginMm ?? layout.pageMarginMm) - (layout.bottomMarginMm ?? layout.pageMarginMm);
   const measuredHeight = measureSlipHeight(doc, target, innerWidth, barcode, layout);
   const slipHeight = Math.min(Math.max(measuredHeight, layout.minHeightMm || 0), maxHeight);
-  const fields = buildTokenSlipFields(target);
+  const fields = buildTokenSlipFields(target, layout);
 
   let y = startY + layout.slipPaddingMm + 1.6;
   y = drawFields(doc, x + layout.slipPaddingMm, y, innerWidth, fields, layout);
-  if (!isAccessorySlip(target)) {
+  if (!isAccessorySlip(target) && showProductBarcode(layout)) {
     drawBarcodeBlock(doc, x + layout.slipPaddingMm, y, innerWidth, barcode, layout);
   }
 
@@ -427,11 +453,16 @@ function drawSlip(doc, target, barcode, x, startY, slipWidth, layout) {
  * @param {object[]} targets
  * @returns {Promise<Array<{ target: object, barcode: { dataUrl: string, widthPx: number, heightPx: number } | null }>>}
  */
-async function prepareSlipRows(targets) {
+async function prepareSlipRows(targets, settings = {}) {
   const list = Array.isArray(targets) ? targets : [];
+  const printBarcode = isTokenFieldEnabled(
+    mergeTokenFields(settings.tokenFields),
+    'product',
+    'barcode'
+  );
   return Promise.all(
     list.map(async (target) => {
-      if (isAccessorySlip(target)) {
+      if (isAccessorySlip(target) || !printBarcode) {
         return { target, barcode: null };
       }
       const item = Array.isArray(target?.items) ? target.items[0] : null;
@@ -497,7 +528,7 @@ function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
  * @returns {Promise<import('jspdf').jsPDF | null>}
  */
 export async function buildDeliverySlipPdfDoc(orders, settings = {}) {
-  const prepared = await prepareSlipRows(orders);
+  const prepared = await prepareSlipRows(orders, settings);
   return buildDeliverySlipPdfDocFromPrepared(prepared, settings);
 }
 
@@ -554,8 +585,8 @@ function accessorySegmentsHtml(segments) {
     .join('');
 }
 
-function tokenSlipSectionHtml(target, barcode) {
-  const fields = buildTokenSlipFields(target);
+function tokenSlipSectionHtml(target, barcode, layout) {
+  const fields = buildTokenSlipFields(target, layout);
   const rows = fields
     .map((field) => {
       const value = field.richSegments
@@ -566,7 +597,7 @@ function tokenSlipSectionHtml(target, barcode) {
     .join('');
 
   let barcodeBlock = '';
-  if (!isAccessorySlip(target)) {
+  if (!isAccessorySlip(target) && showProductBarcode(layout)) {
     barcodeBlock = barcode?.dataUrl
       ? `<div class="row"><b>PRODUCT BARCODE:</b></div><img class="bc" src="${barcode.dataUrl}" alt="" />`
       : `<div class="row"><b>PRODUCT BARCODE:</b><span>—</span></div>`;
@@ -578,7 +609,7 @@ function tokenSlipSectionHtml(target, barcode) {
 export function buildTokenPrintHtml(prepared, settings = {}, title = 'Token') {
   const layout = normalizeTokenLayout(settings);
   const origin = tokenContentOrigin(layout);
-  const pages = prepared.map(({ target, barcode }) => tokenSlipSectionHtml(target, barcode)).join('');
+  const pages = prepared.map(({ target, barcode }) => tokenSlipSectionHtml(target, barcode, layout)).join('');
   return `<!doctype html>
 <html>
 <head>
@@ -667,7 +698,7 @@ function printTokenHtml(html, title) {
  * @param {string} [title]
  */
 export async function printDeliverySlipPdf(orders, title = 'Print slips', settings = {}) {
-  const prepared = await prepareSlipRows(orders);
+  const prepared = await prepareSlipRows(orders, settings);
   if (!prepared.length) return;
   printTokenHtml(buildTokenPrintHtml(prepared, settings, title), title);
 }
