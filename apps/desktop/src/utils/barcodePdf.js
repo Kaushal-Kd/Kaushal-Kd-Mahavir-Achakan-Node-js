@@ -6,7 +6,7 @@ const DEFAULT_FORMAT = 'CODE128';
  * Render a scannable barcode as a PNG data URL for jsPDF addImage.
  *
  * @param {string} value — usually product code
- * @param {{ format?: string, width?: number, height?: number }} [opts]
+ * @param {{ format?: string, width?: number, height?: number, displayValue?: boolean }} [opts]
  * @returns {Promise<{ dataUrl: string, widthPx: number, heightPx: number } | null>}
  */
 export function barcodeToDataUrl(value, opts = {}) {
@@ -16,6 +16,7 @@ export function barcodeToDataUrl(value, opts = {}) {
   const format = opts.format || DEFAULT_FORMAT;
   const barWidth = opts.width ?? 2;
   const barHeight = opts.height ?? 40;
+  const displayValue = opts.displayValue === true;
 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   try {
@@ -24,8 +25,9 @@ export function barcodeToDataUrl(value, opts = {}) {
       width: barWidth,
       height: barHeight,
       fontSize: 10,
-      displayValue: true,
+      displayValue,
       margin: 2,
+      marginBottom: displayValue ? 2 : 0,
     });
   } catch {
     return Promise.resolve(null);

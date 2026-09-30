@@ -436,7 +436,7 @@ async function prepareSlipRows(targets) {
       }
       const item = Array.isArray(target?.items) ? target.items[0] : null;
       const code = resolveSlipProductCode(item, target);
-      const barcode = await barcodeToDataUrl(code);
+      const barcode = await barcodeToDataUrl(code, { displayValue: false });
       return { target, barcode };
     })
   );
