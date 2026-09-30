@@ -1,6 +1,8 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
+import { preparePrintedBill } from './billPrintFit.js';
+
 const PAPER_SPECS = {
   A4: { format: 'a4', iframeWidthPx: 794 },
   A5: { format: 'a5', iframeWidthPx: 559 },
@@ -43,6 +45,7 @@ async function renderHtmlToPdfDoc(html, paperSize = 'A4', options = {}) {
   doc.write(html);
   doc.close();
   await waitForBillDocument(iframe);
+  await preparePrintedBill(iframe);
 
   const root = doc.querySelector(rootSelector) || doc.querySelector('.bill-document') || doc.body;
   const canvas = await html2canvas(root, {

@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import PropTypes from 'prop-types';
+import { useEffect, useRef } from 'react';
 
 import { useIsLgUp } from '../../hooks/useBreakpoint.js';
 import { isModalCloseGuardActive } from '../../lib/modalCloseGuard.js';
@@ -37,6 +38,16 @@ const DataTable = ({
   wrapCells = false,
 }) => {
   const isLgUp = useIsLgUp();
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (node) {
+      node.scrollTop = 0;
+      node.scrollLeft = 0;
+    }
+    document.querySelector('.layout-main')?.scrollTo(0, 0);
+  }, [page, perPage]);
   const renderMobileRow =
     typeof mobileCardRender === 'function'
       ? mobileCardRender
@@ -86,7 +97,10 @@ const DataTable = ({
   if (loading) {
     return (
       <div className={listShellClass || undefined}>
-        <div className={embedded ? listScrollClass : clsx(listScrollClass, listShellClass && 'min-h-0')}>
+        <div
+          ref={scrollRef}
+          className={embedded ? listScrollClass : clsx(listScrollClass, listShellClass && 'min-h-0')}
+        >
           <table className={tableClass}>
             <thead>
               <tr>
@@ -132,7 +146,7 @@ const DataTable = ({
 
     return (
       <>
-        <div className={clsx('space-y-2', !embedded && 'min-w-0')}>
+        <div ref={scrollRef} className={clsx('space-y-2', !embedded && 'min-w-0')}>
           {rows.map((row, i) => {
             const key = rowKey ? row[rowKey] : i;
             const rowClass = getRowClassName ? getRowClassName(row) : '';
@@ -184,6 +198,7 @@ const DataTable = ({
   return (
     <div className={listShellClass || undefined}>
       <div
+        ref={scrollRef}
         className={clsx(
           listShellClass ? listScrollClass : outerLoaded,
           !listShellClass && '-mx-3 px-3 sm:mx-0 sm:px-0',

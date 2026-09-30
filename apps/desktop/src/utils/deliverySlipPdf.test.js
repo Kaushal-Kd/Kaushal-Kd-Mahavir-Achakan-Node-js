@@ -11,21 +11,24 @@ import {
 } from './deliverySlipPdf.js';
 
 describe('normalizeTokenLayout', () => {
-  it('defaults to 75 × 50 mm content on a square 4×4 page', () => {
+  it('defaults to a 75 × 50 mm landscape page that matches the sticker', () => {
     const layout = normalizeTokenLayout();
     assert.equal(layout.widthMm, TOKEN_LABEL_SIZE_MM.widthMm);
     assert.equal(layout.heightMm, TOKEN_LABEL_SIZE_MM.heightMm);
     assert.equal(layout.pageWidthMm, TOKEN_PRINT_PAGE_MM.widthMm);
     assert.equal(layout.pageHeightMm, TOKEN_PRINT_PAGE_MM.heightMm);
-    assert.equal(layout.leftMarginMm, 9);
+    assert.equal(layout.pageWidthMm, 75);
+    assert.equal(layout.pageHeightMm, 50);
+    assert.equal(layout.leftMarginMm, 1.5);
     assert.equal(layout.fontSize, 7);
   });
 
-  it('centers the 75 mm sticker on the 4 in path then insets for the print head', () => {
+  it('draws the token with inner margin only — no 4 in centering gutter', () => {
     const origin = tokenContentOrigin(normalizeTokenLayout());
-    assert.equal(origin.gutterMm, 13.3);
-    assert.equal(origin.x, 22.3);
-    assert.equal(origin.widthMm, 64);
+    assert.equal(origin.gutterMm, 0);
+    assert.equal(origin.x, 1.5);
+    assert.equal(origin.y, 1.5);
+    assert.equal(origin.widthMm, 72);
   });
 
   it('treats the old A4 token settings as 75 × 50 mm labels', () => {
@@ -37,9 +40,9 @@ describe('normalizeTokenLayout', () => {
     });
     assert.equal(layout.widthMm, 75);
     assert.equal(layout.heightMm, 50);
-    assert.equal(layout.pageWidthMm, 101.6);
-    assert.equal(layout.pageHeightMm, 101.6);
-    assert.equal(layout.leftMarginMm, 9);
+    assert.equal(layout.pageWidthMm, 75);
+    assert.equal(layout.pageHeightMm, 50);
+    assert.equal(layout.leftMarginMm, 1.5);
   });
 
   it('keeps 75 × 50 when the template stores the swapped 50 × 75 pair', () => {
@@ -51,12 +54,26 @@ describe('normalizeTokenLayout', () => {
     });
     assert.equal(layout.widthMm, 75);
     assert.equal(layout.heightMm, 50);
+    assert.equal(layout.pageWidthMm, 75);
+    assert.equal(layout.pageHeightMm, 50);
     assert.equal(layout.fontSize, 5.5);
+  });
+
+  it('uses the template page margin on all four sides', () => {
+    const layout = normalizeTokenLayout({
+      widthMm: 75,
+      heightMm: 50,
+      pageMarginMm: 2,
+    });
+    assert.equal(layout.leftMarginMm, 2);
+    assert.equal(layout.rightMarginMm, 2);
+    assert.equal(layout.topMarginMm, 2);
+    assert.equal(layout.bottomMarginMm, 2);
   });
 });
 
 describe('token PDF page', () => {
-  it('builds a square 4×4 portrait page so the TSC does not rotate the token', async () => {
+  it('builds a 75 × 50 mm landscape page so the TSC does not stand the token upright', async () => {
     const doc = await buildAccessoryTokenSlipPdfDoc({
       slipKind: 'accessory',
       order_number: 'NM-202609122006',
@@ -67,11 +84,11 @@ describe('token PDF page', () => {
       accessories: [{ category_name: 'MALA', name_snapshot: 'MARUN NEW BROCH VALLI' }],
     });
     assert.ok(doc);
-    assert.equal(Number(doc.internal.pageSize.getWidth().toFixed(1)), 101.6);
-    assert.equal(Number(doc.internal.pageSize.getHeight().toFixed(1)), 101.6);
+    assert.equal(Number(doc.internal.pageSize.getWidth().toFixed(1)), 75);
+    assert.equal(Number(doc.internal.pageSize.getHeight().toFixed(1)), 50);
   });
 
-  it('prints a 4×4 page with the token inset onto the centered 75 mm sticker', () => {
+  it('prints a 75 × 50 mm page with the token inset by the page margin', () => {
     const html = buildTokenPrintHtml(
       [
         {
@@ -87,7 +104,9 @@ describe('token PDF page', () => {
       {},
       'Accessory token'
     );
-    assert.match(html, /@page \{ size: 101\.6mm 101\.6mm;/);
-    assert.match(html, /padding: 10mm 2mm 2mm 22\.3mm;/);
+    assert.match(html, /@page \{ size: 75mm 50mm;/);
+    assert.match(html, /padding: 1\.5mm 1\.5mm 1\.5mm 1\.5mm;/);
+    assert.match(html, /width: 75mm;/);
+    assert.match(html, /height: 50mm;/);
   });
 });

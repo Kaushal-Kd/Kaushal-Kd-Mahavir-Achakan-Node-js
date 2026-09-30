@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { formatDate } from '@wrs/shared';
+import { ACTIONS, formatDate, hasPermission, MODULES } from '@wrs/shared';
 import PropTypes from 'prop-types';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { productsApi } from '../../lib/api/products.js';
+import { useAuthStore } from '../../stores/authStore.js';
 import Modal from '../ui/Modal.jsx';
 import ProductHistoryTable from './ProductHistoryTable.jsx';
 import ProductSaleHistoryTable from './ProductSaleHistoryTable.jsx';
@@ -17,6 +18,9 @@ const ProductRentalHistoryModal = ({
   windowTo = '',
 }) => {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const canEditBooking = hasPermission(user, MODULES.BOOKING, ACTIONS.EDIT);
+  const canEditSale = hasPermission(user, MODULES.SALES, ACTIONS.EDIT);
   const [showAllRentals, setShowAllRentals] = useState(false);
   const [showAllSales, setShowAllSales] = useState(false);
 
@@ -125,14 +129,22 @@ const ProductRentalHistoryModal = ({
                     ? saleHistoryQuery.error?.message || 'Could not load sale history'
                     : null
                 }
-                onEditSale={(saleId) => {
-                  onClose();
-                  navigate(`/sales/${saleId}/edit`);
-                }}
-                onEditBooking={(orderId) => {
-                  onClose();
-                  navigate(`/booking/${orderId}/edit`);
-                }}
+                onEditSale={
+                  canEditSale
+                    ? (saleId) => {
+                        onClose();
+                        navigate(`/sales/${saleId}/edit`);
+                      }
+                    : null
+                }
+                onEditBooking={
+                  canEditBooking
+                    ? (orderId) => {
+                        onClose();
+                        navigate(`/booking/${orderId}/edit`);
+                      }
+                    : null
+                }
               />
             </div>
           ) : null}
@@ -162,10 +174,14 @@ const ProductRentalHistoryModal = ({
                   ? rentalHistoryQuery.error?.message || 'Could not load history'
                   : null
               }
-              onEdit={(orderId) => {
-                onClose();
-                navigate(`/booking/${orderId}/edit`);
-              }}
+              onEdit={
+                canEditBooking
+                  ? (orderId) => {
+                      onClose();
+                      navigate(`/booking/${orderId}/edit`);
+                    }
+                  : null
+              }
             />
           </div>
         </div>

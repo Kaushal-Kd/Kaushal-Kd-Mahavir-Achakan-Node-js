@@ -211,11 +211,11 @@ function isThermal(paper) {
   return paper === 'thermal_58' || paper === 'thermal_80';
 }
 
-/** Normal table type for 1–20 printed lines. Shrink starts at 21. */
+/** @deprecated Row counts are not used for print fit; kept for older tests. */
 export const BILL_ONE_PAGE_ROW_MIN = 21;
-/** Compact size that keeps ~30–35 lines on one page. */
+/** @deprecated Row counts are not used for print fit; kept for older tests. */
 export const BILL_ONE_PAGE_COMPACT_AT = 30;
-/** Hold the compact size through this many lines; longer bills stay this small. */
+/** @deprecated Row counts are not used for print fit; kept for older tests. */
 export const BILL_ONE_PAGE_ROW_MAX = 35;
 
 function countAccessoryMap(map) {
@@ -259,50 +259,23 @@ export function countBillPrintRows(order, itemsConfig = {}) {
   return rows;
 }
 
-function roundFontSize(value, min) {
-  return Math.max(min, Math.round(Number(value) * 10) / 10);
-}
-
 /**
- * Shrink item-table type on A4/A5 so extra lines stay on one page.
- * 1–20 lines keep the normal font; 21–29 ease down; 30–35 use compact type.
- * Thermal bills keep the template font. Bills longer than 35 stay compact.
+ * Comfortable starting density. One-page tightening happens at print time by
+ * measuring the live bill against the CSS page box (`billPrintFit.js`).
  * @param {object} tpl
  * @param {object|null|undefined} order
  */
 export function applyBillPrintDensity(tpl, order) {
   const rows = countBillPrintRows(order, tpl.items_config);
-  const defaultDensity = {
-    compact: false,
-    rows,
-    pad_y: 7,
-    pad_x: 10,
-    head_pad_y: 8,
-    section_pad_y: 6,
-  };
-  if (isThermal(tpl.paper_size) || rows < BILL_ONE_PAGE_ROW_MIN) {
-    return { ...tpl, item_density: defaultDensity };
-  }
-  const ramp = Math.max(1, BILL_ONE_PAGE_COMPACT_AT - (BILL_ONE_PAGE_ROW_MIN - 1));
-  const t = Math.min(1, (rows - (BILL_ONE_PAGE_ROW_MIN - 1)) / ramp);
-  const scale = 1 - t * 0.28;
-  const base = Number(tpl.typography?.base_size) || 12;
-  const product = Number(tpl.typography?.product_size) || base;
-  const accessory = Number(tpl.typography?.accessory_size) || Math.max(6, base - 1);
   return {
     ...tpl,
-    typography: {
-      ...tpl.typography,
-      product_size: roundFontSize(product * scale, 8),
-      accessory_size: roundFontSize(accessory * scale, 7),
-    },
     item_density: {
-      compact: true,
+      compact: false,
       rows,
-      pad_y: Math.max(2, Math.round(7 - t * 5)),
-      pad_x: Math.max(5, Math.round(10 - t * 4)),
-      head_pad_y: Math.max(3, Math.round(8 - t * 5)),
-      section_pad_y: Math.max(2, Math.round(6 - t * 4)),
+      pad_y: 7,
+      pad_x: 10,
+      head_pad_y: 8,
+      section_pad_y: 6,
     },
   };
 }
@@ -311,9 +284,10 @@ function pageStyles(tpl) {
   const { paper_size, typography, colors, page_settings } = tpl;
   const thermal = isThermal(paper_size);
   const size = PAPER_SIZES.find((p) => p.id === paper_size) || PAPER_SIZES[0];
+  const pageMarginMm = thermal ? 3 : 8;
   const pageCss = thermal
-    ? `size: ${size.widthMm}mm auto; margin: 3mm;`
-    : `size: ${size.widthMm}mm ${size.heightMm}mm; margin: 8mm;`;
+    ? `size: ${size.widthMm}mm auto; margin: ${pageMarginMm}mm;`
+    : `size: ${size.widthMm}mm ${size.heightMm}mm; margin: ${pageMarginMm}mm;`;
   const brand = colors.brand || '#0C6EE1';
   const docPad = thermal ? '3mm 2.5mm 4mm' : '14mm 12mm 6mm';
   // Fall back to base_size for templates saved before these settings existed.
@@ -324,7 +298,8 @@ function pageStyles(tpl) {
   const itemPadX = Number(density.pad_x) || 10;
   const headPadY = Number(density.head_pad_y) || 8;
   const sectionPadY = Number(density.section_pad_y) || 6;
-  const tableLineHeight = density.compact ? 1.15 : 1.35;
+  const headingSize = Number(typography.heading_size) + 2;
+  const tableLineHeight = 1.35;
   const rawVerticalOffset = Number(page_settings?.vertical_offset_in);
   const verticalOffsetIn = Number.isFinite(rawVerticalOffset)
     ? Math.min(4, Math.max(-2, rawVerticalOffset))
@@ -343,11 +318,24 @@ function pageStyles(tpl) {
       body {
         font-family: 'Segoe UI', Inter, system-ui, Arial, sans-serif;
         color: #111827;
-        font-size: ${typography.base_size}px;
+        font-size: var(--bill-base-size, ${typography.base_size}px);
         line-height: 1.4;
         ${thermal ? `width: ${size.widthMm}mm;` : ''}
       }
       .bill-document {
+        --bill-base-size: ${typography.base_size}px;
+        --bill-product-size: ${productSize}px;
+        --bill-accessory-size: ${accessorySize}px;
+        --bill-heading-size: ${headingSize}px;
+        --bill-pad-y: ${itemPadY}px;
+        --bill-pad-x: ${itemPadX}px;
+        --bill-head-pad-y: ${headPadY}px;
+        --bill-section-pad-y: ${sectionPadY}px;
+        --bill-totals-pad-y: 3px;
+        --bill-table-lh: ${tableLineHeight};
+        --bill-chrome: 1;
+        --bill-page-zoom: 1;
+        zoom: var(--bill-page-zoom);
         padding: ${docPad};
         ${thermal ? '' : `padding-top: calc(14mm + ${letterheadTopIn}in);`}
         ${thermal ? '' : `padding-bottom: calc(6mm + ${letterheadBottomIn}in);`}
@@ -356,35 +344,35 @@ function pageStyles(tpl) {
         ${thermal ? '' : 'max-width: 210mm; margin: 0 auto;'}
       }
       h1, h2, h3 { margin: 0; line-height: 1.2; }
-      .muted { color: ${colors.muted}; font-size: ${typography.base_size - 1}px; }
+      .muted { color: ${colors.muted}; font-size: calc(var(--bill-base-size) - 1px); }
       .right { text-align: right; }
 
       .bill-header {
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        gap: 12px;
-        padding-bottom: 10px;
+        gap: calc(12px * var(--bill-chrome));
+        padding-bottom: calc(10px * var(--bill-chrome));
       }
-      .bill-header-brand { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+      .bill-header-brand { display: flex; align-items: center; gap: calc(8px * var(--bill-chrome)); min-width: 0; flex: 1; }
       .shop-name {
-        font-size: ${typography.heading_size + 2}px;
+        font-size: var(--bill-heading-size);
         font-weight: 700;
         color: ${brand};
         letter-spacing: -0.02em;
       }
-      .shop-meta { margin-top: 2px; color: ${colors.muted}; font-size: ${typography.base_size - 1}px; line-height: 1.35; max-width: 420px; }
+      .shop-meta { margin-top: 2px; color: ${colors.muted}; font-size: calc(var(--bill-base-size) - 1px); line-height: 1.35; max-width: 420px; }
       .bill-header-doc { text-align: right; flex-shrink: 0; }
       .doc-title {
-        font-size: ${typography.heading_size + 2}px;
+        font-size: var(--bill-heading-size);
         font-weight: 700;
         color: #111827;
         letter-spacing: 0.03em;
         text-transform: uppercase;
       }
-      .doc-sub { margin-top: 2px; font-size: ${typography.base_size - 1}px; color: #374151; }
+      .doc-sub { margin-top: 2px; font-size: calc(var(--bill-base-size) - 1px); color: #374151; }
       .doc-sub strong { color: ${brand}; font-weight: 700; }
-      .brand-rule { height: 2px; background: ${brand}; border-radius: 1px; margin-bottom: 8px; }
+      .brand-rule { height: 2px; background: ${brand}; border-radius: 1px; margin-bottom: calc(8px * var(--bill-chrome)); }
       .meta-box .bill-barcode {
         display: block;
         margin: 0 0 8px auto;
@@ -400,8 +388,8 @@ function pageStyles(tpl) {
         border: 1px solid ${colors.border};
         border-radius: 4px;
         background: #fafafa;
-        padding: 10px 14px;
-        margin-bottom: 8px;
+        padding: calc(10px * var(--bill-chrome)) 14px;
+        margin-bottom: calc(8px * var(--bill-chrome));
       }
       .info-grid-single { grid-template-columns: 1fr; }
       .info-grid {
@@ -411,7 +399,7 @@ function pageStyles(tpl) {
         align-items: start;
       }
       .section-label {
-        font-size: ${typography.base_size - 2}px;
+        font-size: calc(var(--bill-base-size) - 2px);
         font-weight: 700;
         letter-spacing: 0.06em;
         text-transform: uppercase;
@@ -419,7 +407,7 @@ function pageStyles(tpl) {
         margin-bottom: 4px;
       }
       .customer-name {
-        font-size: ${typography.base_size + 1}px;
+        font-size: calc(var(--bill-base-size) + 1px);
         font-weight: 700;
         color: #111827;
         word-break: break-word;
@@ -455,7 +443,7 @@ function pageStyles(tpl) {
         white-space: nowrap;
       }
       .field-label {
-        font-size: ${typography.base_size - 1}px;
+        font-size: calc(var(--bill-base-size) - 1px);
         font-weight: 700;
         color: #4b5563;
         padding-top: 1px;
@@ -474,7 +462,7 @@ function pageStyles(tpl) {
         border: 1px solid ${colors.border};
         border-left: 2px solid ${brand};
         border-radius: 3px;
-        font-size: ${typography.base_size - 1}px;
+        font-size: calc(var(--bill-base-size) - 1px);
         color: #374151;
         white-space: pre-wrap;
         line-height: 1.3;
@@ -516,23 +504,23 @@ function pageStyles(tpl) {
         border: 1px solid #4b5563;
         border-radius: 4px;
         overflow: hidden;
-        margin-bottom: 8px;
+        margin-bottom: calc(8px * var(--bill-chrome));
       }
       table.items {
         width: 100%;
         border-collapse: collapse;
-        font-size: ${typography.base_size}px;
+        font-size: var(--bill-base-size);
         margin: 0;
-        line-height: ${tableLineHeight};
+        line-height: var(--bill-table-lh);
       }
       table.items th {
         background: ${brand};
         color: #fff;
         font-weight: 600;
-        font-size: ${typography.base_size - 1}px;
+        font-size: calc(var(--bill-base-size) - 1px);
         letter-spacing: 0.02em;
         text-transform: uppercase;
-        padding: ${headPadY}px ${itemPadX}px;
+        padding: var(--bill-head-pad-y) var(--bill-pad-x);
         border-top: none;
         border-bottom: 1px solid #1d4ed8;
         border-left: none;
@@ -542,13 +530,13 @@ function pageStyles(tpl) {
       table.items th:first-child { padding-left: 12px; }
       table.items th:last-child { padding-right: 12px; }
       table.items td {
-        padding: ${itemPadY}px ${itemPadX}px;
+        padding: var(--bill-pad-y) var(--bill-pad-x);
         border-top: none;
         border-bottom: 1px solid #d1d5db;
         border-left: none;
         border-right: 1px solid #d1d5db;
         vertical-align: top;
-        font-size: ${productSize}px;
+        font-size: var(--bill-product-size);
       }
       table.items td:last-child { border-right: none; }
       table.items th.col-code,
@@ -570,15 +558,15 @@ function pageStyles(tpl) {
       .item-code {
         font-weight: 700;
         color: #111827;
-        font-size: ${Math.max(6, productSize - 1)}px;
+        font-size: calc(var(--bill-product-size) - 1px);
         white-space: nowrap;
       }
       .item-name { font-weight: 700; color: #111827; }
       table.items td:first-child { padding-left: 12px; }
       table.items td:last-child { padding-right: 12px; }
       table.items tbody tr:nth-child(even) td { background: #fafafa; }
-      table.items .item-acc td { font-size: ${accessorySize}px; }
-      table.items .item-acc td .muted { font-size: ${Math.max(6, accessorySize - 1)}px; }
+      table.items .item-acc td { font-size: var(--bill-accessory-size); }
+      table.items .item-acc td .muted { font-size: calc(var(--bill-accessory-size) - 1px); }
       table.items .item-acc td:first-child {
         padding-left: 36px;
         color: #4b5563;
@@ -591,10 +579,10 @@ function pageStyles(tpl) {
       .acc-indent { display: inline-block; min-width: 1.25em; }
       .section-row td {
         font-weight: 700;
-        font-size: ${typography.base_size - 1}px;
+        font-size: calc(var(--bill-base-size) - 1px);
         background: #f3f4f6;
         color: #374151;
-        padding: ${sectionPadY}px 12px;
+        padding: var(--bill-section-pad-y) 12px;
         border-top: none;
         border-bottom: 1px solid #d1d5db;
         border-left: none;
@@ -608,8 +596,8 @@ function pageStyles(tpl) {
       }
       .section-subtotal td {
         font-weight: 700;
-        font-size: ${typography.base_size - 1}px;
-        padding: ${sectionPadY}px 12px;
+        font-size: calc(var(--bill-base-size) - 1px);
+        padding: var(--bill-section-pad-y) 12px;
         border-top: none;
         border-bottom: 1px solid #d1d5db;
         border-left: none;
@@ -627,8 +615,8 @@ function pageStyles(tpl) {
         justify-content: space-between;
         align-items: flex-start;
         gap: 16px;
-        margin-bottom: 4px;
-        margin-top: 2px;
+        margin-bottom: calc(4px * var(--bill-chrome));
+        margin-top: calc(2px * var(--bill-chrome));
         ${thermal ? 'flex-direction: column;' : ''}
       }
       .bill-bottom-notes {
@@ -636,15 +624,65 @@ function pageStyles(tpl) {
         min-width: 0;
       }
       .bill-bottom-notes .section-label { margin-bottom: 2px; }
-      .bill-bottom-notes .notes-block + .notes-block { margin-top: 10px; }
+      .bill-bottom-notes .notes-block + .notes-block { margin-top: calc(6px * var(--bill-chrome)); }
       .notes-card {
-        display: inline-block;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
         max-width: 100%;
-        min-width: 200px;
-        border: 1px solid #9ca3af;
+        min-width: 0;
+        gap: calc(6px * var(--bill-chrome));
+        padding: 0;
+        border: none;
+        background: transparent;
+      }
+      .notes-block {
+        border: 1px solid #d1d5db;
         border-radius: 4px;
-        padding: 8px 10px;
+        padding: calc(6px * var(--bill-chrome)) 8px;
         background: #fff;
+      }
+      .notes-block-inline {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        column-gap: 10px;
+        row-gap: 0;
+        align-items: baseline;
+      }
+      .notes-block-inline .section-label {
+        margin-bottom: 0;
+        padding-top: 1px;
+      }
+      .notes-block-remarks {
+        border-color: #eab308;
+        background: #fffbeb;
+      }
+      .notes-block-reference {
+        border-color: #9ca3af;
+        border-left: 3px solid ${brand};
+        background: #f8fafc;
+      }
+      .notes-block-security {
+        border-color: #6b7280;
+        border-left: 3px solid #111827;
+        background: #f9fafb;
+      }
+      .notes-block-security .detail-value {
+        font-size: calc(var(--bill-base-size) + 1px);
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+      }
+      .notes-box-reference {
+        margin-top: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        font-weight: 700;
+        color: #111827;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        line-height: 1.3;
       }
       .totals-wrap {
         display: flex;
@@ -658,46 +696,57 @@ function pageStyles(tpl) {
         border: 1px solid ${colors.border};
         border-radius: 4px;
         overflow: hidden;
-        font-size: ${typography.base_size}px;
+        font-size: var(--bill-base-size);
         line-height: 1.2;
         page-break-inside: avoid;
         break-inside: avoid;
       }
-      table.totals td { padding: 3px 12px; border-bottom: 1px solid ${colors.border}; }
+      table.totals td { padding: var(--bill-totals-pad-y) 12px; border-bottom: 1px solid ${colors.border}; }
       table.totals tr:last-child td { border-bottom: none; }
       table.totals td:first-child { color: #4b5563; }
       table.totals .grand td {
         background: #f3f4f6;
         font-weight: 700;
-        font-size: ${typography.base_size}px;
+        font-size: var(--bill-base-size);
         color: #111827;
       }
       table.totals .grand-total td {
         background: ${brand};
         color: #fff;
         font-weight: 700;
-        font-size: ${typography.base_size + 1}px;
+        font-size: calc(var(--bill-base-size) + 1px);
         border-bottom: none;
-        padding: 5px 12px;
+        padding: calc(var(--bill-totals-pad-y) + 2px) 12px;
       }
       table.totals .balance td { font-weight: 700; color: ${brand}; page-break-after: avoid; break-after: avoid; }
       table.totals .payable td {
         background: #111827;
         color: #fff;
         font-weight: 700;
-        font-size: ${typography.base_size + 1}px;
-        padding: 5px 12px;
+        font-size: calc(var(--bill-base-size) + 1px);
+        padding: calc(var(--bill-totals-pad-y) + 2px) 12px;
         border-bottom: none;
+        vertical-align: middle;
         page-break-before: avoid;
         break-before: avoid;
         page-break-inside: avoid;
         break-inside: avoid;
       }
+      table.totals .payable .payable-label { line-height: 1.15; }
+      table.totals .payable .payable-hint {
+        margin-top: 1px;
+        font-size: calc(var(--bill-base-size) - 3px);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        line-height: 1.15;
+        color: #e5e7eb;
+      }
+      table.totals .payable td.right { white-space: nowrap; }
       table.totals .credit-applied td { font-weight: 600; color: ${brand}; }
       table.totals .credit-applied-detail td {
         padding-top: 2px;
         padding-bottom: 6px;
-        font-size: ${typography.base_size - 1}px;
+        font-size: calc(var(--bill-base-size) - 1px);
         color: #6b7280;
         border-bottom: 1px solid ${colors.border};
       }
@@ -708,43 +757,43 @@ function pageStyles(tpl) {
       .terms-card {
         border: 1px solid ${colors.border};
         border-radius: 4px;
-        padding: 8px 12px;
-        margin-top: 8px;
+        padding: calc(8px * var(--bill-chrome)) 12px;
+        margin-top: calc(8px * var(--bill-chrome));
         background: #fafafa;
       }
       .terms-card .section-label { margin-bottom: 3px; }
       .foot {
-        margin-top: 8px;
-        padding-top: 6px;
+        margin-top: calc(8px * var(--bill-chrome));
+        padding-top: calc(6px * var(--bill-chrome));
         border-top: 1px solid ${colors.border};
-        font-size: ${typography.base_size - 1}px;
+        font-size: calc(var(--bill-base-size) - 1px);
         font-weight: 600;
         color: ${brand};
         text-align: center;
       }
       .bill-notes-card {
-        margin-top: 14px;
-        padding: 12px 14px;
+        margin-top: calc(14px * var(--bill-chrome));
+        padding: calc(12px * var(--bill-chrome)) 14px;
         border: 1px solid ${colors.border};
         border-radius: 4px;
         background: #fafafa;
         page-break-inside: avoid;
       }
       .bill-notes-body {
-        font-size: ${typography.base_size - 1}px;
+        font-size: calc(var(--bill-base-size) - 1px);
         color: #374151;
         line-height: 1.5;
       }
       .bill-notes-body ul, .bill-notes-body ol { margin: 6px 0 6px 1.2em; padding: 0; }
       .bill-notes-body li { margin: 4px 0; }
       .bill-notes-body p { margin: 4px 0; }
-      .sig-row { display: flex; justify-content: space-between; gap: 32px; margin-top: 16px; padding: 0 4px; }
+      .sig-row { display: flex; justify-content: space-between; gap: 32px; margin-top: calc(16px * var(--bill-chrome)); padding: 0 4px; }
       .sig {
         flex: 1;
         border-top: 1px solid #9ca3af;
         padding-top: 8px;
         text-align: center;
-        font-size: ${typography.base_size - 1}px;
+        font-size: calc(var(--bill-base-size) - 1px);
         color: ${colors.muted};
       }
 
@@ -768,11 +817,16 @@ function pageStyles(tpl) {
       @media print {
         .no-print { display: none; }
         body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .bill-document { zoom: var(--bill-page-zoom); }
         table.items th { border-right: 1px solid rgba(255, 255, 255, 0.7) !important; }
         table.items th:last-child { border-right: none !important; }
         table.items td { border-right: 1px solid #d1d5db !important; border-bottom: 1px solid #d1d5db !important; }
         table.items td:last-child { border-right: none !important; }
         table.items tbody tr.item-acc td { background: #fff !important; }
+        .notes-block-remarks { background: #fffbeb !important; }
+        .notes-block-reference { background: #f8fafc !important; }
+        .notes-block-security { background: #f9fafb !important; }
+        .remarks-highlight { background: #fef9c3 !important; }
         table.totals { page-break-inside: avoid; break-inside: avoid; }
         table.totals tr.balance { page-break-after: avoid; break-after: avoid; }
         table.totals tr.payable {
@@ -1242,13 +1296,13 @@ function totalsBlock(tpl, order) {
   const payableAmount = orderPayableAmount(order, billBalance);
   const notesInner = [
     showBillRemarks(tpl, order)
-      ? `<div class="notes-block"><div class="section-label">Remarks</div><div class="notes-box remarks-highlight">${esc(orderCustomerRemarks(order))}</div></div>`
+      ? `<div class="notes-block notes-block-remarks"><div class="section-label">Remarks</div><div class="notes-box remarks-highlight">${esc(orderCustomerRemarks(order))}</div></div>`
       : '',
     showBillReference(tpl, order)
-      ? `<div class="notes-block"><div class="section-label">Reference</div><div class="detail-value">${esc(orderReferenceName(order))}</div></div>`
+      ? `<div class="notes-block notes-block-inline notes-block-reference"><div class="section-label">Reference</div><div class="notes-box-reference">${esc(orderReferenceName(order))}</div></div>`
       : '',
     securityAmount
-      ? `<div class="notes-block"><div class="section-label">Security</div><div class="detail-value">${formatBillAmount(securityAmount)}</div></div>`
+      ? `<div class="notes-block notes-block-inline notes-block-security"><div class="section-label">Security</div><div class="detail-value">${formatBillAmount(securityAmount)}</div></div>`
       : '',
   ]
     .filter(Boolean)
@@ -1275,7 +1329,7 @@ function totalsBlock(tpl, order) {
           }
           <tr class="grand-total"><td>Grand total</td><td class="right">${formatBillAmount(order.total_amount)}</td></tr>
           ${paymentRows}
-          <tr class="payable"><td>Payable amount</td><td class="right">${formatBillAmount(payableAmount)}</td></tr>
+          <tr class="payable"><td><div class="payable-label">Payable amount</div><div class="payable-hint">Security + balance due</div></td><td class="right">${formatBillAmount(payableAmount)}</td></tr>
         </table>
       </div>
     </div>
@@ -1364,6 +1418,24 @@ function manualBillBody({ tpl, billOrder, order, shopInfo, renderOptions }) {
   return parts.join('');
 }
 
+function billDocumentFitAttrs(tpl) {
+  if (isThermal(tpl.paper_size)) return '';
+  const size = PAPER_SIZES.find((p) => p.id === tpl.paper_size) || PAPER_SIZES[0];
+  const baseSize = Number(tpl.typography?.base_size) || 12;
+  const productSize = Number(tpl.typography?.product_size) || baseSize;
+  const accessorySize = Number(tpl.typography?.accessory_size) || Math.max(6, baseSize - 1);
+  const headingSize = (Number(tpl.typography?.heading_size) || 18) + 2;
+  return [
+    ' data-bill-fit="page"',
+    ` data-page-height-mm="${size.heightMm}"`,
+    ' data-page-margin-mm="8"',
+    ` data-product-size="${productSize}"`,
+    ` data-accessory-size="${accessorySize}"`,
+    ` data-base-size="${baseSize}"`,
+    ` data-heading-size="${headingSize}"`,
+  ].join('');
+}
+
 /**
  * Render a full bill HTML document for the given order and template.
  * Shop is expected to look like `{ name, address, phone }`.
@@ -1396,7 +1468,7 @@ export function renderBillHtml({
       ${footerBlock(tpl, renderOptions)}
     `;
 
-  return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(docTitle)}</title>${pageStyles(tpl)}</head><body><div class="bill-document">${body}</div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(docTitle)}</title>${pageStyles(tpl)}</head><body><div class="bill-document"${billDocumentFitAttrs(tpl)}>${body}</div></body></html>`;
 }
 
 /** A lightweight sample order used for the live preview. */

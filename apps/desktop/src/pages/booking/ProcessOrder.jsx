@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ACTIONS,
   formatBookingDateTime,
   formatCurrency,
   formatDate,
+  hasPermission,
+  MODULES,
   ORDER_STATUS_LABELS,
 } from '@wrs/shared';
-import { Printer, XCircle, ArrowLeft, MessageCircle } from 'lucide-react';
+import { Printer, XCircle, ArrowLeft, MessageCircle, Pencil } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
@@ -27,6 +30,7 @@ import { useSelectedShopName } from '../../hooks/useSelectedShopName.js';
 import { useChecklistCommand } from '../../hooks/api/useChecklistCommand.js';
 import { bookingCustomerContactSummary } from '../../lib/bookingCustomerHydration.js';
 import { customersApi } from '../../lib/api/customers.js';
+import { authApi } from '../../lib/api/auth.js';
 import { ordersApi } from '../../lib/api/orders.js';
 import { getApiErrorMessage } from '../../lib/apiError.js';
 import {
@@ -68,6 +72,7 @@ import { runStageTemplateWhatsApp } from '../../lib/whatsappOutbound.js';
 import { paymentAccountsApi } from '../../lib/api/paymentAccounts.js';
 import { securityAccountsApi } from '../../lib/api/securityAccounts.js';
 import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
+import { useAuthStore } from '../../stores/authStore.js';
 import { toast } from '../../stores/uiStore.js';
 import { printBill } from '../../utils/printBill.js';
 import ReplacementRequirementsPanel from './ReplacementRequirementsPanel.jsx';
@@ -110,12 +115,16 @@ const ProcessOrder = () => {
   const returnLabel = location.state?.returnLabel || 'Back';
   const queryClient = useQueryClient();
   const selectedShopName = useSelectedShopName();
+  const user = useAuthStore((s) => s.user);
+  const canEditBooking = hasPermission(user, MODULES.BOOKING, ACTIONS.EDIT);
   const [combinedChargeOpen, setCombinedChargeOpen] = useState(false);
   const [combinedModalRemarks, setCombinedModalRemarks] = useState('');
   const [combinedModalAccountId, setCombinedModalAccountId] = useState('');
   const [combinedModalPreview, setCombinedModalPreview] = useState({ lines: [], total: 0 });
   const [adminPasswordOpen, setAdminPasswordOpen] = useState(false);
   const [adminPasswordError, setAdminPasswordError] = useState('');
+  const [editUnlockOpen, setEditUnlockOpen] = useState(false);
+  const [editUnlockError, setEditUnlockError] = useState('');
   const [pendingBulkAction, setPendingBulkAction] = useState(null);
   const [pendingConditionRows] = useState(() => new Set());
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -356,6 +365,10 @@ const ProcessOrder = () => {
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Failed to cancel'),
   });
 
+  const verifyEditMut = useMutation({
+    mutationFn: ({ admin_password }) => authApi.verifyShopAdminPassword({ admin_password }),
+  });
+
   useEffect(() => {
     setCombinedChargeOpen(false);
     setCombinedModalRemarks('');
@@ -484,6 +497,16 @@ const ProcessOrder = () => {
   const order = data;
   const customer = data?.customer || customerDetailsQuery.data?.data || null;
   const contactSummary = bookingCustomerContactSummary(customer, order);
+  const showEditOrderButton = canEditBooking && order.status !== 'cancelled';
+  const startEditOrder = () => {
+    if (!showEditOrderButton) return;
+    if (order.status === 'delivered') {
+      setEditUnlockError('');
+      setEditUnlockOpen(true);
+      return;
+    }
+    navigate(`/booking/${order.id}/edit`);
+  };
 
   const items = order.items || [];
   const accessories = order.accessories || [];
@@ -686,6 +709,11 @@ const ProcessOrder = () => {
             {returnTo ? (
               <Button variant="secondary" icon={ArrowLeft} onClick={() => navigate(returnTo)}>
                 {returnLabel}
+              </Button>
+            ) : null}
+            {showEditOrderButton ? (
+              <Button variant="secondary" icon={Pencil} onClick={startEditOrder}>
+                Edit
               </Button>
             ) : null}
             <Button variant="secondary" icon={Printer} onClick={() => printBill(order)}>
@@ -1022,6 +1050,36 @@ const ProcessOrder = () => {
         isOpen={cancelOpen}
         orderId={order.id}
         onClose={() => setCancelOpen(false)}
+      />
+
+      <AdminPasswordModal
+        isOpen={editUnlockOpen}
+        title="Edit delivered booking"
+        description="Editing a delivered booking resets checklist stages only for newly added items after you save. Existing delivered items are unchanged. The booking status may move back until new lines are completed. Payments are kept; balance is recalculated from the new total."
+        orderLabel={order.order_number || order.bill_no || ''}
+        shopName={selectedShopName}
+        errorMessage={editUnlockError}
+        loading={verifyEditMut.isPending}
+        confirmLabel="Continue to edit"
+        onClearError={() => setEditUnlockError('')}
+        onClose={() => {
+          if (!verifyEditMut.isPending) {
+            setEditUnlockOpen(false);
+            setEditUnlockError('');
+          }
+        }}
+        onConfirm={async (adminPassword) => {
+          setEditUnlockError('');
+          try {
+            await verifyEditMut.mutateAsync({ admin_password: adminPassword });
+            setEditUnlockOpen(false);
+            navigate(`/booking/${order.id}/edit`, {
+              state: { deliveredEditUnlock: true, adminPassword },
+            });
+          } catch (err) {
+            setEditUnlockError(getApiErrorMessage(err, 'Could not verify password'));
+          }
+        }}
       />
 
       <AdminPasswordModal

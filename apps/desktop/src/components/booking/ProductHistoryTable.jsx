@@ -109,15 +109,17 @@ const ProductHistoryTable = ({ rows, loading, fetchError, onEdit }) => {
               </td>
               <td className="px-3 py-2 text-gray-600">{r.customer_phone || '—'}</td>
               <td className="px-3 py-2 text-right bg-brand-light/30">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  icon={Pencil}
-                  title="Edit booking"
-                  aria-label="Edit booking"
-                  onClick={() => onEdit(r.order_id)}
-                />
+                {onEdit ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    icon={Pencil}
+                    title="Edit booking"
+                    aria-label="Edit booking"
+                    onClick={() => onEdit(r.order_id)}
+                  />
+                ) : null}
               </td>
             </tr>
           ))}
@@ -146,12 +148,13 @@ ProductHistoryTable.propTypes = {
   ).isRequired,
   loading: PropTypes.bool,
   fetchError: PropTypes.string,
-  onEdit: PropTypes.func.isRequired,
+  onEdit: PropTypes.func,
 };
 
 ProductHistoryTable.defaultProps = {
   loading: false,
   fetchError: null,
+  onEdit: null,
 };
 
 export default ProductHistoryTable;

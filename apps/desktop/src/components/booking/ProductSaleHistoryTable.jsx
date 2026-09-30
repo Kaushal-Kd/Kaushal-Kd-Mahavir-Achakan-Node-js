@@ -110,19 +110,21 @@ const ProductSaleHistoryTable = ({ rows, loading, fetchError, onEditSale, onEdit
                 </Badge>
               </td>
               <td className="px-3 py-2 text-right bg-brand-light/30">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  icon={Pencil}
-                  title={r.source === 'sale' ? 'Edit sale' : 'Edit booking'}
-                  aria-label={r.source === 'sale' ? 'Edit sale' : 'Edit booking'}
-                  onClick={() =>
-                    r.source === 'sale'
-                      ? onEditSale(r.record_id)
-                      : onEditBooking(r.record_id)
-                  }
-                />
+                {(r.source === 'sale' ? onEditSale : onEditBooking) ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    icon={Pencil}
+                    title={r.source === 'sale' ? 'Edit sale' : 'Edit booking'}
+                    aria-label={r.source === 'sale' ? 'Edit sale' : 'Edit booking'}
+                    onClick={() =>
+                      r.source === 'sale'
+                        ? onEditSale(r.record_id)
+                        : onEditBooking(r.record_id)
+                    }
+                  />
+                ) : null}
               </td>
             </tr>
           ))}
@@ -151,13 +153,15 @@ ProductSaleHistoryTable.propTypes = {
   ).isRequired,
   loading: PropTypes.bool,
   fetchError: PropTypes.string,
-  onEditSale: PropTypes.func.isRequired,
-  onEditBooking: PropTypes.func.isRequired,
+  onEditSale: PropTypes.func,
+  onEditBooking: PropTypes.func,
 };
 
 ProductSaleHistoryTable.defaultProps = {
   loading: false,
   fetchError: null,
+  onEditSale: null,
+  onEditBooking: null,
 };
 
 export default ProductSaleHistoryTable;

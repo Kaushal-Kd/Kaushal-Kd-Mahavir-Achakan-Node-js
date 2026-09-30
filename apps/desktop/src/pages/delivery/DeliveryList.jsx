@@ -199,6 +199,7 @@ const DeliveryList = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const canEditBooking = hasPermission(user, MODULES.BOOKING, ACTIONS.EDIT);
   const canViewLogs = hasPermission(user, MODULES.AUDIT_LOGS, ACTIONS.VIEW);
 
   useEffect(() => {
@@ -555,17 +556,19 @@ const DeliveryList = () => {
             onKeyDown={(e) => e.stopPropagation()}
             role="presentation"
           >
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              icon={Pencil}
-              iconOnly
-              className="rounded-none bg-brand-light/60 text-brand hover:bg-brand-light"
-              title="Edit"
-              aria-label="Edit booking"
-              onClick={() => navigate(`/booking/${orderId}/edit`)}
-            />
+            {canEditBooking ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                icon={Pencil}
+                iconOnly
+                className="rounded-none bg-brand-light/60 text-brand hover:bg-brand-light"
+                title="Edit"
+                aria-label="Edit booking"
+                onClick={() => navigate(`/booking/${orderId}/edit`)}
+              />
+            ) : null}
             <Button
               type="button"
               variant="ghost"

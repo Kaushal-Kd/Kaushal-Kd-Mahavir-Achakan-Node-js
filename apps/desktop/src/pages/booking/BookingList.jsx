@@ -191,6 +191,7 @@ const BookingList = () => {
     (s) => s.shops.find((shop) => shop.id === s.selectedShopId)?.shop_name || ''
   );
   const canDeleteBooking = hasPermission(user, MODULES.BOOKING, ACTIONS.DELETE);
+  const canEditBooking = hasPermission(user, MODULES.BOOKING, ACTIONS.EDIT);
   const canViewLogs = hasPermission(user, MODULES.AUDIT_LOGS, ACTIONS.VIEW);
 
   useEffect(() => {
@@ -551,7 +552,7 @@ const BookingList = () => {
               onKeyDown={(e) => e.stopPropagation()}
               role="presentation"
             >
-              {cancelled ? (
+              {canEditBooking && cancelled ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -566,7 +567,8 @@ const BookingList = () => {
                     setReconcileUnlockTarget(r);
                   }}
                 />
-              ) : (
+              ) : null}
+              {canEditBooking && !cancelled ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -585,7 +587,7 @@ const BookingList = () => {
                     navigate(`/booking/${r.id}/edit`);
                   }}
                 />
-              )}
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -724,6 +726,7 @@ const BookingList = () => {
       tokenPrintLoading,
       tokenPrintTarget,
       canDeleteBooking,
+      canEditBooking,
       canViewLogs,
       selectedShopId,
     ]

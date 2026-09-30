@@ -14,34 +14,32 @@ const BARCODE_GAP = 1.2;
 const LABEL_VALUE_GAP = 1.4;
 
 /**
- * Physical sticker is 75 mm wide × 50 mm tall on a 4 in TSC TE244.
- * The print page is a square 4×4 so Chrome/TSC does not rotate it.
- * The 75 mm sticker is centered on that 4 in path (13.3 mm gutter) and
- * inset for the print head — a 50 mm-wide page sits too far left and
- * the first letters print off the label.
+ * Physical sticker is 75 mm wide × 50 mm tall (landscape) on a TSC TE244.
+ * The print page must match that size. A 4×4 page on USER 2.85×1.97 in stock
+ * makes Chrome/TSC rotate the token (text stands upright / overflows the die-cut).
  */
 export const TOKEN_LABEL_SIZE_MM = Object.freeze({ widthMm: 75, heightMm: 50 });
-export const TOKEN_PRINT_PAGE_MM = Object.freeze({ widthMm: 101.6, heightMm: 101.6 });
+export const TOKEN_PRINT_PAGE_MM = TOKEN_LABEL_SIZE_MM;
 
 /**
- * Where the 75×50 token is drawn on the 4×4 page.
+ * Where the token is drawn on the page. Page size equals the sticker, so there
+ * is no 4 in centering gutter — only the inner margin.
  * @param {ReturnType<typeof normalizeTokenLayout>} layout
  */
 export function tokenContentOrigin(layout) {
   const pageW = Number(layout?.pageWidthMm) || TOKEN_PRINT_PAGE_MM.widthMm;
   const labelW = Number(layout?.widthMm) || TOKEN_LABEL_SIZE_MM.widthMm;
   const boxW = Math.min(labelW, pageW);
-  const gutterMm = Math.max(0, (pageW - boxW) / 2);
-  const headInset = Number(layout?.leftMarginMm) || DEFAULT_TOKEN_LAYOUT.leftMarginMm;
-  const rightInset = Number(layout?.rightMarginMm) || DEFAULT_TOKEN_LAYOUT.rightMarginMm;
+  const left = Number(layout?.leftMarginMm) || DEFAULT_TOKEN_LAYOUT.leftMarginMm;
+  const right = Number(layout?.rightMarginMm) || DEFAULT_TOKEN_LAYOUT.rightMarginMm;
   const top = Number(layout?.topMarginMm) || DEFAULT_TOKEN_LAYOUT.topMarginMm;
-  const x = gutterMm + headInset;
-  const widthMm = Math.min(boxW - headInset - rightInset, pageW - x - rightInset);
+  const x = left;
+  const widthMm = Math.min(boxW - left - right, pageW - x - right);
   return {
     x: Number(x.toFixed(2)),
     y: top,
     widthMm: Number(Math.max(24, widthMm).toFixed(2)),
-    gutterMm: Number(gutterMm.toFixed(2)),
+    gutterMm: 0,
   };
 }
 
@@ -52,11 +50,11 @@ const DEFAULT_TOKEN_LAYOUT = Object.freeze({
   pageHeightMm: TOKEN_PRINT_PAGE_MM.heightMm,
   minHeightMm: 0,
   fontSize: 7,
-  pageMarginMm: 2,
-  leftMarginMm: 9,
-  rightMarginMm: 2,
-  topMarginMm: 10,
-  bottomMarginMm: 2,
+  pageMarginMm: 1.5,
+  leftMarginMm: 1.5,
+  rightMarginMm: 1.5,
+  topMarginMm: 1.5,
+  bottomMarginMm: 1.5,
   slipPaddingMm: 1.6,
   barcodeMaxWidthMm: 40,
   barcodeMaxHeightMm: 7,
@@ -103,19 +101,27 @@ export function normalizeTokenLayout(settings = {}) {
       ? TOKEN_LABEL_SIZE_MM.heightMm
       : clampedNumber(settings.heightMm, DEFAULT_TOKEN_LAYOUT.heightMm, 40, 80)
   );
+  const pageMarginMm = legacy
+    ? DEFAULT_TOKEN_LAYOUT.pageMarginMm
+    : clampedNumber(
+        settings.pageMarginMm,
+        DEFAULT_TOKEN_LAYOUT.pageMarginMm,
+        0.8,
+        4
+      );
   return {
     widthMm: rawSize.widthMm,
     heightMm: rawSize.heightMm,
-    pageWidthMm: DEFAULT_TOKEN_LAYOUT.pageWidthMm,
-    pageHeightMm: DEFAULT_TOKEN_LAYOUT.pageHeightMm,
+    pageWidthMm: rawSize.widthMm,
+    pageHeightMm: rawSize.heightMm,
     minHeightMm: 0,
     fontSize,
     lineHeightMm: Math.max(2.8, Number((fontSize * 0.48).toFixed(3))),
-    pageMarginMm: DEFAULT_TOKEN_LAYOUT.pageMarginMm,
-    leftMarginMm: DEFAULT_TOKEN_LAYOUT.leftMarginMm,
-    rightMarginMm: DEFAULT_TOKEN_LAYOUT.rightMarginMm,
-    topMarginMm: DEFAULT_TOKEN_LAYOUT.topMarginMm,
-    bottomMarginMm: DEFAULT_TOKEN_LAYOUT.bottomMarginMm,
+    pageMarginMm,
+    leftMarginMm: pageMarginMm,
+    rightMarginMm: pageMarginMm,
+    topMarginMm: pageMarginMm,
+    bottomMarginMm: pageMarginMm,
     slipPaddingMm: clampedNumber(
       settings.slipPaddingMm,
       DEFAULT_TOKEN_LAYOUT.slipPaddingMm,
@@ -468,7 +474,8 @@ function buildDeliverySlipPdfDocFromPrepared(prepared, settings = {}) {
 
   const baseLayout = normalizeTokenLayout(settings);
   const pageFormat = [baseLayout.pageWidthMm, baseLayout.pageHeightMm];
-  const orientation = baseLayout.pageWidthMm > baseLayout.pageHeightMm ? 'landscape' : 'portrait';
+  // 75×50 must stay landscape. jsPDF portrait would swap it to a tall 50×75 page.
+  const orientation = baseLayout.pageWidthMm >= baseLayout.pageHeightMm ? 'landscape' : 'portrait';
   const doc = new jsPDF({
     unit: 'mm',
     format: pageFormat,
@@ -579,12 +586,12 @@ export function buildTokenPrintHtml(prepared, settings = {}, title = 'Token') {
 <title>${escapeTokenHtml(title)}</title>
 <style>
   @page { size: ${layout.pageWidthMm}mm ${layout.pageHeightMm}mm; margin: 0; }
-  html, body { margin: 0; padding: 0; background: #fff; }
+  html, body { margin: 0; padding: 0; background: #fff; width: ${layout.pageWidthMm}mm; height: ${layout.pageHeightMm}mm; }
   * { box-sizing: border-box; }
   .token {
     width: ${layout.pageWidthMm}mm;
     height: ${layout.pageHeightMm}mm;
-    padding: ${origin.y}mm ${layout.rightMarginMm}mm 2mm ${origin.x}mm;
+    padding: ${origin.y}mm ${layout.rightMarginMm}mm ${layout.bottomMarginMm}mm ${origin.x}mm;
     font-family: Helvetica, Arial, sans-serif;
     font-size: ${layout.fontSize}pt;
     line-height: 1.35;

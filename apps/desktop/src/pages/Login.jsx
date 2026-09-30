@@ -250,7 +250,6 @@ const Login = () => {
               <Input
                 label="Phone number"
                 type="text"
-                inputMode="tel"
                 autoComplete="username"
                 required
                 value={identity}

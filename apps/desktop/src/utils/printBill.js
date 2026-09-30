@@ -15,6 +15,7 @@ import { customOrderToBillOrder } from '../lib/customOrderBill.js';
 import { ordersApi } from '../lib/api/orders.js';
 import { saleToBillOrder } from '../lib/saleBill.js';
 import { mergeTemplate, prepareOrderForBill, renderBillHtml } from './billTemplates.js';
+import { preparePrintedBill } from './billPrintFit.js';
 import {
   applyShopLogoToTemplate,
   billPrintTitle,
@@ -29,7 +30,7 @@ export function renderAndPrint(html, { title = 'Invoice' } = {}) {
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
   frame.style.cssText =
-    'position:fixed;left:-10000px;top:0;width:0;height:0;border:0;visibility:hidden;pointer-events:none';
+    'position:fixed;left:-10000px;top:0;width:210mm;min-height:297mm;height:auto;border:0;visibility:hidden;pointer-events:none;background:#fff';
   document.body.appendChild(frame);
 
   const doc = frame.contentWindow?.document;
@@ -64,10 +65,11 @@ export function renderAndPrint(html, { title = 'Invoice' } = {}) {
   };
 
   let printed = false;
-  const triggerPrintOnce = () => {
+  const triggerPrintOnce = async () => {
     if (printed) return;
     printed = true;
     try {
+      await preparePrintedBill(frame);
       win.focus();
       win.print();
     } catch {
@@ -81,7 +83,9 @@ export function renderAndPrint(html, { title = 'Invoice' } = {}) {
     win.onafterprint = cleanup;
   }
 
-  const schedulePrint = () => setTimeout(triggerPrintOnce, 350);
+  const schedulePrint = () => setTimeout(() => {
+    triggerPrintOnce();
+  }, 350);
   frame.addEventListener('load', schedulePrint, { once: true });
   setTimeout(schedulePrint, 600);
 }

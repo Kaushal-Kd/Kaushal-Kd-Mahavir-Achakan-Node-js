@@ -226,12 +226,18 @@ describe('bill template blank-paper controls', () => {
     assert.ok(securityIdx > refIdx && grandIdx > securityIdx);
     assert.ok(refIdx > itemsIdx && remarksIdx > itemsIdx);
     assert.match(html, /class="notes-box remarks-highlight"/);
+    assert.match(html, /notes-block-remarks/);
+    assert.match(html, /notes-block-inline notes-block-reference/);
+    assert.match(html, /notes-block-inline notes-block-security/);
     assert.match(html, /\.remarks-highlight \{[^}]*background: #fef9c3/);
+    assert.match(html, /\.notes-block-reference \{[^}]*border-left: 3px solid/);
+    assert.match(html, /\.notes-block-security \{[^}]*border-left: 3px solid #111827/);
     assert.doesNotMatch(html.slice(nameIdx, itemsIdx), />Reference</);
     assert.doesNotMatch(html.slice(nameIdx, itemsIdx), />Remarks</);
     assert.doesNotMatch(html.slice(html.indexOf('class="totals"'), grandIdx), />Security</);
     assert.match(html, /class="notes-card"/);
     assert.match(html, />Payable amount</);
+    assert.match(html, /Security \+ balance due/);
     assert.match(html, /₹4,350/);
     assert.match(html, /Priya Sharma/);
     assert.match(html, /Handle embroidery with care/);
@@ -269,6 +275,7 @@ describe('bill template blank-paper controls', () => {
     });
     assert.match(unpaidHtml, /class="notes-card"/);
     assert.match(unpaidHtml, />Payable amount</);
+    assert.match(unpaidHtml, /Security \+ balance due/);
     assert.match(unpaidHtml, /₹14,150/);
     assert.match(unpaidHtml, /table\.totals tr\.payable \{[^}]*page-break-before: avoid/);
     const paidHtml = renderBillHtml({
@@ -399,44 +406,22 @@ describe('bill template blank-paper controls', () => {
     assert.match(html, />Sale subtotal<\/td><td class="right col-qty subtotal-qty">3<\/td>/);
   });
 
-  it('keeps the default item font for 1 to 20 table lines', () => {
+  it('prints with live CSS fit hooks instead of a frozen row-count font', () => {
     const shortTpl = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(6));
     assert.equal(shortTpl.item_density.compact, false);
     assert.equal(shortTpl.typography.product_size, null);
-    const twenty = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(20));
-    assert.equal(twenty.item_density.compact, false);
-    assert.equal(twenty.typography.product_size, null);
+    const longTpl = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(35));
+    assert.equal(longTpl.item_density.compact, false);
+    assert.equal(longTpl.typography.product_size, null);
     const shortHtml = renderBillHtml({ order: orderWithLineCount(12), shop });
-    assert.match(shortHtml, /font-size: 12px;/);
-    assert.match(shortHtml, /padding: 7px 10px;/);
-  });
-
-  it('shrinks table type from 21 lines and holds compact size at 30 to 35', () => {
-    const midCount = 25;
-    assert.ok(midCount >= BILL_ONE_PAGE_ROW_MIN && midCount < BILL_ONE_PAGE_COMPACT_AT);
-    assert.equal(countBillPrintRows(orderWithLineCount(midCount)), midCount);
-    const midTpl = applyBillPrintDensity(mergeTemplate({}), orderWithLineCount(midCount));
-    assert.equal(midTpl.item_density.compact, true);
-    assert.ok(midTpl.typography.product_size < 12);
-    assert.ok(midTpl.typography.accessory_size < 11);
-    const midHtml = renderBillHtml({ order: orderWithLineCount(midCount), shop });
-    assert.match(midHtml, new RegExp(`font-size: ${midTpl.typography.product_size}px;`));
-    assert.doesNotMatch(midHtml, /padding: 7px 10px;/);
-    const compactTpl = applyBillPrintDensity(
-      mergeTemplate({}),
-      orderWithLineCount(BILL_ONE_PAGE_COMPACT_AT)
-    );
-    assert.ok(compactTpl.typography.product_size < midTpl.typography.product_size);
-    const thirtyFive = applyBillPrintDensity(
-      mergeTemplate({}),
-      orderWithLineCount(BILL_ONE_PAGE_ROW_MAX)
-    );
-    assert.equal(thirtyFive.typography.product_size, compactTpl.typography.product_size);
-    const overflow = applyBillPrintDensity(
-      mergeTemplate({}),
-      orderWithLineCount(BILL_ONE_PAGE_ROW_MAX + 6)
-    );
-    assert.equal(overflow.item_density.compact, true);
-    assert.equal(overflow.typography.product_size, compactTpl.typography.product_size);
+    assert.match(shortHtml, /--bill-product-size: 12px;/);
+    assert.match(shortHtml, /--bill-pad-y: 7px;/);
+    assert.match(shortHtml, /data-bill-fit="page"/);
+    const longHtml = renderBillHtml({ order: orderWithLineCount(32), shop });
+    assert.match(longHtml, /--bill-product-size: 12px;/);
+    assert.match(longHtml, /data-bill-fit="page"/);
+    assert.equal(countBillPrintRows(orderWithLineCount(25)), 25);
+    assert.ok(BILL_ONE_PAGE_ROW_MIN < BILL_ONE_PAGE_COMPACT_AT);
+    assert.ok(BILL_ONE_PAGE_COMPACT_AT <= BILL_ONE_PAGE_ROW_MAX);
   });
 });
