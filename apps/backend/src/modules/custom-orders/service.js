@@ -7,9 +7,10 @@ import {
   getCustomOrderTrialReminderEntry,
   isCustomOrderTrialDashboardEligible,
   isCustomOrderTrialOverdue,
+  maxPrefixedSequence,
+  nextDocumentSequence,
   normalizeCustomOrderMeasurements,
   normalizeCustomOrderRetrials,
-  normalizeOrderNumberPrefix,
   normalizeCustomOrderSqlDate,
   normalizeProductCode,
   toLocalISODate,
@@ -21,6 +22,7 @@ import {
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadDocumentTypeNumbering } from '../../lib/documentNumbering.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
 import { listCustomOrderFieldDefinitions } from '../custom-order-fields/service.js';
@@ -43,46 +45,39 @@ async function loadAppSettingsMap(shopId) {
   return buildAppSettingsMap(rows);
 }
 
-async function getCustomOrderPrefix(shopId) {
-  const map = await loadAppSettingsMap(shopId);
-  const raw = getAppSettingValue(map, 'CUSTOM_ORDER_NUMBER_PREFIX');
-  return normalizeOrderNumberPrefix(raw) || 'CO';
-}
-
-async function nextCustomOrderSequence(trx, shopId) {
+async function nextCustomOrderSequence(trx, shopId, prefix, startSequence) {
   let row = await trx('settings')
     .where({ shop_id: shopId, key: SEQ_KEY })
     .forUpdate()
     .first();
 
+  const numbers = await trx('custom_orders').where({ shop_id: shopId }).pluck('order_number');
+  const fromNumbers = maxPrefixedSequence(numbers, prefix);
+  const fromSettings = row ? Math.max(0, Number(row.value) - 1) : 0;
+  const seq = nextDocumentSequence(Math.max(fromNumbers, fromSettings), startSequence);
+
   if (!row) {
-    const maxRow = await trx('custom_orders')
-      .where({ shop_id: shopId })
-      .select(knex.raw('COUNT(*) as c'))
-      .first();
-    const count = Number(maxRow?.c || 0);
-    let start = 1;
-    if (count > 0) {
-      const last = await trx('custom_orders')
-        .where({ shop_id: shopId })
-        .orderBy('created_at', 'desc')
-        .select('order_number')
+    try {
+      await trx('settings').insert({
+        id: uuid(),
+        shop_id: shopId,
+        key: SEQ_KEY,
+        value: String(seq + 1),
+      });
+      return seq;
+    } catch (error) {
+      if (error?.code !== 'ER_DUP_ENTRY' && error?.errno !== 1062) throw error;
+      row = await trx('settings')
+        .where({ shop_id: shopId, key: SEQ_KEY })
+        .forUpdate()
         .first();
-      const m = String(last?.order_number || '').match(/-(\d+)$/);
-      if (m) start = Number(m[1]) + 1;
     }
-    await trx('settings').insert({
-      id: uuid(),
-      shop_id: shopId,
-      key: SEQ_KEY,
-      value: String(start + 1),
-    });
-    return start;
   }
 
-  const n = Math.max(1, Number(row.value) || 1);
-  await trx('settings').where({ shop_id: shopId, key: SEQ_KEY }).update({ value: String(n + 1) });
-  return n;
+  if (row) {
+    await trx('settings').where({ shop_id: shopId, key: SEQ_KEY }).update({ value: String(seq + 1) });
+  }
+  return seq;
 }
 
 /** @param {unknown} raw */
@@ -381,9 +376,14 @@ export async function createCustomOrder(shopId, body, userId) {
   if (!paymentAccounts.ok) throw badRequest(paymentAccounts.message);
 
   const id = await knex.transaction(async (trx) => {
-    const prefix = await getCustomOrderPrefix(shopId);
-    const seq = await nextCustomOrderSequence(trx, shopId);
-    const orderNumber = buildOrderNumber({ prefix, sequence: seq });
+    const cfg = await loadDocumentTypeNumbering(trx, shopId, 'custom_order');
+    const seq = await nextCustomOrderSequence(
+      trx,
+      shopId,
+      cfg.effective_prefix,
+      cfg.start_sequence
+    );
+    const orderNumber = buildOrderNumber({ prefix: cfg.effective_prefix, sequence: seq });
     const newId = uuid();
     const patch = await rowFromBodyWithFinancials(shopId, body, userId);
 

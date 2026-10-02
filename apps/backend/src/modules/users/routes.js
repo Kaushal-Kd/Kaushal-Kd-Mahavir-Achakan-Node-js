@@ -72,6 +72,19 @@ function serializeCommissionMembership(row, categoryRates = []) {
   };
 }
 
+/** Shop membership fields to merge onto a user row — never `id` or `name`. */
+function shopMembershipForUserRow(shop) {
+  if (!shop) return serializeCommissionMembership(null);
+  const {
+    id: _shopId,
+    name: _shopName,
+    permissions: _permissions,
+    permissions_overridden: _overridden,
+    ...membership
+  } = shop;
+  return membership;
+}
+
 async function assertUsernameAvailable(username, excludeUserId = null) {
   if (!username) return;
   let qb = knex('users').whereRaw('LOWER(username) = ?', [username.toLowerCase()]);
@@ -248,20 +261,22 @@ export default async function userRoutes(fastify) {
     result.data = result.data.map((row) => {
       const clean = sanitizeUser(row);
       const shops = shopsByUser.get(row.id) || [];
+      const selectedShop = shopId ? shops.find((shop) => shop.id === shopId) : null;
       return {
         ...clean,
         is_online: isOnline(row.last_seen_at),
         shop_ids: shops.map((s) => s.id),
         shop_names: shops.map((s) => s.name),
-        ...(shopId
-          ? shops.find((shop) => shop.id === shopId) || serializeCommissionMembership(null)
-          : serializeCommissionMembership(null)),
+        ...shopMembershipForUserRow(selectedShop),
         permissions: shopId
-          ? shops.find((shop) => shop.id === shopId)?.permissions || clean.permissions
+          ? selectedShop?.permissions || clean.permissions
           : clean.permissions,
         permissions_overridden: shopId
-          ? Boolean(shops.find((shop) => shop.id === shopId)?.permissions_overridden)
+          ? Boolean(selectedShop?.permissions_overridden)
           : Boolean(clean.permissions_overridden),
+        id: clean.id,
+        user_id: clean.id,
+        name: clean.name,
       };
     });
     return { ok: true, ...result };

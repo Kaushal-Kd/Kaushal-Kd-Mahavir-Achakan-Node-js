@@ -30,7 +30,7 @@ export async function submitSalesmanReassignment({
   pendingOrderIds,
   submit,
 }) {
-  if (!salesPersonId) throw new Error('Select a salesman');
+  if (!salesPersonId) throw new Error('Select a user');
   if (pendingOrderIds) {
     const hasPending = [...selectedLines.values()].some((line) =>
       pendingOrderIds.has(String(line.order_id))

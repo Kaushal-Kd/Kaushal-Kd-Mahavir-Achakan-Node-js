@@ -27,6 +27,23 @@ after(async () => {
   await server?.close();
 });
 
+test('renders a Sort control when sort options are provided', () => {
+  const html = renderToStaticMarkup(
+    createElement(CompactCatalogFilters, {
+      onClear() {},
+      sortValue: 'az',
+      sortOptions: [
+        { value: 'az', label: 'A to Z' },
+        { value: 'za', label: 'Z to A' },
+      ],
+    })
+  );
+
+  assert.match(html, />Sort<\/span>/);
+  assert.match(html, />A to Z<\/option>/);
+  assert.match(html, />Z to A<\/option>/);
+});
+
 test('bulk filter actions take a wrapping full-width row on narrow screens', () => {
   const html = renderToStaticMarkup(
     createElement(CompactCatalogFilters, {

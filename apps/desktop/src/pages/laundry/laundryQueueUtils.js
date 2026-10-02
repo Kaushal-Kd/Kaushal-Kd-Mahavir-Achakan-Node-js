@@ -62,6 +62,24 @@ export function presentWashingQueueItem(item, prioritySettings) {
   };
 }
 
+/** @param {unknown} item */
+export function washingQueueItemKind(item) {
+  return String(item?.item_kind || 'product').toLowerCase() === 'accessory'
+    ? 'accessory'
+    : 'product';
+}
+
+/** @param {'product'|'accessory'|string|null|undefined} kind */
+export function washingQueueKindLabel(kind) {
+  return kind === 'accessory' ? 'Accessories' : 'Product';
+}
+
+export function filterWashingQueueByKind(items, kind) {
+  const list = Array.isArray(items) ? items : [];
+  if (kind !== 'product' && kind !== 'accessory') return list;
+  return list.filter((item) => washingQueueItemKind(item) === kind);
+}
+
 export function filterWashingQueue(items, search) {
   const term = String(search || '')
     .trim()

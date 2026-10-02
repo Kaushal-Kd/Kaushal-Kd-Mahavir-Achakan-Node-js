@@ -292,8 +292,8 @@ const ItemToCollectList = () => {
       await invalidateOrderDomain(queryClient);
       toast.success(
         queued > 0
-          ? `Salesman transfer queued for ${lineCount} line(s)`
-          : `Transferred ${lineCount} line(s) to the selected salesman`
+          ? `Work transfer queued for ${lineCount} line(s)`
+          : `Transferred ${lineCount} line(s) to the selected user`
       );
     },
     onError: (error) =>
@@ -724,7 +724,7 @@ const ItemToCollectList = () => {
                   disabled={markItemToCollectMut.isPending || reassignMut.isPending || selectedHasPending}
                   onClick={() => setReassignOpen(true)}
                 >
-                  Transfer salesman
+                  Transfer
                 </Button>
                 <Button
                   type="button"
@@ -813,15 +813,15 @@ const ItemToCollectList = () => {
         message={
           <div className="space-y-2">
             <p>
-              Assign {selectedCount} selected product line(s) to another salesman. The booking
-              salesman will not change.
+              Assign {selectedCount} selected product line(s) to another user. Managers, salesmen,
+              and other shop users can receive the work. The booking salesman will not change.
             </p>
             <Select
-              label="Salesman"
+              label="Assign to"
               value={reassignSalesmanId}
               onChange={(event) => setReassignSalesmanId(event.target.value)}
               options={[
-                { value: '', label: 'Select salesman' },
+                { value: '', label: 'Select user' },
                 ...salesmanFilterOptions.filter((option) => option.value !== 'none'),
               ]}
             />

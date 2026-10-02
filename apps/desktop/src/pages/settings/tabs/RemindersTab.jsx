@@ -1,21 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Save, Search, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import AdminDeleteModal from '../../../components/ui/AdminDeleteModal.jsx';
 import Button from '../../../components/ui/Button.jsx';
 import Input from '../../../components/ui/Input.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
+import Select from '../../../components/ui/Select.jsx';
 import TableHeaderLabel from '../../../components/ui/TableHeaderLabel.jsx';
 import { useAdminDelete } from '../../../hooks/useAdminDelete.js';
 import { useSelectedShopName } from '../../../hooks/useSelectedShopName.js';
 import { remindersApi } from '../../../lib/api/reminders.js';
 import {
+  buildReminderAssigneeOptions,
   datetimeLocalToReminderFields,
   formatReminderDateTime,
   nowReminderDatetimeLocal,
   reminderRowToDatetimeLocal,
 } from '../../../lib/reminderDateTime.js';
+import { useAuthStore } from '../../../stores/authStore.js';
+import { useShopStore } from '../../../stores/shopStore.js';
 import { toast } from '../../../stores/uiStore.js';
 
 import Tab, { Section } from './_Tab.jsx';
@@ -23,17 +27,19 @@ import IconBtn from '../../configuration/editors/IconBtn.jsx';
 
 const REMINDER_CELL = 'px-3 py-1.5 whitespace-nowrap overflow-hidden text-ellipsis align-middle';
 
-const emptyForm = () => ({
+const emptyForm = (assigneeUserId = '') => ({
   description: '',
-  assignee: '',
+  assignee_user_id: assigneeUserId,
   reminder_at: nowReminderDatetimeLocal(),
 });
 
 const RemindersTab = () => {
   const qc = useQueryClient();
+  const currentUser = useAuthStore((s) => s.user);
+  const selectedShopId = useShopStore((s) => s.selectedShopId);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(() => emptyForm(currentUser?.id || ''));
   const [err, setErr] = useState('');
   const [search, setSearch] = useState('');
   const selectedShopName = useSelectedShopName();
@@ -58,6 +64,36 @@ const RemindersTab = () => {
     queryFn: () => remindersApi.list(),
   });
 
+  const { data: assigneesResp, isLoading: assigneesLoading } = useQuery({
+    queryKey: ['reminder-assignees', selectedShopId],
+    queryFn: () => remindersApi.assignees(),
+    enabled: Boolean(selectedShopId),
+    staleTime: 60_000,
+  });
+
+  const assigneeOptions = useMemo(
+    () =>
+      buildReminderAssigneeOptions(
+        assigneesResp?.data || [],
+        currentUser,
+        form.assignee_user_id,
+        editing?.assignee
+      ),
+    [assigneesResp, currentUser, editing?.assignee, form.assignee_user_id]
+  );
+
+  useEffect(() => {
+    if (!editing || form.assignee_user_id) return;
+    const name = String(editing.assignee || '')
+      .trim()
+      .toLowerCase();
+    if (!name) return;
+    const match = (assigneesResp?.data || []).find(
+      (person) => String(person.name || '').trim().toLowerCase() === name
+    );
+    if (match?.id) setForm((f) => ({ ...f, assignee_user_id: match.id }));
+  }, [assigneesResp, editing, form.assignee_user_id]);
+
   const rows = useMemo(() => {
     const arr = data?.data || [];
     return [...arr];
@@ -76,7 +112,7 @@ const RemindersTab = () => {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm());
+    setForm(emptyForm(currentUser?.id || ''));
     setErr('');
     setModalOpen(true);
   };
@@ -85,7 +121,7 @@ const RemindersTab = () => {
     setEditing(row);
     setForm({
       description: row.description || '',
-      assignee: row.assignee || '',
+      assignee_user_id: row.assignee_user_id || '',
       reminder_at: reminderRowToDatetimeLocal(row),
     });
     setErr('');
@@ -95,19 +131,27 @@ const RemindersTab = () => {
   const saveMut = useMutation({
     mutationFn: async () => {
       const description = form.description.trim();
-      const assignee = form.assignee.trim();
+      const assignee_user_id = String(form.assignee_user_id || '').trim();
       if (!description) {
         const e = new Error('Description is required');
         e.code = 'LOCAL';
         throw e;
       }
-      if (!assignee) {
-        const e = new Error('Assignee is required');
+      if (!assignee_user_id) {
+        const e = new Error('Select a responsible person');
         e.code = 'LOCAL';
         throw e;
       }
       const { reminder_date, reminder_time } = datetimeLocalToReminderFields(form.reminder_at);
-      const payload = { description, assignee, reminder_date, reminder_time };
+      const assigneeLabel =
+        assigneeOptions.find((option) => option.value === assignee_user_id)?.label || '';
+      const payload = {
+        description,
+        assignee: assigneeLabel,
+        assignee_user_id,
+        reminder_date,
+        reminder_time,
+      };
       if (editing) return remindersApi.update(editing.id, payload);
       return remindersApi.create(payload);
     },
@@ -128,7 +172,7 @@ const RemindersTab = () => {
   return (
     <Tab
       title="Reminders"
-      description="Create reminders with a description, assignee, date, and time."
+      description="Assign reminders to a user. They will see it on their dashboard when it is due."
       actions={
         <Button icon={Plus} size="sm" onClick={openCreate}>
           Create Reminder
@@ -253,13 +297,16 @@ const RemindersTab = () => {
               placeholder="What needs to be done?"
             />
           </div>
-          <Input
+          <Select
+            id="reminder-assignee"
             label="Responsible person (Assignee)"
             required
-            value={form.assignee}
-            onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))}
-            placeholder="e.g. Miraj bhai"
-            hint="The responsible person's name, used for display and search only; it does not change permissions or send a notification."
+            value={form.assignee_user_id}
+            onChange={(e) => setForm((f) => ({ ...f, assignee_user_id: e.target.value }))}
+            placeholder={assigneesLoading ? 'Loading users…' : 'Select a user'}
+            options={assigneeOptions}
+            hint="This person will see the reminder on their dashboard."
+            disabled={assigneesLoading}
           />
           <Input
             type="datetime-local"

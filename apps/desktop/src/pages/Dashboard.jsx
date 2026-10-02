@@ -56,6 +56,7 @@ import { useAuthStore } from '../stores/authStore.js';
 import { useShopStore } from '../stores/shopStore.js';
 import {
   formatReminderDateTime,
+  isReminderAssignedToUser,
   isReminderDueOrPast,
   reminderSortKey,
 } from '../lib/reminderDateTime.js';
@@ -358,6 +359,7 @@ const REMINDER_CELL = 'px-3 py-1.5 whitespace-nowrap overflow-hidden text-ellips
 const RemindersCard = () => {
   const qc = useQueryClient();
   const shopId = useShopStore((s) => s.selectedShopId);
+  const currentUser = useAuthStore((s) => s.user);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleRow, setRescheduleRow] = useState(null);
@@ -380,6 +382,7 @@ const RemindersCard = () => {
     const now = new Date(nowTick);
     return rows
       .filter((row) => {
+        if (!isReminderAssignedToUser(row, currentUser)) return false;
         if (row.is_completed) return false;
         // "Due now" list should only show reminders that have an explicit date + time.
         if (!row.reminder_date) return false;
@@ -387,7 +390,7 @@ const RemindersCard = () => {
         return isReminderDueOrPast(row, now);
       })
       .sort((a, b) => reminderSortKey(a).localeCompare(reminderSortKey(b)));
-  }, [data, nowTick]);
+  }, [currentUser, data, nowTick]);
   const shouldScroll = reminders.length > 10;
 
   const completeMut = useMutation({
@@ -395,6 +398,7 @@ const RemindersCard = () => {
       remindersApi.update(row.id, {
         description: row.description || '',
         assignee: row.assignee || '',
+        assignee_user_id: row.assignee_user_id || undefined,
         reminder_date: String(row.reminder_date || '').slice(0, 10),
         reminder_time: row.reminder_time || undefined,
         is_completed: true,
@@ -413,6 +417,7 @@ const RemindersCard = () => {
       remindersApi.update(row.id, {
         description: row.description || '',
         assignee: row.assignee || '',
+        assignee_user_id: row.assignee_user_id || undefined,
         reminder_date: String(reminder_date || '').slice(0, 10),
         reminder_time: reminder_time || undefined,
         is_completed: false,
@@ -470,7 +475,7 @@ const RemindersCard = () => {
   return (
     <Card padded>
       <div className="flex items-center justify-between gap-2 mb-3">
-        <h3 className="text-sm font-semibold text-gray-900">All Reminders</h3>
+        <h3 className="text-sm font-semibold text-gray-900">My Reminders</h3>
         <span className="text-xs text-gray-500">{reminders.length} due now</span>
       </div>
       {isLoading ? (
@@ -487,7 +492,7 @@ const RemindersCard = () => {
           </Button>
         </div>
       ) : reminders.length === 0 ? (
-        <div className="text-sm text-gray-500 py-6 text-center">No due reminders right now.</div>
+        <div className="text-sm text-gray-500 py-6 text-center">No due reminders assigned to you.</div>
       ) : (
         <div
           className={clsx(

@@ -29,6 +29,9 @@ const CompactCatalogFilters = ({
   catalogActiveValue,
   catalogActiveOptions,
   onCatalogActiveChange,
+  sortValue,
+  sortOptions,
+  onSortChange,
   orderStatusValue,
   orderStatusOptions,
   onOrderStatusChange,
@@ -60,6 +63,22 @@ const CompactCatalogFilters = ({
             onChange={(e) => onCategoryChange(e.target.value)}
           >
             {categoryOptions.map((o) => (
+              <option key={o.value || '_'} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {sortOptions?.length ? (
+        <label className="flex items-center gap-0.5 shrink-0">
+          <span className="text-gray-500">Sort</span>
+          <select
+            className="border border-gray-200 rounded px-1 py-0.5 h-7 bg-white text-[11px] max-w-[7.5rem]"
+            value={sortValue}
+            onChange={(e) => onSortChange(e.target.value)}
+          >
+            {sortOptions.map((o) => (
               <option key={o.value || '_'} value={o.value}>
                 {o.label}
               </option>
@@ -204,6 +223,9 @@ CompactCatalogFilters.propTypes = {
   catalogActiveValue: PropTypes.string,
   catalogActiveOptions: PropTypes.arrayOf(PropTypes.shape({ value: PropTypes.string, label: PropTypes.string })),
   onCatalogActiveChange: PropTypes.func,
+  sortValue: PropTypes.string,
+  sortOptions: PropTypes.arrayOf(PropTypes.shape({ value: PropTypes.string, label: PropTypes.string })),
+  onSortChange: PropTypes.func,
   orderStatusValue: PropTypes.string,
   orderStatusOptions: PropTypes.arrayOf(PropTypes.shape({ value: PropTypes.string, label: PropTypes.string })),
   onOrderStatusChange: PropTypes.func,
@@ -235,6 +257,9 @@ CompactCatalogFilters.defaultProps = {
   catalogActiveValue: 'active',
   catalogActiveOptions: null,
   onCatalogActiveChange: () => {},
+  sortValue: '',
+  sortOptions: null,
+  onSortChange: () => {},
   orderStatusValue: '',
   orderStatusOptions: null,
   onOrderStatusChange: () => {},

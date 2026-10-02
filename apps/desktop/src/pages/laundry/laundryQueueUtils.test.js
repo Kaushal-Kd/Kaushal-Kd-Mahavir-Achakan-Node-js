@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { filterWashingQueue, groupLaundryAccessoriesByCategory } from './laundryQueueUtils.js';
+import {
+  filterWashingQueue,
+  filterWashingQueueByKind,
+  groupLaundryAccessoriesByCategory,
+  washingQueueItemKind,
+} from './laundryQueueUtils.js';
 
 test('groups washing accessories by category and keeps item detail', () => {
   const groups = groupLaundryAccessoriesByCategory([
@@ -32,6 +37,27 @@ test('groups washing accessories by category and keeps item detail', () => {
   assert.deepEqual(
     groups[0].rows.map((row) => row.name),
     ['Necklace', 'Earrings']
+  );
+});
+
+test('washing queue kind treats missing item_kind as product', () => {
+  assert.equal(washingQueueItemKind({ id: '1' }), 'product');
+  assert.equal(washingQueueItemKind({ id: '2', item_kind: 'accessory' }), 'accessory');
+});
+
+test('washing queue kind filter returns only that category', () => {
+  const items = [
+    { id: '1', item_kind: 'product' },
+    { id: '2', item_kind: 'accessory' },
+    { id: '3' },
+  ];
+  assert.deepEqual(
+    filterWashingQueueByKind(items, 'product').map((row) => row.id),
+    ['1', '3']
+  );
+  assert.deepEqual(
+    filterWashingQueueByKind(items, 'accessory').map((row) => row.id),
+    ['2']
   );
 });
 

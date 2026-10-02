@@ -572,6 +572,8 @@ const PurchaseList = () => {
         initialDateFrom={dateFrom}
         initialDateTo={dateTo}
         vendorAccountId={vendorAccountId}
+        columns={exportColumns}
+      />
       />
 
       <PurchaseTransactionsModal

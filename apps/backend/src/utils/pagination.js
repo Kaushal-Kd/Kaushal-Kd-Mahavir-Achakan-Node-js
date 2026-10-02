@@ -7,7 +7,7 @@ export async function paginate(qb, params = {}) {
   const page = Math.max(1, Number(params.page) || 1);
   const perPage = Math.min(500, Math.max(1, Number(params.per_page) || 50));
   const search = (params.search || '').toString().trim();
-  const sort = params.sort || '-created_at';
+  const skipSort = params.sort === false;
   const searchFields = params.search_fields || [];
 
   if (search && searchFields.length > 0) {
@@ -18,7 +18,8 @@ export async function paginate(qb, params = {}) {
     });
   }
 
-  if (sort) {
+  if (!skipSort) {
+    const sort = params.sort || '-created_at';
     const tokens = String(sort)
       .split(',')
       .map((t) => t.trim())

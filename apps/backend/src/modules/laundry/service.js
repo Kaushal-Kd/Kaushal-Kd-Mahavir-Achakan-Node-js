@@ -1,7 +1,8 @@
-import { buildWashingJobNumber, toLocalISODate } from '@wrs/shared';
+import { buildWashingJobNumber, maxPrefixedSequence, nextDocumentSequence, toLocalISODate } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadDocumentTypeNumbering } from '../../lib/documentNumbering.js';
 import { groupUpcomingBookingsByProductId } from '../products/upcomingBookings.js';
 import { paginate } from '../../utils/pagination.js';
 import {
@@ -43,7 +44,7 @@ function resolveLaundryDateFields(payload) {
   };
 }
 
-async function nextWashingJobBillNumber(trx, shopId) {
+async function nextWashingJobBillNumber(trx, shopId, prefix, startSequence) {
   const row = await trx('laundry_jobs')
     .where({ shop_id: shopId })
     .max('bill_seq as max_seq')
@@ -53,16 +54,10 @@ async function nextWashingJobBillNumber(trx, shopId) {
     maxSeq = Number(row.max_seq);
   }
 
-  const rows = await trx('laundry_jobs').where({ shop_id: shopId }).select('job_no');
-  let maxFromJobNo = 0;
-  for (const r of rows) {
-    const match = /^W-(\d+)$/i.exec(String(r.job_no || '').trim());
-    if (!match) continue;
-    const n = Number.parseInt(match[1], 10);
-    if (Number.isFinite(n) && n > maxFromJobNo) maxFromJobNo = n;
-  }
+  const jobNos = await trx('laundry_jobs').where({ shop_id: shopId }).pluck('job_no');
+  const maxFromJobNo = maxPrefixedSequence(jobNos, prefix);
 
-  return Math.max(maxSeq, maxFromJobNo) + 1;
+  return nextDocumentSequence(Math.max(maxSeq, maxFromJobNo), startSequence);
 }
 
 function isDuplicateJobNoError(err) {
@@ -77,8 +72,17 @@ export async function createLaundryJob(shopId, payload) {
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       await knex.transaction(async (trx) => {
-        const billNo = await nextWashingJobBillNumber(trx, shopId);
-        const jobNo = buildWashingJobNumber({ sequence: billNo });
+        const washCfg = await loadDocumentTypeNumbering(trx, shopId, 'washing');
+        const billNo = await nextWashingJobBillNumber(
+          trx,
+          shopId,
+          washCfg.effective_prefix,
+          washCfg.start_sequence
+        );
+        const jobNo = buildWashingJobNumber({
+          prefix: washCfg.effective_prefix,
+          sequence: billNo,
+        });
 
         const { laundry_date, laundry_at } = resolveLaundryDateFields(payload);
 

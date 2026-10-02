@@ -66,3 +66,46 @@ export function isReminderDueOrPast(row, referenceDate = new Date()) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dueKey)) return false;
   return dueKey.localeCompare(reminderNowSortKey(referenceDate)) <= 0;
 }
+
+/**
+ * Dashboard list: assigned user sees their reminders; shop-wide rows (no user / SELF) stay visible.
+ * @param {{ assignee_user_id?: string|null, assignee?: string|null }} row
+ * @param {{ id?: string, name?: string }|null} user
+ */
+export function isReminderAssignedToUser(row, user) {
+  if (!user?.id) return false;
+  if (row?.assignee_user_id) {
+    return String(row.assignee_user_id) === String(user.id);
+  }
+  const name = String(row?.assignee || '')
+    .trim()
+    .toLowerCase();
+  if (!name || name === 'self') return true;
+  return name === String(user.name || '').trim().toLowerCase();
+}
+
+export function buildReminderAssigneeOptions(users, currentUser, selectedId, selectedLabel) {
+  const map = new Map();
+  for (const person of Array.isArray(users) ? users : []) {
+    if (!person?.id) continue;
+    map.set(String(person.id), {
+      value: String(person.id),
+      label: String(person.name || person.email || 'User').trim() || 'User',
+    });
+  }
+  if (currentUser?.id && !map.has(String(currentUser.id))) {
+    map.set(String(currentUser.id), {
+      value: String(currentUser.id),
+      label: String(currentUser.name || currentUser.email || 'Me').trim() || 'Me',
+    });
+  }
+  if (selectedId && !map.has(String(selectedId))) {
+    map.set(String(selectedId), {
+      value: String(selectedId),
+      label: String(selectedLabel || 'Assigned user').trim() || 'Assigned user',
+    });
+  }
+  return [...map.values()].sort((a, b) =>
+    a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+  );
+}

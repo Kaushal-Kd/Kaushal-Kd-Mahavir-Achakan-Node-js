@@ -23,8 +23,8 @@ import {
   Search,
   Trash2,
 } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import BarcodeScannerModal from '../../components/ui/BarcodeScannerModal.jsx';
 import BookingBillLink from '../../components/booking/BookingBillLink.jsx';
@@ -49,6 +49,7 @@ import { washingQueueApi } from '../../lib/api/washingQueue.js';
 import { toast } from '../../stores/uiStore.js';
 import {
   filterWashingQueue,
+  filterWashingQueueByKind,
   getDaysLeft,
   getPriority,
   groupLaundryAccessoriesByCategory,
@@ -58,6 +59,8 @@ import {
   QUEUE_SORT_OPTIONS,
   resolveNextBookingLink,
   sortWashingQueue,
+  washingQueueItemKind,
+  washingQueueKindLabel,
 } from './laundryQueueUtils.js';
 import { printLaundrySlip } from './laundrySlipPrint.js';
 
@@ -96,9 +99,15 @@ function pickDateOnly(value) {
 
 const CreateLaundryJob = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { settings: prioritySettings } = useLaundryPrioritySettings();
   const [searchParams] = useSearchParams();
   const editingJobId = searchParams.get('jobId') || '';
+  const autoLoadKindRef = useRef(
+    location.state?.queueKind === 'accessory' || location.state?.queueKind === 'product'
+      ? location.state.queueKind
+      : null
+  );
 
   const [laundryDate, setLaundryDate] = useState(defaultLaundryDatetimeLocal);
   const [jobNo, setJobNo] = useState('');
@@ -120,6 +129,7 @@ const CreateLaundryJob = () => {
   const [globalSearch, setGlobalSearch] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [pendingWashingOpen, setPendingWashingOpen] = useState(false);
+  const [pendingWashingKind, setPendingWashingKind] = useState('product');
   const [pendingWashingItems, setPendingWashingItems] = useState([]);
   const [pendingWashingSelected, setPendingWashingSelected] = useState(new Set());
   const [pendingWashingLoading, setPendingWashingLoading] = useState(false);
@@ -146,7 +156,7 @@ const CreateLaundryJob = () => {
         next.delete(item.id);
         return next;
       });
-      toast.success('Removed from washing queue — product is now available');
+      toast.success('Removed from washing queue — now available');
     },
   });
 
@@ -411,11 +421,13 @@ const CreateLaundryJob = () => {
     return sortWashingQueue(filtered, pendingWashingSort, prioritySettings);
   }, [pendingWashingItems, pendingWashingSearch, pendingWashingSort, prioritySettings]);
 
-  const loadPendingWashing = useCallback(async () => {
+  const loadPendingWashing = useCallback(async (kind = 'product') => {
+    const queueKind = kind === 'accessory' ? 'accessory' : 'product';
+    setPendingWashingKind(queueKind);
     setPendingWashingLoading(true);
     try {
       const resp = await washingQueueApi.list();
-      const items = resp?.data || [];
+      const items = filterWashingQueueByKind(resp?.data || [], queueKind);
       setPendingWashingItems(items);
       setPendingWashingSearch('');
       setPendingWashingSort('priority');
@@ -428,8 +440,7 @@ const CreateLaundryJob = () => {
         new Set(
           items
             .filter((item) => {
-              const kind = String(item.item_kind || 'product').toLowerCase();
-              if (kind === 'accessory') {
+              if (washingQueueItemKind(item) === 'accessory') {
                 return (
                   !existingQueueIds.has(item.id) && !existingAccessoryIds.has(item.accessory_id)
                 );
@@ -441,11 +452,23 @@ const CreateLaundryJob = () => {
       );
       setPendingWashingOpen(true);
     } catch (e) {
-      toast.error(e?.message || 'Failed to load washing queue');
+      toast.error(
+        e?.message ||
+          (queueKind === 'accessory'
+            ? 'Failed to load accessories queue'
+            : 'Failed to load product queue')
+      );
     } finally {
       setPendingWashingLoading(false);
     }
   }, [accessoryRows, productRows]);
+
+  useEffect(() => {
+    const kind = autoLoadKindRef.current;
+    if (kind !== 'product' && kind !== 'accessory') return;
+    autoLoadKindRef.current = null;
+    void loadPendingWashing(kind);
+  }, [loadPendingWashing]);
 
   const addPendingWashingProducts = useCallback(() => {
     const selected = pendingWashingItems.filter((p) => pendingWashingSelected.has(p.id));
@@ -455,7 +478,7 @@ const CreateLaundryJob = () => {
 
     for (const raw of selected) {
       const p = presentWashingQueueItem(raw, prioritySettings);
-      const kind = String(p.item_kind || 'product').toLowerCase();
+      const kind = washingQueueItemKind(p);
       addedQueueIds.push(p.id);
 
       if (kind === 'accessory') {
@@ -512,11 +535,16 @@ const CreateLaundryJob = () => {
     setPendingWashingOpen(false);
     const total = newProductRows.length + newAccessoryRows.length;
     if (total > 0) {
-      toast.success(`Added ${total} item(s) from washing queue`);
+      toast.success(
+        pendingWashingKind === 'accessory'
+          ? `Added ${total} accessory item(s) from accessories queue`
+          : `Added ${total} product(s) from product queue`
+      );
     }
   }, [
     pendingWashingItems,
     pendingWashingSelected,
+    pendingWashingKind,
     productRows,
     accessoryRows,
     categoryLabelById,
@@ -924,7 +952,7 @@ const CreateLaundryJob = () => {
 
         <div className="grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-2">
           <section className="card p-2">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
               <h3 className="text-xs font-semibold text-gray-900 uppercase">
                 Products Send to Laundry
               </h3>
@@ -932,10 +960,13 @@ const CreateLaundryJob = () => {
                 size="sm"
                 variant="secondary"
                 icon={Package}
-                onClick={loadPendingWashing}
+                className="shrink-0"
+                onClick={() => loadPendingWashing('product')}
                 disabled={pendingWashingLoading}
               >
-                {pendingWashingLoading ? 'Loading...' : 'Load Washing Queue'}
+                {pendingWashingLoading && pendingWashingKind === 'product'
+                  ? 'Loading...'
+                  : 'Load Washing Queue'}
               </Button>
             </div>
             <div className="grid grid-cols-[180px_1fr_auto] gap-2 mb-2">
@@ -1149,9 +1180,23 @@ const CreateLaundryJob = () => {
           </section>
 
           <section className="card p-2">
-            <h3 className="text-xs font-semibold text-gray-900 mb-2 uppercase">
-              Accessories Send to Laundry
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <h3 className="text-xs font-semibold text-gray-900 uppercase">
+                Accessories Send to Laundry
+              </h3>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={Package}
+                className="shrink-0"
+                onClick={() => loadPendingWashing('accessory')}
+                disabled={pendingWashingLoading}
+              >
+                {pendingWashingLoading && pendingWashingKind === 'accessory'
+                  ? 'Loading...'
+                  : 'Load Washing Queue'}
+              </Button>
+            </div>
             <p className="text-[11px] text-gray-500 mb-2">
               Add by accessory category — enter qty and rate per category.
             </p>
@@ -1392,7 +1437,7 @@ const CreateLaundryJob = () => {
         <Modal
           isOpen={pendingWashingOpen}
           onClose={() => setPendingWashingOpen(false)}
-          title="Washing Queue"
+          title={`${washingQueueKindLabel(pendingWashingKind)} Washing Queue`}
           size="xl"
           closeOnBackdrop={false}
           bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
@@ -1432,7 +1477,7 @@ const CreateLaundryJob = () => {
                 value={pendingWashingSearch}
                 onChange={(e) => setPendingWashingSearch(e.target.value)}
                 placeholder="Search code / name / order / next booking"
-                aria-label="Search washing queue"
+                aria-label={`Search ${washingQueueKindLabel(pendingWashingKind).toLowerCase()} queue`}
               />
             </div>
             <select
@@ -1450,7 +1495,11 @@ const CreateLaundryJob = () => {
           </div>
           <div className="flex-1 overflow-auto px-4 py-2">
               {pendingWashingItems.length === 0 ? (
-                <p className="text-xs text-gray-500 py-6 text-center">No items in washing queue.</p>
+                <p className="text-xs text-gray-500 py-6 text-center">
+                  {pendingWashingKind === 'accessory'
+                    ? 'No accessories in washing queue.'
+                    : 'No products in washing queue.'}
+                </p>
               ) : filteredPendingWashingItems.length === 0 ? (
                 <p className="text-xs text-gray-500 py-6 text-center">
                   No items match your search.
@@ -1489,9 +1538,6 @@ const CreateLaundryJob = () => {
                         <TableHeaderLabel align="center">Priority</TableHeaderLabel>
                       </th>
                       <th className="px-1 text-left">
-                        <TableHeaderLabel align="left">Type</TableHeaderLabel>
-                      </th>
-                      <th className="px-1 text-left">
                         <TableHeaderLabel align="left">Code</TableHeaderLabel>
                       </th>
                       <th className="px-1 text-left">
@@ -1528,8 +1574,7 @@ const CreateLaundryJob = () => {
                   <tbody>
                     {filteredPendingWashingItems.map((item) => {
                       const presented = presentWashingQueueItem(item, prioritySettings);
-                      const isAccessory =
-                        String(item.item_kind || 'product').toLowerCase() === 'accessory';
+                      const isAccessory = washingQueueItemKind(item) === 'accessory';
                       const alreadyAdded = isAccessory
                         ? accessoryRows.some(
                             (r) =>
@@ -1562,13 +1607,6 @@ const CreateLaundryJob = () => {
                               className={`rounded px-1 py-0.5 ${PRIORITY_TONE[item.priority] || PRIORITY_TONE['No Schedule']}`}
                             >
                               {item.priority}
-                            </span>
-                          </td>
-                          <td className="px-1 text-center">
-                            <span
-                              className={`rounded px-1 py-0.5 text-[10px] ${isAccessory ? 'bg-brand-light text-brand' : 'bg-gray-100 text-gray-700'}`}
-                            >
-                              {isAccessory ? 'Accessory' : 'Product'}
                             </span>
                           </td>
                           <td className="px-1 font-mono">{item.code}</td>

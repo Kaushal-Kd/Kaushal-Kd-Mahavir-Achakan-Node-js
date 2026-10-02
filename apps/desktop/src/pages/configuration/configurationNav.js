@@ -74,7 +74,7 @@ export const CONFIG_ITEMS = [
   {
     id: 'bill-numbering',
     label: 'Bill numbering',
-    description: 'Order / bill number prefix for this shop (unique sequence per shop)',
+    description: 'Prefix and starting sequence for bookings, sales, purchases, vouchers, and other bills',
     icon: FileDigit,
     kind: 'bill_numbering',
   },

@@ -1,6 +1,7 @@
-import { collectIndianPhones, normalizePhone, round2 } from '@wrs/shared';
+import { collectIndianPhones, normalizePhone, round2, buildCreditNoteNumber } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
+import { loadDocumentTypeNumbering, nextPrefixedNumberSequence } from '../../lib/documentNumbering.js';
 import { badRequest } from '../../utils/errors.js';
 import { insertOrderPayment } from '../payments/orderStatusAtPayment.js';
 import { getOrdinarySecurityHeld } from '../security-charges/ledgerService.js';
@@ -66,16 +67,15 @@ export async function getSecurityHeld(trx, orderId) {
   return order ? getOrdinarySecurityHeld(trx, order.shop_id, orderId) : 0;
 }
 
-export function buildCreditNoteNumber(billNo, sequence) {
-  return `CN${billNo}-${sequence}`;
-}
-
-export async function nextCreditNoteSequence(trx, shopId, sourceOrderId) {
-  const row = await trx('credit_notes')
-    .where({ shop_id: shopId, source_order_id: sourceOrderId })
-    .count({ n: '*' })
-    .first();
-  return Number(row?.n || 0) + 1;
+export async function nextCreditNoteSequence(trx, shopId, prefix, startSequence) {
+  return nextPrefixedNumberSequence(
+    trx,
+    'credit_notes',
+    shopId,
+    'note_number',
+    prefix,
+    startSequence
+  );
 }
 
 export async function getCustomerOpenCreditBalance(trx, shopId, customerId) {
@@ -322,9 +322,18 @@ export async function issueCreditNoteOnCancel(
   const creditAmt = round2(Number(amount || 0));
   if (creditAmt <= 0) return null;
 
-  const seq = await nextCreditNoteSequence(trx, shopId, order.id);
+  const cfg = await loadDocumentTypeNumbering(trx, shopId, 'credit_note');
+  const seq = await nextCreditNoteSequence(
+    trx,
+    shopId,
+    cfg.effective_prefix,
+    cfg.start_sequence
+  );
   const billNo = Number(order.bill_no ?? 0);
-  const noteNumber = buildCreditNoteNumber(billNo, seq);
+  const noteNumber = buildCreditNoteNumber({
+    prefix: cfg.effective_prefix,
+    sequence: seq,
+  });
   const cnId = uuid();
 
   await insertOrderPayment(trx, shopId, {

@@ -42,4 +42,31 @@ describe('purchase PDF attachments', () => {
       /Select at least one image/
     );
   });
+
+  it('puts the matching purchase table row on each image page', async () => {
+    const { buildPurchaseCombinedPdfDoc } = await import('./purchaseCombinedPdf.js');
+    const columns = [
+      { key: 'purchase_number', header: 'Bill No', get: (r) => r.purchase_number },
+      { key: 'vendor_account_name', header: 'Vendor', get: (r) => r.vendor_account_name },
+    ];
+    const purchases = [
+      {
+        id: 'p1',
+        purchase_number: 'PNM-0004',
+        vendor_account_name: 'KAMLESH MODI',
+        image_urls: ['https://example.test/bill.jpg'],
+      },
+      {
+        id: 'p2',
+        purchase_number: 'PNM-0002',
+        vendor_account_name: 'ADIDAS',
+        image_urls: [],
+      },
+    ];
+    const doc = await buildPurchaseCombinedPdfDoc(columns, purchases, {
+      title: 'Purchases',
+      fetchImpl: async () => ({ ok: false }),
+    });
+    assert.equal(doc.getNumberOfPages(), 2);
+  });
 });

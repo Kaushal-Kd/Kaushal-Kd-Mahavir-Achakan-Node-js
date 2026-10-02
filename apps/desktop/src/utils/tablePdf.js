@@ -138,33 +138,26 @@ function drawPdfHeader(doc, options, margin) {
 }
 
 /**
+ * Draw a grid table onto an existing jsPDF document.
+ * @param {import('jspdf').jsPDF} doc
  * @param {Array<{ key: string, header?: string, get?: (row: object) => unknown, richGet?: (row: object) => unknown, width?: number }>} columns
  * @param {object[]} rows
- * @param {{ title?: string, subtitle?: string }} [options]
- * @returns {import('jspdf').jsPDF}
+ * @param {{ startY?: number, margin?: number, rowPageBreak?: string }} [options]
+ * @returns {number} Y position after the table
  */
-export function buildTablePdfDoc(columns, rows, options = {}) {
-  const doc = new jsPDF({
-    orientation: pdfOrientation(columns),
-    unit: 'mm',
-    format: 'a4',
-  });
-
-  const margin = 10;
-  const startY = drawPdfHeader(doc, options, margin);
-
-  const head = [columns.map((c) => pdfSafeText(c.header || c.key))];
-  const richColIndexes = richColumnIndexes(columns);
+export function appendTableToPdfDoc(doc, columns, rows, options = {}) {
+  const margin = options.margin ?? 10;
+  const startY = options.startY ?? 10;
   const list = rows || [];
-  const body = buildTableBody(columns, list, richColIndexes);
+  const richColIndexes = richColumnIndexes(columns);
   const columnStyles = buildColumnStyles(columns);
   const line = { lineWidth: 0.2, lineColor: BLACK };
 
   autoTable(doc, {
     startY,
     ...(options.rowPageBreak === 'avoid' ? { rowPageBreak: 'avoid' } : {}),
-    head,
-    body,
+    head: [columns.map((c) => pdfSafeText(c.header || c.key))],
+    body: buildTableBody(columns, list, richColIndexes),
     theme: 'grid',
     margin: { left: margin, right: margin },
     ...(Object.keys(columnStyles).length ? { columnStyles } : {}),
@@ -198,6 +191,29 @@ export function buildTablePdfDoc(columns, rows, options = {}) {
     }),
   });
 
+  return doc.lastAutoTable?.finalY ?? startY;
+}
+
+/**
+ * @param {Array<{ key: string, header?: string, get?: (row: object) => unknown, richGet?: (row: object) => unknown, width?: number }>} columns
+ * @param {object[]} rows
+ * @param {{ title?: string, subtitle?: string }} [options]
+ * @returns {import('jspdf').jsPDF}
+ */
+export function buildTablePdfDoc(columns, rows, options = {}) {
+  const doc = new jsPDF({
+    orientation: pdfOrientation(columns),
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const margin = 10;
+  const startY = drawPdfHeader(doc, options, margin);
+  appendTableToPdfDoc(doc, columns, rows, {
+    startY,
+    margin,
+    rowPageBreak: options.rowPageBreak,
+  });
   return doc;
 }
 

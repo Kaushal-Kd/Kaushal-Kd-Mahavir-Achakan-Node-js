@@ -1,10 +1,10 @@
-import { randomBytes } from 'node:crypto';
-
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadDocumentTypeNumbering, nextPrefixedNumberSequence } from '../../lib/documentNumbering.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
+import { buildReceiptVoucherNumber } from '@wrs/shared';
 
 function normalizeAccountGroup(g) {
   return String(g || '')
@@ -14,14 +14,6 @@ function normalizeAccountGroup(g) {
 
 const DEBIT_GROUPS = new Set(['bank accounts', 'cash accounts']);
 const CREDIT_GROUPS = new Set(['parties', 'vendors']);
-
-function buildVoucherNumber() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `RV${y}${mo}${day}-${randomBytes(3).toString('hex').toUpperCase()}`;
-}
 
 async function assertReceiptVoucherAccounts(shopId, body) {
   const debit = await knex('payment_accounts')
@@ -106,9 +98,22 @@ export async function createReceiptVoucher(shopId, authUserId, body) {
   await assertReceiptVoucherAccounts(shopId, body);
   const remarks = normalizeRemarks(body);
 
+  const cfg = await loadDocumentTypeNumbering(knex, shopId, 'receipt_voucher');
+  const seq = await nextPrefixedNumberSequence(
+    knex,
+    'receipt_vouchers',
+    shopId,
+    'voucher_number',
+    cfg.effective_prefix,
+    cfg.start_sequence
+  );
+
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const id = uuid();
-    const voucherNumber = buildVoucherNumber();
+    const voucherNumber = buildReceiptVoucherNumber({
+      prefix: cfg.effective_prefix,
+      sequence: seq + attempt,
+    });
     try {
       await knex('receipt_vouchers').insert({
         id,

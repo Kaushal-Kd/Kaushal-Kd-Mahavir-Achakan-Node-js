@@ -25,7 +25,7 @@ describe('submitSalesmanReassignment', () => {
           salesPersonId: '',
           submit: async () => ({}),
         }),
-      /Select a salesman/
+      /Select a user/
     );
   });
 

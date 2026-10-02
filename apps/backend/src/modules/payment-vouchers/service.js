@@ -1,11 +1,12 @@
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadDocumentTypeNumbering } from '../../lib/documentNumbering.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
+import { maxPrefixedSequence, nextDocumentSequence } from '@wrs/shared';
 import {
   formatPaymentVoucherNumber,
-  nextPaymentVoucherSequenceStart,
   PAYMENT_VOUCHER_SEQUENCE_KEY,
 } from './voucherNumber.js';
 
@@ -18,26 +19,29 @@ function normalizeAccountGroup(g) {
 const CREDIT_GROUPS = new Set(['bank accounts', 'cash accounts']);
 const DEBIT_GROUPS = new Set(['parties', 'vendors', 'laundry vendor']);
 
-async function nextPaymentVoucherSequence(trx, shopId) {
+async function nextPaymentVoucherSequence(trx, shopId, prefix, startSequence) {
   let row = await trx('settings')
     .where({ shop_id: shopId, key: PAYMENT_VOUCHER_SEQUENCE_KEY })
     .forUpdate()
     .first();
 
+  const existing = await trx('payment_vouchers')
+    .where({ shop_id: shopId })
+    .pluck('voucher_number');
+  const fromNumbers = maxPrefixedSequence(existing, prefix);
+  const fromSettings = row ? Math.max(0, Number(row.value) - 1) : 0;
+  const sequence = nextDocumentSequence(Math.max(fromNumbers, fromSettings), startSequence);
+
   if (!row) {
-    const existing = await trx('payment_vouchers')
-      .where({ shop_id: shopId })
-      .pluck('voucher_number');
-    const start = nextPaymentVoucherSequenceStart(existing);
     try {
       await trx('settings').insert({
         id: uuid(),
         shop_id: shopId,
         key: PAYMENT_VOUCHER_SEQUENCE_KEY,
-        value: String(start + 1),
+        value: String(sequence + 1),
         updated_at: trx.fn.now(),
       });
-      return start;
+      return sequence;
     } catch (error) {
       if (error?.code !== 'ER_DUP_ENTRY' && error?.errno !== 1062) throw error;
       row = await trx('settings')
@@ -47,7 +51,6 @@ async function nextPaymentVoucherSequence(trx, shopId) {
     }
   }
 
-  const sequence = Math.max(1, Number(row?.value) || 1);
   await trx('settings')
     .where({ shop_id: shopId, key: PAYMENT_VOUCHER_SEQUENCE_KEY })
     .update({ value: String(sequence + 1), updated_at: trx.fn.now() });
@@ -150,9 +153,13 @@ async function insertPaymentVoucherForBill(
   amount,
   remarks
 ) {
+  const cfg = await loadDocumentTypeNumbering(trx, shopId, 'payment_voucher');
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const id = uuid();
-    const voucherNumber = formatPaymentVoucherNumber(await nextPaymentVoucherSequence(trx, shopId));
+    const voucherNumber = formatPaymentVoucherNumber(
+      await nextPaymentVoucherSequence(trx, shopId, cfg.effective_prefix, cfg.start_sequence),
+      cfg.effective_prefix
+    );
     try {
       await trx('payment_vouchers').insert({
         id,

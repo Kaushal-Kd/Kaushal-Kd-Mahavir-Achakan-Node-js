@@ -1,12 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
+import { ROLE_LABELS } from '@wrs/shared';
 import { useMemo } from 'react';
 
 import { usersApi } from '../lib/api/users.js';
+import { isSalesmanEligibleUser } from '../lib/salesmanOptions.js';
 import { queryKeys } from '../lib/queryKeys.js';
 import { useShopStore } from '../stores/shopStore.js';
 
+function staffOptionLabel(user) {
+  const name = String(user?.name || user?.email || 'User').trim() || 'User';
+  const roleLabel = ROLE_LABELS[user?.role];
+  return roleLabel ? `${name} (${roleLabel})` : name;
+}
+
 /**
- * Salesman options for item-stage list filters (multi-select).
+ * Assigned-to options for item-stage list filters and work transfer.
+ * Includes every active shop user (manager, salesman, shop admin, …), not only salesmen.
  */
 export function useItemStageSalesmanOptions() {
   const selectedShopId = useShopStore((s) => s.selectedShopId);
@@ -20,11 +29,13 @@ export function useItemStageSalesmanOptions() {
   const options = useMemo(() => {
     const list = data?.data ?? [];
     const staff = list
-      .filter((u) => u.is_active !== false && u.role === 'salesman')
-      .filter((u) => !selectedShopId || !Array.isArray(u.shop_ids) || u.shop_ids.includes(selectedShopId))
+      .filter((u) => isSalesmanEligibleUser(u))
+      .filter(
+        (u) => !selectedShopId || !Array.isArray(u.shop_ids) || u.shop_ids.includes(selectedShopId)
+      )
       .map((u) => ({
         value: u.id,
-        label: String(u.name || u.email || 'User').trim(),
+        label: staffOptionLabel(u),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
     return [{ value: 'none', label: 'Unassigned' }, ...staff];

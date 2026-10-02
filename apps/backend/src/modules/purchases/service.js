@@ -1,7 +1,8 @@
-import { buildPurchaseNumber, normalizeOrderNumberPrefix } from '@wrs/shared';
+import { buildPurchaseNumber } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadDocumentTypeNumbering, nextTableSequence } from '../../lib/documentNumbering.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
 
@@ -36,9 +37,8 @@ function normGroup(g) {
     .toLowerCase();
 }
 
-async function nextPurchaseBillNumber(trx, shopId) {
-  const row = await trx('purchases').where({ shop_id: shopId }).max('bill_no as max_bill').first();
-  return Number(row?.max_bill || 0) + 1;
+async function nextPurchaseBillNumber(trx, shopId, startSequence) {
+  return nextTableSequence(trx, 'purchases', shopId, startSequence);
 }
 
 async function assertPaymentAccountGroup(trx, shopId, accountId, allowedGroups, label) {
@@ -313,11 +313,12 @@ export async function createPurchase(shopId, data, userId) {
       'Purchase account'
     );
 
-    const billNo = await nextPurchaseBillNumber(trx, shopId);
-    const shopRow = await trx('shops').where({ id: shopId }).select('order_number_prefix').first();
-    const shopPrefix = normalizeOrderNumberPrefix(shopRow?.order_number_prefix);
-    const prefix = shopPrefix ? `P${shopPrefix}` : 'P';
-    const purchaseNumber = buildPurchaseNumber({ prefix, sequence: billNo });
+    const purchaseCfg = await loadDocumentTypeNumbering(trx, shopId, 'purchase');
+    const billNo = await nextPurchaseBillNumber(trx, shopId, purchaseCfg.start_sequence);
+    const purchaseNumber = buildPurchaseNumber({
+      prefix: purchaseCfg.effective_prefix,
+      sequence: billNo,
+    });
 
     const updateAccessoryStock = data.update_accessory_stock !== false;
 

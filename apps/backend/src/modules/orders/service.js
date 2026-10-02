@@ -11,8 +11,6 @@ import {
   accessoryRentableQty,
   normalizeAccessoryStageFlagsFromParsed,
   normalizeBookingTime,
-  normalizeOrderNumberFormat,
-  normalizeOrderNumberPrefix,
   normalizeProductStageFlagsFromParsed,
   normalizeTime12,
   parseStageFlagsJson,
@@ -26,6 +24,7 @@ import {
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadShopNumbering, nextTableSequence } from '../../lib/documentNumbering.js';
 import { badRequest, conflict, notFound } from '../../utils/errors.js';
 import { validate } from '../../utils/validate.js';
 import { verifyShopAdminPassword } from '../../utils/shopAdmin.js';
@@ -94,6 +93,7 @@ import {
   attachNextBookingAlertSummaryToOrders,
 } from './nextBookingAlerts.js';
 import { normalizeOrderAvailabilityWindow } from './orderAvailabilityWindow.js';
+import { isDeliveryDatePast, sameInventoryLine } from './orderEditInventoryLock.js';
 
 function orderTransaction(callback) {
   return knex.transaction(callback, { isolationLevel: 'read committed' });
@@ -1426,10 +1426,10 @@ export async function reassignOrderItemSalesman(shopId, orderId, body) {
         'u.id': body.sales_person_id,
         'us.shop_id': shopId,
         'u.is_active': true,
-        'u.role': 'salesman',
       })
+      .whereNot('u.role', 'super_admin')
       .first('u.id', 'u.name', 'u.email');
-    if (!target) throw badRequest('Select an active salesman assigned to this shop');
+    if (!target) throw badRequest('Select an active user assigned to this shop');
 
     const itemIds = [...new Set(body.order_item_ids.map((id) => String(id)))];
     const rows = await trx('order_items')
@@ -1581,20 +1581,22 @@ export async function getOrder(shopId, id) {
 export async function createOrder(shopId, data, userId) {
   return orderTransaction(async (trx) => {
     await lockOrderInventory(trx, shopId, null, data.items || []);
-    const billType = 'kaccha';
-    const billNo = await nextBillNumber(trx, shopId);
-    const shopRow = await trx('shops')
-      .where({ id: shopId })
-      .select('order_number_prefix', 'order_number_format')
-      .first();
-    const prefix = normalizeOrderNumberPrefix(shopRow?.order_number_prefix) ?? 'O';
+    const numbering = await loadShopNumbering(trx, shopId);
+    const billNo = await nextTableSequence(
+      trx,
+      'orders',
+      shopId,
+      numbering.order_start_sequence
+    );
+    const prefix = numbering.documents.booking.effective_prefix;
     const orderNumber = buildOrderNumber({
-      format: normalizeOrderNumberFormat(shopRow?.order_number_format),
+      format: numbering.order_number_format,
       prefix,
       sequence: billNo,
       bookingDate: data.booking_date,
     });
     const id = uuid();
+    const billType = 'kaccha';
 
     const totals = computeTotals(data);
 
@@ -1962,16 +1964,9 @@ export async function updateOrder(shopId, orderId, data, userId) {
           : normalizeStageFlags(row?.stage_flags);
       return flags.delivered || flags.received;
     };
-    const sameInventoryLine = (before, after, itemType) => {
-      const inventoryKey = itemType === 'accessory' ? 'accessory_id' : 'product_id';
-      return (
-        String(before?.[inventoryKey] || '') === String(after?.[inventoryKey] || '') &&
-        String(before?.type || 'rent') === String(after?.type || 'rent') &&
-        Number(before?.qty || 0) === Number(after?.qty || 0)
-      );
-    };
+    const deliveryDatePast = isDeliveryDatePast(existingOrder.pickup_date);
 
-    if (!isReconcile) {
+    if (!isReconcile && deliveryDatePast) {
       for (const before of dbItems) {
         if (!lineHasPhysicalProgress(before, 'item')) continue;
         const after = productItems.find((item) => item.id === before.id);
@@ -4482,11 +4477,6 @@ async function propagateOrderStatus(trx, shopId, orderId) {
       .where({ id: orderId, shop_id: shopId })
       .update({ status, ...patch, updated_at: trx.fn.now() });
   }
-}
-
-async function nextBillNumber(trx, shopId) {
-  const row = await trx('orders').where({ shop_id: shopId }).max('bill_no as max_bill').first();
-  return Number(row?.max_bill || 0) + 1;
 }
 
 async function resolveItemSalesPersonId(trx, shopId, item, fallbackUserId) {

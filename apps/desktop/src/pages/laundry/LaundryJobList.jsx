@@ -48,10 +48,12 @@ import { toast } from '../../stores/uiStore.js';
 import { useShopStore } from '../../stores/shopStore.js';
 import {
   filterWashingQueue,
+  filterWashingQueueByKind,
   PRIORITY_TONE,
   QUEUE_SORT_OPTIONS,
   resolveNextBookingLink,
   sortWashingQueue,
+  washingQueueKindLabel,
 } from './laundryQueueUtils.js';
 import { formatLaundrySlipDateTime } from './laundrySlipData.js';
 import { buildLaundrySlipPdfBase64, printLaundrySlip } from './laundrySlipPrint.js';
@@ -90,6 +92,9 @@ const LaundryJobList = () => {
   const [returnModalJobId, setReturnModalJobId] = useState(null);
   const [returnLogsModal, setReturnLogsModal] = useState(null);
   const [queueModalOpen, setQueueModalOpen] = useState(() => restored?.queueModalOpen ?? false);
+  const [queueKind, setQueueKind] = useState(() =>
+    restored?.queueKind === 'accessory' ? 'accessory' : 'product'
+  );
   const [queueSearch, setQueueSearch] = useState(() => restored?.queueSearch ?? '');
   const [queueSort, setQueueSort] = useState(() => restored?.queueSort ?? 'priority');
   const [whatsAppModal, setWhatsAppModal] = useState(null);
@@ -108,12 +113,13 @@ const LaundryJobList = () => {
         laundryFrom,
         laundryTo,
         queueModalOpen: true,
+        queueKind,
         queueSearch,
         queueSort,
         ...extra,
       });
     },
-    [query, laundryFrom, laundryTo, queueSearch, queueSort]
+    [query, laundryFrom, laundryTo, queueKind, queueSearch, queueSort]
   );
 
   const { ensureReady: ensureWhatsAppReady, sendWithDocument } = useWhatsAppOutbound();
@@ -130,7 +136,7 @@ const LaundryJobList = () => {
   const removeFromQueue = useAdminDelete({
     deleteFn: (item, admin_password) => washingQueueApi.remove(item.id, { admin_password }),
     onSuccess: () => {
-      toast.success('Product removed from washing queue — now available');
+      toast.success('Removed from washing queue — now available');
       queryClient.invalidateQueries({ queryKey: ['washing-queue'] });
     },
   });
@@ -140,10 +146,30 @@ const LaundryJobList = () => {
     queryFn: () => washingQueueApi.list(),
   });
   const queueItems = queueResp?.data || [];
+  const productQueueCount = useMemo(
+    () => filterWashingQueueByKind(queueItems, 'product').length,
+    [queueItems]
+  );
+  const accessoryQueueCount = useMemo(
+    () => filterWashingQueueByKind(queueItems, 'accessory').length,
+    [queueItems]
+  );
+  const kindQueueItems = useMemo(
+    () => filterWashingQueueByKind(queueItems, queueKind),
+    [queueItems, queueKind]
+  );
   const filteredQueueItems = useMemo(() => {
-    const filtered = filterWashingQueue(queueItems, queueSearch);
+    const filtered = filterWashingQueue(kindQueueItems, queueSearch);
     return sortWashingQueue(filtered, queueSort, prioritySettings);
-  }, [queueItems, queueSearch, queueSort, prioritySettings]);
+  }, [kindQueueItems, queueSearch, queueSort, prioritySettings]);
+  const queueKindLabel = washingQueueKindLabel(queueKind);
+
+  const openQueue = useCallback((kind) => {
+    setQueueKind(kind === 'accessory' ? 'accessory' : 'product');
+    setQueueSearch('');
+    setQueueSort('priority');
+    setQueueModalOpen(true);
+  }, []);
 
   const { data: jobsResp, isLoading } = useQuery({
     queryKey: ['laundry-jobs', query, laundryFrom, laundryTo],
@@ -547,16 +573,11 @@ const LaundryJobList = () => {
         description="Dashboard / Laundry / List"
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setQueueSearch('');
-                setQueueSort('priority');
-                setQueueModalOpen(true);
-              }}
-            >
-              Queue{queueItems.length > 0 ? ` (${queueItems.length})` : ''}
+            <Button size="sm" variant="secondary" onClick={() => openQueue('product')}>
+              Product queue{productQueueCount > 0 ? ` (${productQueueCount})` : ''}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => openQueue('accessory')}>
+              Accessories queue{accessoryQueueCount > 0 ? ` (${accessoryQueueCount})` : ''}
             </Button>
             <Button size="sm" icon={Plus} onClick={() => navigate('/laundry/new')}>
               Create Job
@@ -628,7 +649,7 @@ const LaundryJobList = () => {
         <Modal
           isOpen={queueModalOpen}
           onClose={() => setQueueModalOpen(false)}
-          title="Washing Queue"
+          title={`${queueKindLabel} Queue`}
           size="xl"
           closeOnBackdrop={false}
           bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
@@ -641,7 +662,7 @@ const LaundryJobList = () => {
                 size="sm"
                 onClick={() => {
                   setQueueModalOpen(false);
-                  navigate('/laundry/new');
+                  navigate('/laundry/new', { state: { queueKind } });
                 }}
               >
                 Create Job
@@ -660,14 +681,14 @@ const LaundryJobList = () => {
                 value={queueSearch}
                 onChange={(e) => setQueueSearch(e.target.value)}
                 placeholder="Search code / name / order / next booking"
-                aria-label="Search washing queue"
+                aria-label={`Search ${queueKindLabel.toLowerCase()} queue`}
               />
             </div>
             <select
               className="input h-8 w-36 shrink-0 bg-surface text-xs"
               value={queueSort}
               onChange={(e) => setQueueSort(e.target.value)}
-              aria-label="Sort washing queue"
+              aria-label={`Sort ${queueKindLabel.toLowerCase()} queue`}
             >
               {QUEUE_SORT_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -679,8 +700,12 @@ const LaundryJobList = () => {
           <div className="flex-1 overflow-auto px-4 py-2">
               {queueLoading ? (
                 <p className="text-xs text-gray-500 py-6 text-center">Loading...</p>
-              ) : queueItems.length === 0 ? (
-                <p className="text-xs text-gray-500 py-6 text-center">No items in washing queue.</p>
+              ) : kindQueueItems.length === 0 ? (
+                <p className="text-xs text-gray-500 py-6 text-center">
+                  {queueKind === 'accessory'
+                    ? 'No accessories in washing queue.'
+                    : 'No products in washing queue.'}
+                </p>
               ) : filteredQueueItems.length === 0 ? (
                 <p className="text-xs text-gray-500 py-6 text-center">
                   No items match your search.

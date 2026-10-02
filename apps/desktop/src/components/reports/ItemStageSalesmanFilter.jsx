@@ -89,7 +89,7 @@ const ItemStageSalesmanFilter = ({
             {loading ? (
               <p className="px-3 py-2 text-xs text-gray-500">Loading…</p>
             ) : options.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-gray-500">No salesmen found</p>
+              <p className="px-3 py-2 text-xs text-gray-500">No users found</p>
             ) : (
               options.map(({ value, label: optLabel }) => (
                 <label

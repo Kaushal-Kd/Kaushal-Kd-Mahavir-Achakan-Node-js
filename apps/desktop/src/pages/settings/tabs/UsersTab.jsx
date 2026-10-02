@@ -76,6 +76,10 @@ const EMPTY_COMMISSION = {
   category_rates: [],
 };
 
+function userRecordId(row) {
+  return String(row?.user_id || row?.id || '');
+}
+
 function commissionFormFromUser(user) {
   return {
     manager_user_id: user?.manager_user_id || '',
@@ -164,7 +168,7 @@ const UsersTab = () => {
     close: closeDelete,
   } = useAdminDelete({
     deleteFn: (row, admin_password) =>
-      api.delete(`/users/${row.id}`, { data: { admin_password } }).then(unwrap),
+      api.delete(`/users/${userRecordId(row)}`, { data: { admin_password } }).then(unwrap),
     onSuccess: () => {
       toast.success('User deleted');
       invalidate();
@@ -374,7 +378,7 @@ const UsersTab = () => {
 
   const resetPermsToRole = () => {
     if (!editing?.id) return;
-    permsMut.mutate({ id: editing.id, resetToRole: true });
+    permsMut.mutate({ id: userRecordId(editing), resetToRole: true });
   };
 
   const activeMut = useMutation({
@@ -393,7 +397,7 @@ const UsersTab = () => {
   // Activating is harmless, so it applies straight away. Deactivating locks the
   // user out, so it asks first.
   const requestActiveChange = (row, next) => {
-    if (next) activeMut.mutate({ id: row.id, is_active: true });
+    if (next) activeMut.mutate({ id: userRecordId(row), is_active: true });
     else setActiveTarget(row);
   };
 
@@ -420,7 +424,7 @@ const UsersTab = () => {
     let overridden = !!row.permissions_overridden;
     let nextCommissionForm = commissionFormFromUser(row);
     try {
-      const detail = await api.get(`/users/${row.id}`).then(unwrap);
+      const detail = await api.get(`/users/${userRecordId(row)}`).then(unwrap);
       assignedShopIds = Array.isArray(detail?.data?.shop_ids) ? detail.data.shop_ids : [];
       // The detail endpoint is the authoritative source for the grid — the
       // list response can be a trimmed row.
@@ -507,7 +511,7 @@ const UsersTab = () => {
       return;
     }
     commissionMut.mutate({
-      id: editing.id,
+      id: userRecordId(editing),
       payload: {
         manager_user_id:
           form.role === ROLES.SALESMAN ? commissionForm.manager_user_id || null : null,
@@ -535,7 +539,7 @@ const UsersTab = () => {
     if (!pwdUser?.id) return;
     const adminTarget = [ROLES.SUPER_ADMIN, ROLES.SHOP_ADMIN].includes(pwdUser.role);
     if (adminTarget && !otpChallenge) {
-      otpRequestMut.mutate(pwdUser.id);
+      otpRequestMut.mutate(userRecordId(pwdUser));
       return;
     }
     if (!newPassword || newPassword.length < 8) {
@@ -564,7 +568,7 @@ const UsersTab = () => {
       return;
     }
     passwordMut.mutate({
-      id: pwdUser.id,
+      id: userRecordId(pwdUser),
       password: newPassword,
       admin_password: adminPassword,
     });
@@ -621,7 +625,7 @@ const UsersTab = () => {
     };
     if (!editing && form.password) payload.password = form.password;
 
-    if (editing) updateMut.mutate({ id: editing.id, payload });
+    if (editing) updateMut.mutate({ id: userRecordId(editing), payload });
     else createMut.mutate(payload);
   };
 
@@ -745,7 +749,7 @@ const UsersTab = () => {
               <Toggle
                 size="sm"
                 checked={!!r.is_active}
-                disabled={activeMut.isPending || r.id === currentUser?.id}
+                disabled={activeMut.isPending || userRecordId(r) === currentUser?.id}
                 onChange={(next) => requestActiveChange(r, next)}
                 label={r.is_active ? 'Active' : 'Inactive'}
               />
@@ -1156,7 +1160,9 @@ const UsersTab = () => {
             <div className="flex justify-end">
               <Button
                 type="button"
-                onClick={() => permsMut.mutate({ id: editing.id, permissions: permsGrid })}
+                onClick={() =>
+                  permsMut.mutate({ id: userRecordId(editing), permissions: permsGrid })
+                }
                 loading={permsMut.isPending}
                 disabled={!canManage || roleBypassesPermissions || !permsDirty}
               >

@@ -1,7 +1,8 @@
-import { buildIncomeNumber, normalizeOrderNumberPrefix } from '@wrs/shared';
+import { buildIncomeNumber } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadDocumentTypeNumbering, nextTableSequence } from '../../lib/documentNumbering.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
 
@@ -13,26 +14,16 @@ function normalizeAccountGroup(g) {
 
 const PAYMENT_ACCOUNT_GROUPS = new Set(['bank accounts', 'cash accounts']);
 
-async function nextIncomeBillNumber(trx, shopId) {
-  const row = await trx('income_entries')
-    .where({ shop_id: shopId })
-    .max('bill_no as max_bill')
-    .first();
-  return Number(row?.max_bill || 0) + 1;
+async function nextIncomeBillNumber(trx, shopId, startSequence) {
+  return nextTableSequence(trx, 'income_entries', shopId, startSequence);
 }
 
 async function assignIncomeBillNumber(trx, shopId) {
-  const shopRow = await trx('shops')
-    .where({ id: shopId })
-    .forUpdate()
-    .select('order_number_prefix')
-    .first();
-  const billNo = await nextIncomeBillNumber(trx, shopId);
-  const shopPrefix = normalizeOrderNumberPrefix(shopRow?.order_number_prefix);
-  const prefix = shopPrefix ? `I${shopPrefix}` : 'I';
+  const cfg = await loadDocumentTypeNumbering(trx, shopId, 'income');
+  const billNo = await nextIncomeBillNumber(trx, shopId, cfg.start_sequence);
   return {
     bill_no: billNo,
-    income_number: buildIncomeNumber({ prefix, sequence: billNo }),
+    income_number: buildIncomeNumber({ prefix: cfg.effective_prefix, sequence: billNo }),
   };
 }
 

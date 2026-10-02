@@ -4,7 +4,6 @@ import {
   WHATSAPP_MESSAGE_REGISTRY,
   WHATSAPP_MESSAGE_SETTING_KEYS,
   WHATSAPP_TEMPLATE_VARIABLES,
-  buildOrderNumber,
   buildWhatsAppTemplatesFromStored,
   billNumberingUpdateSchema,
   defaultWhatsAppTemplatePayload,
@@ -14,7 +13,9 @@ import {
   normalizeLaundryPrioritySettings,
   normalizeOrderNumberFormat,
   normalizeOrderNumberPrefix,
-  todayIndiaISODate,
+  normalizeStartSequence,
+  parseDocumentNumberingJson,
+  serializeDocumentNumbering,
   parseYesNo,
   validateAppSettingValue,
   whatsappMessageSettingKey,
@@ -24,6 +25,7 @@ import { z } from 'zod';
 
 import { invalidateDashboardDaySettingsCache } from '../dashboard/dashboardSettings.js';
 import knex from '../../db/knex.js';
+import { loadShopNumbering } from '../../lib/documentNumbering.js';
 import { badRequest } from '../../utils/errors.js';
 import { validate } from '../../utils/validate.js';
 
@@ -294,65 +296,69 @@ export default async function configurationRoutes(fastify) {
     };
   });
 
-  fastify.get('/bill-numbering', async (request) => {
-    const row = await knex('shops')
-      .where({ id: request.shopId })
-      .select('order_number_prefix', 'order_number_format')
-      .first();
-    const normalized = normalizeOrderNumberPrefix(row?.order_number_prefix);
-    const effectivePrefix = normalized ?? 'O';
-    const effectiveFormat = normalizeOrderNumberFormat(row?.order_number_format);
-    const preview = buildOrderNumber({
-      format: effectiveFormat,
-      prefix: effectivePrefix,
-      sequence: 1,
-      previewDate: todayIndiaISODate(),
-    });
+  function billNumberingPayload(resolved) {
+    const booking = resolved.documents.booking;
     return {
-      ok: true,
-      data: {
-        order_number_prefix: normalized,
-        order_number_format: effectiveFormat,
-        effective_prefix: effectivePrefix,
-        effective_format: effectiveFormat,
-        preview_sample: preview,
-      },
+      order_number_prefix: resolved.order_number_prefix,
+      order_number_format: resolved.order_number_format,
+      order_start_sequence: resolved.order_start_sequence,
+      effective_prefix: booking.effective_prefix,
+      effective_format: resolved.order_number_format,
+      preview_sample: booking.preview,
+      documents: resolved.documents,
     };
+  }
+
+  fastify.get('/bill-numbering', async (request) => {
+    const resolved = await loadShopNumbering(knex, request.shopId);
+    return { ok: true, data: billNumberingPayload(resolved) };
   });
 
   fastify.put('/bill-numbering', async (request) => {
     const body = validate(billNumberingUpdateSchema, request.body || {});
     const normalized = normalizeOrderNumberPrefix(body.order_number_prefix ?? '');
     const normalizedFormat = normalizeOrderNumberFormat(body.order_number_format);
-    await knex('shops')
+    const shop = await knex('shops')
       .where({ id: request.shopId })
-      .update({
-        order_number_prefix: normalized,
-        order_number_format: normalizedFormat,
-        updated_at: knex.fn.now(),
+      .select('document_numbering', 'order_start_sequence')
+      .first();
+    const existingDocs = parseDocumentNumberingJson(shop?.document_numbering);
+    const patch = {
+      order_number_prefix: normalized,
+      order_number_format: normalizedFormat,
+      updated_at: knex.fn.now(),
+    };
+    if (body.order_start_sequence != null) {
+      patch.order_start_sequence = normalizeStartSequence(body.order_start_sequence);
+    }
+    let nextDocs = existingDocs;
+    if (body.documents) {
+      nextDocs = serializeDocumentNumbering({
+        ...existingDocs,
+        ...body.documents,
       });
-    const effectivePrefix = normalized ?? 'O';
-    const preview = buildOrderNumber({
-      format: normalizedFormat,
-      prefix: effectivePrefix,
-      sequence: 1,
-      previewDate: todayIndiaISODate(),
-    });
+      patch.document_numbering = nextDocs;
+    }
+
+    await knex('shops').where({ id: request.shopId }).update(patch);
+
+    const customPrefix = nextDocs.custom_order?.prefix;
+    if (body.documents && customPrefix) {
+      await upsertSetting(request.shopId, 'CUSTOM_ORDER_NUMBER_PREFIX', customPrefix);
+    }
+
     await request.audit('shops', 'UPDATE', {
       id: request.shopId,
-      new: { order_number_prefix: normalized, order_number_format: normalizedFormat },
-      scope: 'bill_numbering',
-    });
-    return {
-      ok: true,
-      data: {
+      new: {
         order_number_prefix: normalized,
         order_number_format: normalizedFormat,
-        effective_prefix: effectivePrefix,
-        effective_format: normalizedFormat,
-        preview_sample: preview,
+        order_start_sequence: patch.order_start_sequence,
+        document_numbering: body.documents ? nextDocs : undefined,
       },
-    };
+      scope: 'bill_numbering',
+    });
+    const resolved = await loadShopNumbering(knex, request.shopId);
+    return { ok: true, data: billNumberingPayload(resolved) };
   });
 
   fastify.get('/:type', async (request) => {

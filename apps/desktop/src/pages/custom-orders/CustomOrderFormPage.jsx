@@ -2,9 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CUSTOM_ORDER_STATUS_LABELS,
   CUSTOM_ORDER_SELECTABLE_STATUS_VALUES,
+  ACTIONS,
+  MODULES,
   addDays,
   formatDate,
   formatDateTime,
+  hasPermission,
   normalizeCustomOrderRetrials,
   normalizePhone,
   nowDatetimeLocal,
@@ -19,7 +22,7 @@ import {
   validateCustomOrderMeasurements,
   validateFields,
 } from '@wrs/shared';
-import { ArrowLeft, CalendarPlus, ExternalLink, Plus, Printer, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, Edit2, ExternalLink, Plus, Printer, Save, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -60,6 +63,7 @@ import {
   upsertCustomOrderDraft,
 } from '../../lib/customOrderDraftStorage.js';
 import { toast } from '../../stores/uiStore.js';
+import { useAuthStore } from '../../stores/authStore.js';
 import CustomOrderProductVerifyModal from './CustomOrderProductVerifyModal.jsx';
 
 const emptyRetrial = () => ({ date: '', notes: '' });
@@ -128,6 +132,8 @@ const CustomOrderFormPage = () => {
   const location = useLocation();
   const viewOnlyFromNav = Boolean(location.state?.viewOnly);
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
+  const canEdit = hasPermission(user, MODULES.CUSTOM_ORDERS, ACTIONS.EDIT);
   const [values, setValues] = useState(emptyForm);
   const [errors, setErrors] = useState({});
   const [customer, setCustomer] = useState(null);
@@ -818,6 +824,13 @@ const CustomOrderFormPage = () => {
   const busy = createMut.isPending || updateMut.isPending;
   const readOnly =
     viewOnlyFromNav || (isEdit && existing?.status === 'cancelled');
+  const showEditButton =
+    viewOnlyFromNav && canEdit && existing?.status !== 'cancelled';
+
+  const openEditMode = () => {
+    if (!id || !showEditButton) return;
+    navigate(`/custom-orders/${id}/edit`, { replace: true, state: {} });
+  };
 
   const showBookingPanel =
     isEdit && existing?.linked_product_id && existing?.status !== 'cancelled';
@@ -974,6 +987,11 @@ const CustomOrderFormPage = () => {
                 Create booking
               </Button>
             ) : null}
+            {showEditButton ? (
+              <Button type="button" variant="secondary" icon={Edit2} onClick={openEditMode}>
+                Edit
+              </Button>
+            ) : null}
             <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/custom-orders')}>
               Back to list
             </Button>
@@ -983,7 +1001,7 @@ const CustomOrderFormPage = () => {
 
       {readOnly && viewOnlyFromNav && existing?.status !== 'cancelled' ? (
         <div className="mb-3 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-          View only — use Edit from the list to make changes.
+          View only — use Edit to make changes.
         </div>
       ) : null}
 
@@ -1558,7 +1576,7 @@ const CustomOrderFormPage = () => {
         </section>
 
         {!readOnly ? (
-          <div className="flex flex-wrap gap-2 pt-1 pb-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-1 pb-2">
             <Button type="button" variant="primary" icon={Save} loading={busy} onClick={save}>
               {isEdit ? 'Save changes' : 'Create order'}
             </Button>

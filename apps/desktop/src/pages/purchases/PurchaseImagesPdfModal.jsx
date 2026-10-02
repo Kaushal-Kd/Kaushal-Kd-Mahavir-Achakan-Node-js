@@ -40,6 +40,7 @@ const PurchaseImagesPdfModal = ({
   initialDateFrom = '',
   initialDateTo = '',
   vendorAccountId = '',
+  columns = [],
 }) => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -106,6 +107,7 @@ const PurchaseImagesPdfModal = ({
       const doc = await buildSelectedPurchaseImagesPdfDoc(selected, {
         title: 'Purchase images',
         subtitle,
+        columns,
       });
       doc.save(`purchase_images_${dateFrom}_${dateTo}.pdf`);
       toast.success('PDF downloaded');
@@ -240,6 +242,13 @@ PurchaseImagesPdfModal.propTypes = {
   initialDateFrom: PropTypes.string,
   initialDateTo: PropTypes.string,
   vendorAccountId: PropTypes.string,
+  columns: PropTypes.arrayOf(
+    PropTypes.shape({
+      key: PropTypes.string,
+      header: PropTypes.string,
+      get: PropTypes.func,
+    })
+  ),
 };
 
 export default PurchaseImagesPdfModal;

@@ -50,6 +50,43 @@ const NEXT_PICKUP_STATUSES = [
   'ready_for_delivery',
 ];
 
+function firstSortToken(query) {
+  return String(query.sort || '')
+    .split(',')[0]
+    ?.trim();
+}
+
+function isCodeNumberSort(query) {
+  const first = firstSortToken(query);
+  return first === 'code_num' || first === '-code_num';
+}
+
+function isExplicitProductCatalogSort(query) {
+  const first = firstSortToken(query);
+  return first === 'p.name' || first === '-p.name' || isCodeNumberSort(query);
+}
+
+/** A-0001, A-0002, A-0040, A-0164, A-1684 — not name text (spaces break A-Z). */
+function applyProductCodeNumberSort(qb, descending) {
+  const dir = descending ? 'DESC' : 'ASC';
+  qb.orderByRaw(
+    `CAST(NULLIF(REGEXP_SUBSTR(p.code, '[0-9]+'), '') AS UNSIGNED) ${dir}`
+  );
+  qb.orderBy('p.code', descending ? 'desc' : 'asc');
+  qb.orderBy('p.name', descending ? 'desc' : 'asc');
+}
+
+/**
+ * Catalog A–Z / Z–A sorts by the number in the product code.
+ * Other searches keep relevance ranking.
+ */
+function resolveProductListSort(query, searchTerm) {
+  if (isCodeNumberSort(query)) return false;
+  const requested = String(query.sort || '').trim();
+  if (searchTerm && !isExplicitProductCatalogSort(query)) return undefined;
+  return requested || '-created_at';
+}
+
 function applyCatalogActiveFilter(qb, query) {
   const mode = String(query.catalog_active || 'active')
     .trim()
@@ -92,13 +129,16 @@ export function listProducts(shopId, query) {
     const searchTerm = String(query.search || '').trim();
     if (searchTerm) {
       applyProductSearchFilter(qb, searchTerm, 'p');
-      applyProductSearchRanking(qb, searchTerm, 'p');
+      if (!isExplicitProductCatalogSort(query)) applyProductSearchRanking(qb, searchTerm, 'p');
+    }
+    if (isCodeNumberSort(query)) {
+      applyProductCodeNumberSort(qb, firstSortToken(query) === '-code_num');
     }
     qb.select('p.*');
     return paginate(qb, {
       page: query.page,
       per_page: query.per_page,
-      sort: searchTerm ? undefined : query.sort || '-created_at',
+      sort: resolveProductListSort(query, searchTerm),
     });
   }
 
@@ -154,12 +194,15 @@ export function listProducts(shopId, query) {
   const searchTerm = String(query.search || '').trim();
   if (searchTerm) {
     applyProductSearchFilter(qb, searchTerm, 'p');
-    applyProductSearchRanking(qb, searchTerm, 'p');
+    if (!isExplicitProductCatalogSort(query)) applyProductSearchRanking(qb, searchTerm, 'p');
+  }
+  if (isCodeNumberSort(query)) {
+    applyProductCodeNumberSort(qb, firstSortToken(query) === '-code_num');
   }
   return paginate(qb, {
     page: query.page,
     per_page: query.per_page,
-    sort: searchTerm ? undefined : query.sort || '-created_at',
+    sort: resolveProductListSort(query, searchTerm),
   });
 }
 

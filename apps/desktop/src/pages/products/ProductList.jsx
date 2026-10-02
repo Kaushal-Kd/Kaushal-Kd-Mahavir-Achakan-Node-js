@@ -93,8 +93,17 @@ const PRODUCT_INVENTORY_OPTS = [
   { value: PRODUCT_STATUS.LOST, label: 'Lost' },
 ];
 
-const PRODUCT_LIST_SORT = 'p.natural_code_sort_key,p.code,p.name';
-const PRODUCT_CATEGORY_SORT = 'p.name,p.natural_code_sort_key,p.code';
+const PRODUCT_CODE_SORT_AZ = 'code_num';
+const PRODUCT_CODE_SORT_ZA = '-code_num';
+
+const PRODUCT_SORT_OPTS = [
+  { value: 'az', label: 'A to Z' },
+  { value: 'za', label: 'Z to A' },
+];
+
+function resolveProductCatalogSort(sortKey) {
+  return sortKey === 'za' ? PRODUCT_CODE_SORT_ZA : PRODUCT_CODE_SORT_AZ;
+}
 
 const INVENTORY_STATUS_TONE = {
   [PRODUCT_STATUS.AVAILABLE]: 'green',
@@ -117,6 +126,7 @@ const ProductList = () => {
   const [colorFilter, setColorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [catalogActiveFilter, setCatalogActiveFilter] = useState('active');
+  const [sortKey, setSortKey] = useState('az');
   /** id -> { code, name, qty } so barcodes can be printed for picks across pages */
   const [selection, setSelection] = useState({});
   /** After "select all", tracks every id in that filtered fetch so uncheck can clear without re-fetching */
@@ -166,7 +176,7 @@ const ProductList = () => {
         search,
         page,
         per_page: perPage,
-        sort: categoryId && categoryId !== 'all' ? PRODUCT_CATEGORY_SORT : PRODUCT_LIST_SORT,
+        sort: resolveProductCatalogSort(sortKey),
       };
       if (categoryId && categoryId !== 'all') params.category_id = categoryId;
       if (typeFilter) params.type = typeFilter;
@@ -178,7 +188,7 @@ const ProductList = () => {
       }
       return params;
     },
-    [search, categoryId, typeFilter, sizeFilter, colorFilter, statusFilter, catalogActiveFilter]
+    [search, categoryId, typeFilter, sizeFilter, colorFilter, statusFilter, catalogActiveFilter, sortKey]
   );
 
   const { data, isLoading } = useQuery({
@@ -193,6 +203,7 @@ const ProductList = () => {
         colorFilter,
         statusFilter,
         catalogActiveFilter,
+        sortKey,
         page,
         perPage,
       },
@@ -224,13 +235,19 @@ const ProductList = () => {
   const colorOptionsForUi = colorSelectOptions.length > 1 ? colorSelectOptions : null;
 
   const catalogFiltersClear =
-    !typeFilter && !sizeFilter && !colorFilter && !statusFilter && catalogActiveFilter === 'active';
+    !typeFilter &&
+    !sizeFilter &&
+    !colorFilter &&
+    !statusFilter &&
+    catalogActiveFilter === 'active' &&
+    sortKey === 'az';
   const clearCatalogFilters = () => {
     setTypeFilter('');
     setSizeFilter('');
     setColorFilter('');
     setStatusFilter('');
     setCatalogActiveFilter('active');
+    setSortKey('az');
     setPage(1);
   };
 
@@ -244,8 +261,9 @@ const ProductList = () => {
         colorFilter,
         statusFilter,
         catalogActiveFilter,
+        sortKey,
       }),
-    [search, categoryId, typeFilter, sizeFilter, colorFilter, statusFilter, catalogActiveFilter]
+    [search, categoryId, typeFilter, sizeFilter, colorFilter, statusFilter, catalogActiveFilter, sortKey]
   );
 
   const selectionResetKey = useMemo(
@@ -858,6 +876,12 @@ const ProductList = () => {
             typeOptions={PRODUCT_TYPE_OPTS}
             onTypeChange={(v) => {
               setTypeFilter(v);
+              setPage(1);
+            }}
+            sortValue={sortKey}
+            sortOptions={PRODUCT_SORT_OPTS}
+            onSortChange={(v) => {
+              setSortKey(v);
               setPage(1);
             }}
             sizeValue={sizeFilter}

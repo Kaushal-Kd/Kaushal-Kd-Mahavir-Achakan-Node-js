@@ -3,11 +3,11 @@ import {
   accessoryRentableQty,
   buildSaleNumber,
   formatAccessoryQtyExceededMessage,
-  normalizeOrderNumberPrefix,
 } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadDocumentTypeNumbering, nextTableSequence } from '../../lib/documentNumbering.js';
 import { assertSellProductLinesAvailable } from '../products/service.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
@@ -28,9 +28,8 @@ function saleItemsToSellAssertLines(items) {
     }));
 }
 
-async function nextSaleBillNumber(trx, shopId) {
-  const row = await trx('sales').where({ shop_id: shopId }).max('bill_no as max_bill').first();
-  return Number(row?.max_bill || 0) + 1;
+async function nextSaleBillNumber(trx, shopId, startSequence) {
+  return nextTableSequence(trx, 'sales', shopId, startSequence);
 }
 
 async function restoreSaleItemInventory(trx, shopId, items) {
@@ -257,15 +256,12 @@ export async function listSales(shopId, query) {
 
 export async function createSale(shopId, data, userId) {
   return knex.transaction(async (trx) => {
-    const billNo = await nextSaleBillNumber(trx, shopId);
-
-    const shopRow = await trx('shops')
-      .where({ id: shopId })
-      .select('order_number_prefix', 'gstin')
-      .first();
-    const shopPrefix = normalizeOrderNumberPrefix(shopRow?.order_number_prefix);
-    const prefix = shopPrefix ? `S${shopPrefix}` : 'S';
-    const saleNumber = buildSaleNumber({ prefix, sequence: billNo });
+    const saleCfg = await loadDocumentTypeNumbering(trx, shopId, 'sale');
+    const billNo = await nextSaleBillNumber(trx, shopId, saleCfg.start_sequence);
+    const saleNumber = buildSaleNumber({
+      prefix: saleCfg.effective_prefix,
+      sequence: billNo,
+    });
 
     const id = uuid();
     const billType = 'kaccha';

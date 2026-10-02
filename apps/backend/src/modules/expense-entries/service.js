@@ -1,7 +1,8 @@
-import { buildExpenseNumber, normalizeOrderNumberPrefix } from '@wrs/shared';
+import { buildExpenseNumber } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
+import { loadDocumentTypeNumbering, nextTableSequence } from '../../lib/documentNumbering.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
 
@@ -34,23 +35,16 @@ function withParsedImageUrls(row) {
   return { ...row, image_urls: parseImageUrls(row.image_urls) };
 }
 
-async function nextExpenseBillNumber(trx, shopId) {
-  const row = await trx('expense_entries').where({ shop_id: shopId }).max('bill_no as max_bill').first();
-  return Number(row?.max_bill || 0) + 1;
+async function nextExpenseBillNumber(trx, shopId, startSequence) {
+  return nextTableSequence(trx, 'expense_entries', shopId, startSequence);
 }
 
 async function assignExpenseBillNumber(trx, shopId) {
-  const shopRow = await trx('shops')
-    .where({ id: shopId })
-    .forUpdate()
-    .select('order_number_prefix')
-    .first();
-  const billNo = await nextExpenseBillNumber(trx, shopId);
-  const shopPrefix = normalizeOrderNumberPrefix(shopRow?.order_number_prefix);
-  const prefix = shopPrefix ? `E${shopPrefix}` : 'E';
+  const cfg = await loadDocumentTypeNumbering(trx, shopId, 'expense');
+  const billNo = await nextExpenseBillNumber(trx, shopId, cfg.start_sequence);
   return {
     bill_no: billNo,
-    expense_number: buildExpenseNumber({ prefix, sequence: billNo }),
+    expense_number: buildExpenseNumber({ prefix: cfg.effective_prefix, sequence: billNo }),
   };
 }
 

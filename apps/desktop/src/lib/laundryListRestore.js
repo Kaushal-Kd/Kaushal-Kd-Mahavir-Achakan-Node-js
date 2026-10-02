@@ -6,6 +6,7 @@ const LAUNDRY_LIST_RESTORE_KEY = 'wrs.laundryListRestore';
  * @property {string} [laundryFrom]
  * @property {string} [laundryTo]
  * @property {boolean} [queueModalOpen]
+ * @property {string} [queueKind]
  * @property {string} [queueSearch]
  * @property {string} [queueSort]
  * @property {string|null} [upcomingPopoverQueueItemId]
