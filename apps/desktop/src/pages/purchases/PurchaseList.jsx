@@ -574,7 +574,6 @@ const PurchaseList = () => {
         vendorAccountId={vendorAccountId}
         columns={exportColumns}
       />
-      />
 
       <PurchaseTransactionsModal
         isOpen={!!transactionsPurchaseId}
