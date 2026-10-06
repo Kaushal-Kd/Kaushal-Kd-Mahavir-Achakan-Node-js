@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import Button from '../../components/ui/Button.jsx';
 import AccountSelectWithQr from '../../components/accounts/AccountSelectWithQr.jsx';
+import DatePicker from '../../components/ui/DatePicker.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useWhatsAppOutbound } from '../../contexts/WhatsAppOutboundContext.jsx';
 import { useModalSize } from '../../hooks/useModalSize.js';
@@ -45,6 +46,7 @@ const REFUND_VIA_BANK_CASH = 'bank_cash';
 
 const MAX_RETURN_REMARK = 500;
 const today = () => todayIndiaISODate();
+const isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 
 
 const ReturnSettlementModal = ({
@@ -65,6 +67,7 @@ const ReturnSettlementModal = ({
   const [refundPaymentAccountId, setRefundPaymentAccountId] = useState('');
   const [receiveAmount, setReceiveAmount] = useState('');
   const [paymentAccountId, setPaymentAccountId] = useState('');
+  const [paymentDate, setPaymentDate] = useState(today);
   const [chargePaymentAccountId, setChargePaymentAccountId] = useState('');
   const [conditionCollectAmount, setConditionCollectAmount] = useState('0');
   const [conditionRetainAmount, setConditionRetainAmount] = useState('0');
@@ -223,6 +226,7 @@ const ReturnSettlementModal = ({
     setConditionCollectAmount('0');
     setConditionRetainAmount('0');
     setReceiveAmount('');
+    setPaymentDate(today());
     setDiscountDraft('0');
     setReturnRemark('');
     setSecurityRefundAmount('');
@@ -334,6 +338,14 @@ const ReturnSettlementModal = ({
         );
         throw new Error('validation');
       }
+      const paymentDateIso = String(paymentDate || '').trim().slice(0, 10);
+      if (
+        (receiveNum > 0 || effectiveRefund > 0 || directConditionCharge > 0) &&
+        !isIsoDate(paymentDateIso)
+      ) {
+        toast.error('Select the payment date');
+        throw new Error('validation');
+      }
 
       let updates = Array.isArray(stageUpdates) ? [...stageUpdates] : [];
       if (updates.length === 0 && stageDraftAfter) {
@@ -350,7 +362,7 @@ const ReturnSettlementModal = ({
           effectiveRefund > 0 && refundVia === REFUND_VIA_SECURITY ? secId : null,
         receive_amount: receiveNum,
         payment_account_id: receiveNum > 0 ? payId : null,
-        payment_date: today(),
+        payment_date: paymentDateIso,
         return_remark: paymentNotes,
         security_charge_remarks: paymentNotes,
         charge_payment_account_id: directConditionCharge > 0 ? chargePayId : null,
@@ -637,7 +649,24 @@ const ReturnSettlementModal = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-start">
+              <div className="min-w-0">
+                <label
+                  htmlFor="return-settlement-payment-date"
+                  className="block text-[10px] font-medium text-gray-600 mb-1"
+                >
+                  Payment date
+                </label>
+                <DatePicker
+                  id="return-settlement-payment-date"
+                  required
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(String(e.target.value || '').slice(0, 10))}
+                  inputClassName="h-9 py-1 px-2 text-[11px] pr-8"
+                  placeholder="DD-MM-YYYY"
+                />
+                <div className="mt-0.5 min-h-[18px]" aria-hidden="true" />
+              </div>
               <div className="min-w-0">
                 <label
                   htmlFor="return-settlement-advance"

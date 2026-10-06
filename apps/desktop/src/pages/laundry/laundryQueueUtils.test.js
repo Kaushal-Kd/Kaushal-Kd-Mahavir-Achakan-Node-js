@@ -5,6 +5,8 @@ import {
   filterWashingQueue,
   filterWashingQueueByKind,
   groupLaundryAccessoriesByCategory,
+  sortLaundryJobProductsByCode,
+  sortWashingQueue,
   washingQueueItemKind,
 } from './laundryQueueUtils.js';
 
@@ -69,5 +71,37 @@ test('washing queue search matches accessory category names', () => {
   assert.deepEqual(
     filterWashingQueue(items, 'jewel').map((row) => row.id),
     ['1']
+  );
+});
+
+test('laundry product rows sort A–Z by code with increasing numeric series', () => {
+  const sorted = sortLaundryJobProductsByCode([
+    { code: 'AN-0241[36]', name: 'anarkali' },
+    { code: 'A-0010[38]', name: 'angrakhu' },
+    { code: 'A-0002[40]', name: 'angrakhu' },
+    { code: 'AA-2222[49]', name: 'angarkha' },
+    { code: 'A-0001[36]', name: 'angrakhu' },
+  ]);
+
+  assert.deepEqual(
+    sorted.map((row) => row.code),
+    ['A-0001[36]', 'A-0002[40]', 'A-0010[38]', 'AA-2222[49]', 'AN-0241[36]']
+  );
+});
+
+test('washing queue code sort uses the same A–Z numeric series', () => {
+  const sorted = sortWashingQueue(
+    [
+      { id: '1', code: 'S-1176[36]', name: 'SERVANI' },
+      { id: '2', code: 'A-0601[40]', name: 'ACHAKAN' },
+      { id: '3', code: 'AN-0241[36]', name: 'ANARKALI' },
+      { id: '4', code: 'A-0010[34]', name: 'ANGRAKHU' },
+    ],
+    'code'
+  );
+
+  assert.deepEqual(
+    sorted.map((row) => row.code),
+    ['A-0010[34]', 'A-0601[40]', 'AN-0241[36]', 'S-1176[36]']
   );
 });

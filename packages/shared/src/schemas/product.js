@@ -223,7 +223,7 @@ export const salesmanReportQuerySchema = z
 /** GET /reports/pending-bills — optional return_date window via from/to */
 export const pendingBillsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
-  per_page: z.coerce.number().int().min(1).max(100).optional().default(20),
+  per_page: z.coerce.number().int().min(1).max(500).optional().default(20),
   search: z.preprocess((v) => {
     const u = emptyQueryToUndef(v);
     if (u === undefined) return undefined;

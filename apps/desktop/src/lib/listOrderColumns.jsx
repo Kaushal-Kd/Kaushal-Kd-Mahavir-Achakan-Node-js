@@ -1,8 +1,8 @@
-import { formatCurrency } from '@wrs/shared';
+import { formatCurrency, resolveOrderContactAddress } from '@wrs/shared';
 
 /** @param {Record<string, unknown>} row */
 export function resolveOrderAddress(row) {
-  return String(row?.customer_address || '').trim();
+  return resolveOrderContactAddress(row);
 }
 
 /** Rent bill balance still due (orders.balance). */

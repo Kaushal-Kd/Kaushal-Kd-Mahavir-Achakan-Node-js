@@ -3,6 +3,8 @@ import { Pencil } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useEffect, useState } from 'react';
 
+import Button from '../../components/ui/Button.jsx';
+
 const toNonNegativeNumber = (v) => {
   if (v === '' || v == null) return 0;
   return round2(Math.max(0, Number(v) || 0));
@@ -10,7 +12,7 @@ const toNonNegativeNumber = (v) => {
 
 /**
  * Inline label + amount for order.deposit_amount with pencil to edit.
- * Parent owns `value` / `onChange` (draft updates on blur or icon confirm).
+ * Parent owns `value` / `onChange` (draft updates on Save, Enter, or blur).
  */
 const EditableOrderSecurityCap = ({
   value,
@@ -49,28 +51,39 @@ const EditableOrderSecurityCap = ({
     >
       <span className={`${labelCls} font-medium text-gray-600`}>{label}:</span>
       {editing && !disabled ? (
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          value={draft}
-          onChange={(e) =>
-            setDraft(e.target.value === '' ? '' : String(toNonNegativeNumber(e.target.value)))
-          }
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              commit();
+        <>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={draft}
+            onChange={(e) =>
+              setDraft(e.target.value === '' ? '' : String(toNonNegativeNumber(e.target.value)))
             }
-            if (e.key === 'Escape') {
-              setDraft(String(displayAmount));
-              setEditing(false);
-            }
-          }}
-          className={`input w-24 py-0.5 px-1.5 tabular-nums ${inputCls}`}
-          aria-label={`${label} amount`}
-        />
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commit();
+              }
+              if (e.key === 'Escape') {
+                setDraft(String(displayAmount));
+                setEditing(false);
+              }
+            }}
+            className={`input w-24 py-0.5 px-1.5 tabular-nums ${inputCls}`}
+            aria-label={`${label} amount`}
+          />
+          <Button
+            type="button"
+            size="sm"
+            className={`${size === 'sm' ? 'h-7 px-2 text-[10px]' : 'h-8 px-2.5 text-[11px]'} py-0`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={commit}
+          >
+            Save
+          </Button>
+        </>
       ) : (
         <span className="inline-flex flex-nowrap items-center gap-x-0.5">
           <span className={`${amountCls} font-semibold text-green-700 tabular-nums`}>

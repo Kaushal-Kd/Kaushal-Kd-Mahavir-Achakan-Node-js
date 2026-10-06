@@ -125,6 +125,14 @@
   .table tbody tr.damage-replacement-row:hover {
     @apply bg-red-100;
   }
+  .completed-handover-row,
+  .completed-handover-row.bg-surface,
+  .table tbody tr.completed-handover-row {
+    @apply bg-green-50;
+  }
+  .table tbody tr.completed-handover-row:hover {
+    @apply bg-green-100;
+  }
 
   /* Order checklist — desktop table only (mobile uses cards in OrderChecklistPanel) */
   .order-checklist-table .table thead th {

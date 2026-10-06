@@ -8,6 +8,7 @@ import {
   formatOrderTime12,
   MODULES,
   hasPermission,
+  resolveOrderContactPhone1,
   returnListDefaultStatusesCsv,
   toLocalISODate,
 } from '@wrs/shared';
@@ -471,7 +472,7 @@ const ReturnList = () => {
       header: 'Customer No',
       columnPickerLabel: 'Customer No.',
       render: (r) => (
-        <span className="font-mono text-xs">{r.customer_phone || r.pickup_number || '—'}</span>
+        <span className="font-mono text-xs">{resolveOrderContactPhone1(r) || '—'}</span>
       ),
     },
     buildCustomerAddressColumn(),
@@ -717,7 +718,7 @@ const ReturnList = () => {
             }
             if (c.key === 'pickup_name')
               return r.customer_name || r.pickup_name || r.reference_name || '';
-            if (c.key === 'pickup_number') return r.customer_phone || r.pickup_number || '';
+            if (c.key === 'pickup_number') return resolveOrderContactPhone1(r) || r.pickup_number || '';
             if (c.key === 'customer_whatsapp') return r.customer_whatsapp || '';
             if (c.key === 'customer_address') return r.customer_address || '';
             if (c.key === 'rent_total') {

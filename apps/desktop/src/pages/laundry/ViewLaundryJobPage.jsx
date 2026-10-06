@@ -20,6 +20,7 @@ import {
   groupLaundryAccessoriesByCategory,
   PRIORITY_TONE,
   resolveNextBookingLink,
+  sortLaundryJobProductsByCode,
 } from './laundryQueueUtils.js';
 import { printLaundrySlip } from './laundrySlipPrint.js';
 
@@ -71,13 +72,24 @@ const ViewLaundryJobPage = () => {
   });
 
   const job = jobResp?.data;
-  const productRows = job?.productRows || [];
+  const productRows = useMemo(
+    () => sortLaundryJobProductsByCode(job?.productRows || []),
+    [job?.productRows]
+  );
   const accessoryRows = job?.accessoryRows || [];
   const accessoryGroups = useMemo(
     () => groupLaundryAccessoriesByCategory(accessoryRows),
     [accessoryRows]
   );
-  const categorySummaries = job?.categorySummaries || [];
+  const categorySummaries = useMemo(
+    () =>
+      [...(job?.categorySummaries || [])].sort((a, b) =>
+        String(a.label || '').localeCompare(String(b.label || ''), undefined, {
+          sensitivity: 'base',
+        })
+      ),
+    [job?.categorySummaries]
+  );
 
   const discountLabel =
     job?.discountMode === 'percent'

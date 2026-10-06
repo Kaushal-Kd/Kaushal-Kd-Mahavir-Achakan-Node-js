@@ -321,21 +321,17 @@ const Dashboard = () => {
     <>
       <PageHeader
         title="Dashboard"
-        description="Overview of today's operations"
+        breadcrumbs={[]}
+        actions={
+          <button
+            type="button"
+            onClick={resetSectionLayout}
+            className="text-xs font-medium text-brand hover:underline"
+          >
+            Reset layout
+          </button>
+        }
       />
-
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        <p className="text-xs text-gray-500">
-          Drag sections by the grip to reorder your dashboard.
-        </p>
-        <button
-          type="button"
-          onClick={resetSectionLayout}
-          className="text-xs font-medium text-brand hover:underline"
-        >
-          Reset layout
-        </button>
-      </div>
 
       {sectionOrder.map((sectionId) => {
         if (sectionId === 'custom_order_trials' && !canViewCustomOrders) return null;

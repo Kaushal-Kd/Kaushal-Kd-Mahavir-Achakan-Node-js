@@ -23,6 +23,12 @@ export function stageFromOrderStatus(status) {
   return 'booked';
 }
 
+/** True once the order has been handed over or has moved past delivery. */
+export function isCompletedHandoverStage(status) {
+  const stage = stageFromOrderStatus(status);
+  return stage === 'delivered' || stage === 'received';
+}
+
 /** Stages where Cancel is offered (not after delivery / return). */
 export const STAGES_WITH_CANCEL = new Set(['booked', 'item_to_collect', 'prepared']);
 

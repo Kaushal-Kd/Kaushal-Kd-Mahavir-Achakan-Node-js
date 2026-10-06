@@ -54,10 +54,10 @@ import {
   getPriority,
   groupLaundryAccessoriesByCategory,
   presentWashingQueueItem,
-  PRIORITY_RANK,
   PRIORITY_TONE,
   QUEUE_SORT_OPTIONS,
   resolveNextBookingLink,
+  sortLaundryJobProductsByCode,
   sortWashingQueue,
   washingQueueItemKind,
   washingQueueKindLabel,
@@ -321,10 +321,7 @@ const CreateLaundryJob = () => {
   }, [accessoryCategories]);
 
   const sortedProductRows = useMemo(
-    () =>
-      [...productRows].sort(
-        (a, b) => (PRIORITY_RANK[a.priority] || 99) - (PRIORITY_RANK[b.priority] || 99)
-      ),
+    () => sortLaundryJobProductsByCode(productRows),
     [productRows]
   );
 

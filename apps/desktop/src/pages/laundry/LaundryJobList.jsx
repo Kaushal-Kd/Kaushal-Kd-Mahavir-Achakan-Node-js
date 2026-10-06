@@ -592,7 +592,7 @@ const LaundryJobList = () => {
             <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               className="input h-7 w-full text-xs pl-7"
-              placeholder="Search job no / vendor / pickup by"
+              placeholder="Search job no / vendor / pickup by / product code"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />

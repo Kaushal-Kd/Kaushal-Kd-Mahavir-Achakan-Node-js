@@ -95,6 +95,18 @@ export const reorderCustomOrderFieldDefinitionsSchema = z.object({
 
 const measurementsSchema = z.record(z.string(), z.union([z.string(), z.number()])).default({});
 
+export const customOrderItemSchema = z.object({
+  id: z.string().uuid().optional().nullable(),
+  design_name: z.string().trim().max(200).optional().nullable(),
+  category_id: z.string().uuid().optional().nullable(),
+  product_name: z.string().trim().max(200).optional().nullable(),
+  color: z.string().trim().max(60).optional().nullable(),
+  size: z.string().trim().max(40).optional().nullable(),
+  linked_product_id: z.string().uuid().optional().nullable(),
+  generated_product_code: z.string().trim().max(80).optional().nullable(),
+  display_order: z.coerce.number().int().nonnegative().optional(),
+});
+
 const retrialEntrySchema = z.object({
   date: optionalSqlDate,
   notes: z.string().trim().max(500).optional().nullable(),
@@ -139,6 +151,7 @@ export const createCustomOrderSchema = z.object({
   product_name: z.string().trim().max(200).optional().nullable(),
   color: z.string().trim().max(60).optional().nullable(),
   size: z.string().trim().max(40).optional().nullable(),
+  items: z.array(customOrderItemSchema).max(50).optional(),
   remarks: z.string().trim().max(5000).optional().nullable(),
   given_to_tailor: z.coerce.boolean().default(false),
   tailor_name: z.string().trim().max(120).optional().nullable(),
@@ -183,6 +196,7 @@ export const createProductFromCustomOrderSchema = z.object({
   photos: imagesArraySchema.optional(),
   qty: z.coerce.number().int().positive().max(9999).optional(),
   type: z.enum(['rent', 'sell', 'both']).optional(),
+  item_id: z.string().uuid().optional(),
 });
 
 /**
@@ -192,10 +206,21 @@ export const createProductFromCustomOrderSchema = z.object({
  */
 export function validateCustomOrderForCompletion(body) {
   const row = body && typeof body === 'object' ? body : {};
-  if (!String(row.category_id || '').trim()) {
+  const items = Array.isArray(row.items) ? row.items : [];
+  const filled = items.find(
+    (item) =>
+      item &&
+      typeof item === 'object' &&
+      (item.category_id || item.product_name || item.design_name)
+  );
+  const primary = filled && typeof filled === 'object' ? filled : items[0] && typeof items[0] === 'object' ? items[0] : row;
+  const categoryId = String(primary.category_id || row.category_id || '').trim();
+  if (!categoryId) {
     return { ok: false, message: 'Category is required to complete the order' };
   }
-  const productName = String(row.product_name || row.design_name || '').trim();
+  const productName = String(
+    primary.product_name || primary.design_name || row.product_name || row.design_name || ''
+  ).trim();
   if (!productName) {
     return { ok: false, message: 'Product name is required to complete the order' };
   }

@@ -11,11 +11,13 @@ import {
   shiftIsoCalendarDate,
 } from './reminderEligibility.js';
 
-test('delivery reminders run only while the booking is in the preparation stage', () => {
+test('delivery reminders cover undelivered bookings the day before pickup', () => {
   assert.equal(isDeliveryReminderOrderStatus('in_preparation'), true);
-  assert.equal(isDeliveryReminderOrderStatus('ready_for_delivery'), false);
-  assert.equal(isDeliveryReminderOrderStatus('booked'), false);
+  assert.equal(isDeliveryReminderOrderStatus('booked'), true);
+  assert.equal(isDeliveryReminderOrderStatus('item_to_collect'), true);
+  assert.equal(isDeliveryReminderOrderStatus('ready_for_delivery'), true);
   assert.equal(isDeliveryReminderOrderStatus('delivered'), false);
+  assert.equal(isDeliveryReminderOrderStatus('cancelled'), false);
 });
 
 test('reminder schedule is a valid instant on the preceding India calendar day', () => {
@@ -28,6 +30,14 @@ test('reminder schedule is a valid instant on the preceding India calendar day',
     '2025-12-30T18:35:00.000Z'
   );
   assert.equal(
+    deliveryReminderScheduledAt('2026-09-06', '12:40 PM').toISOString(),
+    deliveryReminderScheduledAt('2026-09-06', '12:40').toISOString()
+  );
+  assert.equal(
+    deliveryReminderScheduledAt('2026-09-06', '12:40:00').toISOString(),
+    '2026-09-05T07:10:00.000Z'
+  );
+  assert.equal(
     deliveryReminderScheduledAt('2026-09-06', '999:00').toISOString(),
     '2026-09-05T04:30:00.000Z'
   );
@@ -37,9 +47,11 @@ test('reminder time accepts 24-hour boundaries and rejects malformed pasted sett
   for (const time of ['00:00', '09:05', '23:59']) {
     assert.equal(validateAppSettingValue('whatsapp.delivery_reminder_time', time).ok, true);
   }
-  for (const time of ['24:00', '23:60', '1:05', '12:5', '12:05:00', '123456', 'ab:cd', '-1:00']) {
+  for (const time of ['24:00', '23:60', '12:5', '123456', 'ab:cd', '-1:00']) {
     assert.equal(validateAppSettingValue('whatsapp.delivery_reminder_time', time).ok, false, time);
   }
+  assert.equal(validateAppSettingValue('whatsapp.delivery_reminder_time', '12:05:00').ok, true);
+  assert.equal(validateAppSettingValue('whatsapp.delivery_reminder_time', '1:05').ok, true);
   assert.equal(
     deliveryReminderScheduledAt('2026-03-01', '00:00').toISOString(),
     '2026-02-27T18:30:00.000Z'
@@ -94,8 +106,21 @@ test('reminder rejects changed pickup date and wrong reminder date', () => {
   }
 });
 
-test('reminder rejects all non-preparation statuses and missing bookings', () => {
-  for (const status of ['ready_for_delivery', 'delivered', 'cancelled', 'returned', 'booked']) {
+test('reminder allows booked and ready-for-delivery bookings the day before pickup', () => {
+  for (const status of ['booked', 'item_to_collect', 'in_preparation', 'ready_for_delivery']) {
+    assert.equal(
+      deliveryReminderCancellationReason(
+        { delivery_date: '2026-09-06' },
+        { status, pickup_date: '2026-09-06' },
+        '2026-09-05'
+      ),
+      null
+    );
+  }
+});
+
+test('reminder rejects delivered, returned, cancelled, and missing bookings', () => {
+  for (const status of ['delivered', 'cancelled', 'returned', 'closed']) {
     assert.equal(
       deliveryReminderCancellationReason(
         { delivery_date: '2026-09-06' },

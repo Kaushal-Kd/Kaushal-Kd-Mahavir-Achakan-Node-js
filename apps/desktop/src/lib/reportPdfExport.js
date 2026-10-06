@@ -168,7 +168,7 @@ export async function withExportPdfBusy(setBusy, fn) {
   try {
     await fn();
   } catch (err) {
-    toast.error(err?.message || 'Could not export PDF');
+    toast.error(err?.response?.data?.error?.message || err?.message || 'Could not export PDF');
   } finally {
     setBusy(false);
   }

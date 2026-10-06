@@ -84,9 +84,12 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus.js';
 import { useOrderReplacementRequirements } from '../../hooks/api/useOrderReplacements.js';
 import { createQueueId, syncService } from '../../services/syncService.js';
 import { productsApi } from '../../lib/api/products.js';
+import { loadPairSuggestionsForMatches } from '../../lib/productPairSuggestions.js';
 import { customOrdersApi } from '../../lib/api/customOrders.js';
 import {
   clearCustomOrderBookingHandoff,
+  bookingDateTimeForConvert,
+  isCustomOrderBookingHandoffActive,
   linkHandoffCustomerToCustomOrder,
   readCustomOrderBookingHandoff,
   resolveHandoffCustomer,
@@ -98,8 +101,10 @@ import { invalidateCustomersDomain, invalidateOrderDomain } from '../../lib/quer
 import { stashTokenDownloadPrompt } from '../../lib/bookingTokenDownloadPrompt.js';
 import { queryKeys } from '../../lib/queryKeys.js';
 import { useWhatsAppOutbound } from '../../contexts/WhatsAppOutboundContext.jsx';
-import { hydrateBookingCustomerFields } from '../../lib/bookingCustomerHydration.js';
-import { buildCustomerContactPatch } from '../../lib/customerContactPatch.js';
+import {
+  hydrateBookingCustomerFields,
+  restoreWhatsappFromDraftSnapshot,
+} from '../../lib/bookingCustomerHydration.js';
 import { printBill } from '../../utils/printBill.js';
 import { compressImageFile } from '../../utils/compressImage.js';
 import {
@@ -116,6 +121,7 @@ import {
   isSnapshotTriviallyEmpty,
   readDraftList,
   removeBookingDraft,
+  resolveReusableBookingDraftId,
   setActiveDraftId as persistActiveDraftStorageKey,
   upsertBookingDraft,
 } from '../../lib/bookingDraftStorage.js';
@@ -500,6 +506,8 @@ const CreateOrder = ({ mode, orderId }) => {
   const [draftSaveStatus, setDraftSaveStatus] = useState('idle');
   const draftHydrateDoneRef = useRef(false);
   const skipDraftPersistRef = useRef(false);
+  const draftRestoreKeepLinesRef = useRef(false);
+  const draftLinesHydratedRef = useRef(false);
   const justStartedBlankDraftRef = useRef(false);
   const quickBillHandoffAppliedRef = useRef(false);
   const customOrderHandoffAppliedRef = useRef(false);
@@ -527,7 +535,7 @@ const CreateOrder = ({ mode, orderId }) => {
     setProductDropdownPos({
       top: rect.bottom + 4,
       left: rect.left,
-      width: Math.max(rect.width, 224),
+      width: Math.max(rect.width, 288),
     });
   }, []);
 
@@ -607,12 +615,6 @@ const CreateOrder = ({ mode, orderId }) => {
     queryKey: ['customer-search', customerQuery],
     queryFn: () => customersApi.search(customerQuery),
     enabled: customerQuery.trim().length >= 2,
-  });
-
-  const customerDetailQuery = useQuery({
-    queryKey: ['customer', customer?.id],
-    queryFn: () => customersApi.get(customer.id),
-    enabled: !!customer?.id,
   });
 
   const editOrderQuery = useQuery({
@@ -935,6 +937,36 @@ const CreateOrder = ({ mode, orderId }) => {
     });
     return Array.from(map.values());
   }, [productAvailabilityQuery?.data?.data, productSearchFallbackQuery?.data?.data]);
+  const pairSuggestionQuery = useQuery({
+    queryKey: [
+      'booking-pair-suggestions',
+      productMatches.map((p) => p.id).join(','),
+      productQuery,
+      pickupDate,
+      returnDate,
+      lineQty,
+      isEditMode ? orderId : '',
+    ],
+    queryFn: () =>
+      loadPairSuggestionsForMatches({
+        matches: productMatches,
+        search: productQuery,
+        forBooking: true,
+        availability: {
+          from: pickupDate,
+          to: returnDate,
+          qty: Math.max(1, Number(lineQty) || 1),
+          excludeOrderId: isEditMode && orderId ? orderId : undefined,
+        },
+      }),
+    enabled:
+      productOpen &&
+      productMatches.length > 0 &&
+      !!pickupDate &&
+      !!returnDate &&
+      ((allowProductAutocomplete && productQuery.trim().length >= 1) || visualProductIds.length > 0),
+  });
+  const productMatchesWithPairs = pairSuggestionQuery.data || productMatches;
   const addedProductIds = useMemo(
     () =>
       new Set(
@@ -945,8 +977,8 @@ const CreateOrder = ({ mode, orderId }) => {
     [lines]
   );
   const selectableProductMatches = useMemo(
-    () => productMatches.filter((p) => !addedProductIds.has(String(p.id))),
-    [productMatches, addedProductIds]
+    () => productMatchesWithPairs.filter((p) => !addedProductIds.has(String(p.id))),
+    [productMatchesWithPairs, addedProductIds]
   );
 
   const activeAccessoryLine = useMemo(() => {
@@ -1429,82 +1461,12 @@ const CreateOrder = ({ mode, orderId }) => {
   const customerName = String(customer?.name || '').trim();
   const missingCustomerName = !!customer?.id && !customerName;
 
-  /** Prefer draft snapshot contact fields over stale API customer record on resume. */
-  const applyCustomerFromApiWithSnapshot = useCallback((full, snap) => {
-    if (!full) return;
-    const snapPhone1 = String(snap?.contactNo1 ?? snap?.contact_no1 ?? '').trim();
-    const snapC2Name = String(snap?.contact2Name ?? snap?.contact2_name ?? '').trim();
-    const snapPhone2 = String(snap?.contactNo2 ?? snap?.contact_no2 ?? '').trim();
-    const snapAddr = String(snap?.address ?? '').trim();
-    const hasSameKey = Boolean(
-      snap &&
-        (Object.prototype.hasOwnProperty.call(snap, 'contactNo2SameAsPhone1') ||
-          Object.prototype.hasOwnProperty.call(snap, 'contact_no2_same_as_phone1'))
-    );
-    const snapSame = !!(snap?.contactNo2SameAsPhone1 ?? snap?.contact_no2_same_as_phone1);
 
-    setCustomer({
-      ...full,
-      phone1: snapPhone1 || full.phone1 || '',
-      phone2: snapPhone2 || full.phone2 || '',
-      phone2_name: snapC2Name || full.phone2_name || null,
-      address: snapAddr || full.address || '',
-    });
-    const q = String(snap?.customerQuery ?? '').trim();
-    setCustomerQuery(q || full.name || '');
-    const hydrated = hydrateBookingCustomerFields(full, null);
-    setContactNo1(snapPhone1 ? normalizePhone(snapPhone1) : hydrated.contactNo1);
-    setContact2Name(snapC2Name || hydrated.contact2Name);
-    setContactNo2(snapPhone2 ? phoneInputDigits(snapPhone2) : hydrated.contactNo2);
-    setContactNo2SameAsPhone1(hasSameKey ? snapSame : hydrated.contactNo2SameAsPhone1);
-    setEditingCustomerName(!String(full.name || '').trim());
-    const snapWaSrc = snap?.whatsappSource ?? snap?.whatsapp_source;
-    if (snapWaSrc === 'phone1' || snapWaSrc === 'phone2' || snapWaSrc === 'manual') {
-      setWhatsappSource(snapWaSrc);
-    } else {
-      setWhatsappSource(hydrated.whatsappSource);
-    }
-    const snapWaManual = String(snap?.whatsappManual ?? snap?.whatsapp_manual ?? '').trim();
-    setWhatsappManual(
-      snapWaManual ? phoneInputDigits(snapWaManual) : hydrated.whatsappManual
-    );
-    setAddress(snapAddr || hydrated.address);
-  }, []);
 
   useEffect(() => {
     if (!contactNo2SameAsPhone1) return;
     setContact2Name(customerName.slice(0, 60));
   }, [contactNo2SameAsPhone1, customerName]);
-
-  useEffect(() => {
-    if (initializingEdit) return undefined;
-    const id = customer?.id;
-    if (!id) return undefined;
-    if (whatsappSource !== 'phone1' && whatsappSource !== 'phone2') return undefined;
-    if (!isIndianPhone(resolvedWhatsapp)) return undefined;
-
-    const detailRow = customerDetailQuery?.data?.data || customer;
-    const storedWa = String(detailRow?.whatsapp || '').trim();
-    if (storedWa) return undefined;
-
-    const t = window.setTimeout(async () => {
-      try {
-        await customersApi.update(id, { whatsapp: resolvedWhatsapp });
-        queryClient.invalidateQueries({ queryKey: ['customer', id] });
-      } catch {
-        /* booking submit will sync again */
-      }
-    }, 500);
-
-    return () => window.clearTimeout(t);
-  }, [
-    customer?.id,
-    customerDetailQuery?.data?.data,
-    whatsappSource,
-    resolvedWhatsapp,
-    initializingEdit,
-    queryClient,
-  ]);
 
   const buildBookingDraftSnapshot = useCallback(() => {
     const clonedLines = compactDraftValue(lines || []);
@@ -1622,6 +1584,7 @@ const CreateOrder = ({ mode, orderId }) => {
     setLines(
       normalizeBookingLinesFromDraft(Array.isArray(clonedLines) ? clonedLines : rawLines)
     );
+    draftLinesHydratedRef.current = true;
     if (snap.bookingDateTime || snap.booking_datetime) {
       setBookingDateTime(String(snap.bookingDateTime || snap.booking_datetime));
     } else {
@@ -1652,17 +1615,12 @@ const CreateOrder = ({ mode, orderId }) => {
     setContact2Name(
       String(snap.contact2Name ?? snap.contact2_name ?? c?.phone2_name ?? '').slice(0, 60)
     );
-    setContactNo2(String(snap.contactNo2 ?? snap.contact_no2 ?? ''));
+    setContactNo2(String(snap.contactNo2 ?? snap.contact_no2 ?? c?.phone2 ?? ''));
     setContactNo2SameAsPhone1(!!(snap.contactNo2SameAsPhone1 ?? snap.contact_no2_same_as_phone1));
-    setWhatsappSource(
-      snap.whatsappSource === 'phone2' || snap.whatsappSource === 'manual'
-        ? snap.whatsappSource
-        : snap.whatsapp_source === 'phone2' || snap.whatsapp_source === 'manual'
-          ? snap.whatsapp_source
-          : 'phone1'
-    );
-    setWhatsappManual(String(snap.whatsappManual ?? snap.whatsapp_manual ?? ''));
-    setAddress(String(snap.address ?? ''));
+    const waRestored = restoreWhatsappFromDraftSnapshot(snap, c);
+    setWhatsappSource(waRestored.source);
+    setWhatsappManual(waRestored.manual);
+    setAddress(String(snap.address ?? '').trim() || String(c?.address || ''));
     setIgstBill(!!(snap.igstBill ?? snap.igst_bill));
     setGstEnabled((snap.gstEnabled ?? snap.gst_enabled) === true);
     setTaxMode((snap.taxMode || snap.tax_mode) === 'inclusive' ? 'inclusive' : 'exclusive');
@@ -1741,7 +1699,10 @@ const CreateOrder = ({ mode, orderId }) => {
     [defaultBookingTimes.delivery, defaultBookingTimes.return, returnOffsetDays]
   );
 
-  const flushBookingDraftToStorage = useCallback(() => {
+  const flushBookingDraftToStorage = useCallback((options = {}) => {
+    const force = options.force === true;
+    if (skipDraftPersistRef.current && !force) return false;
+    if (!force && getActiveDraftId() && !draftLinesHydratedRef.current) return false;
     const snap = buildBookingDraftSnapshot();
     const liveLines = compactDraftValue(linesRef.current || []);
     if (Array.isArray(liveLines) && liveLines.length > 0) {
@@ -1750,6 +1711,26 @@ const CreateOrder = ({ mode, orderId }) => {
     const liveLineCount = Array.isArray(linesRef.current) ? linesRef.current.length : 0;
     const snapLineCount = Array.isArray(snap.lines) ? snap.lines.length : 0;
     if (liveLineCount > 0 && snapLineCount === 0) return false;
+    const title = draftLabelFromSnapshot(snap);
+    const existingId =
+      resolveReusableBookingDraftId({
+        id: bookingDraftIdRef.current,
+        snapshot: snap,
+        title,
+      }) ||
+      bookingDraftIdRef.current ||
+      getActiveDraftId();
+    const stored = existingId ? readDraftList().find((d) => d.id === existingId) : null;
+    const storedLines = Array.isArray(stored?.snapshot?.lines) ? stored.snapshot.lines : [];
+    if (
+      snapLineCount === 0 &&
+      storedLines.length > 0 &&
+      (skipDraftPersistRef.current ||
+        draftRestoreKeepLinesRef.current ||
+        !draftLinesHydratedRef.current)
+    ) {
+      snap.lines = storedLines;
+    }
     if (isSnapshotTriviallyEmpty(snap)) {
       if (skipDraftPersistRef.current || justStartedBlankDraftRef.current) return false;
       if (bookingDraftIdRef.current) {
@@ -1760,15 +1741,18 @@ const CreateOrder = ({ mode, orderId }) => {
       }
       return false;
     }
-    let id = bookingDraftIdRef.current;
-    if (!id) {
-      id = createLocalId();
-      bookingDraftIdRef.current = id;
-      setBookingDraftId(id);
-      persistActiveDraftStorageKey(id);
-    }
-    const row = upsertBookingDraft({ id, title: draftLabelFromSnapshot(snap), snapshot: snap });
+    let id = existingId;
+    if (!id) id = createLocalId();
+    bookingDraftIdRef.current = id;
+    setBookingDraftId(id);
+    persistActiveDraftStorageKey(id);
+    const row = upsertBookingDraft({ id, title, snapshot: snap });
     if (!row) return false;
+    if (row.id && row.id !== id) {
+      bookingDraftIdRef.current = row.id;
+      setBookingDraftId(row.id);
+      persistActiveDraftStorageKey(row.id);
+    }
     setLastDraftSavedAt(Date.now());
     setDraftSaveStatus('saved');
     return true;
@@ -1780,6 +1764,8 @@ const CreateOrder = ({ mode, orderId }) => {
     skipDraftPersistRef.current = true;
     justStartedBlankDraftRef.current = true;
     lockDraftFormDefaultsRef.current = false;
+    draftRestoreKeepLinesRef.current = false;
+    draftLinesHydratedRef.current = false;
     bookingDraftIdRef.current = newId;
     setBookingDraftId(newId);
     persistActiveDraftStorageKey(newId);
@@ -1796,11 +1782,16 @@ const CreateOrder = ({ mode, orderId }) => {
   const handleResumeDraft = useCallback(
     (row) => {
       if (!row?.id) return;
-      flushBookingDraftToStorage();
+      const currentId = bookingDraftIdRef.current;
+      if (currentId && currentId !== row.id) {
+        flushBookingDraftToStorage();
+      }
       skipDraftPersistRef.current = true;
+      draftRestoreKeepLinesRef.current = true;
       const fromList = readDraftList().find((x) => x.id === row.id);
       if (!fromList?.snapshot) {
         skipDraftPersistRef.current = false;
+        draftRestoreKeepLinesRef.current = false;
         toast.error('Draft not found');
         return;
       }
@@ -1810,24 +1801,13 @@ const CreateOrder = ({ mode, orderId }) => {
       applyBookingDraftSnapshot(fromList.snapshot);
       if (fromList.updatedAt) setLastDraftSavedAt(Number(fromList.updatedAt) || Date.now());
       setDraftSaveStatus('saved');
-      if (fromList.snapshot?.customer?.id) {
-        const snap = fromList.snapshot;
-        customersApi
-          .get(snap.customer.id)
-          .then((resp) => {
-            applyCustomerFromApiWithSnapshot(resp?.data || null, snap);
-          })
-          .catch(() => {
-            /* keep snapshot */
-          });
-      }
       window.setTimeout(() => {
         skipDraftPersistRef.current = false;
-        flushBookingDraftToStorageRef.current();
-      }, 800);
+        draftRestoreKeepLinesRef.current = false;
+      }, 1200);
       toast.success('Draft loaded');
     },
-    [applyBookingDraftSnapshot, applyCustomerFromApiWithSnapshot, flushBookingDraftToStorage]
+    [applyBookingDraftSnapshot, flushBookingDraftToStorage]
   );
 
   const handleDeleteStoredDraft = useCallback(
@@ -2523,6 +2503,7 @@ const CreateOrder = ({ mode, orderId }) => {
         let next = prev;
         const seenBatchIds = new Set();
         const seenBatchCodes = new Set();
+        const accepted = [];
 
         for (const draft of linesToAdd) {
           const pid = String(draft.product_id || '');
@@ -2534,16 +2515,30 @@ const CreateOrder = ({ mode, orderId }) => {
 
           seenBatchIds.add(pid);
           if (codeKey) seenBatchCodes.add(codeKey);
+          accepted.push(draft);
+        }
 
-          const section = productLineIsSaleOnly(draft) ? 'sale_product' : 'rent_product';
+        const primaryDraft = accepted[0];
+        const pairGroupId = String(primaryDraft?.product_id || '');
+        const section = primaryDraft
+          ? productLineIsSaleOnly(primaryDraft)
+            ? 'sale_product'
+            : 'rent_product'
+          : 'rent_product';
+        let displayOrder = nextLineDisplayOrder(next, section);
+
+        accepted.forEach((draft, offset) => {
           next = [
             ...next,
             {
               ...draft,
-              display_order: nextLineDisplayOrder(next, section),
+              display_order: displayOrder,
+              pair_group_id: pairGroupId,
+              pair_offset: offset,
             },
           ];
-        }
+          displayOrder += 10;
+        });
         return next;
       });
       clearFieldError(setFieldErrors, 'lines');
@@ -3517,47 +3512,6 @@ const CreateOrder = ({ mode, orderId }) => {
         return;
       }
 
-      // Keep customer master details in sync with what operator corrected here.
-      const detailRow = customerDetailQuery?.data?.data || customer || {};
-      const patch = buildCustomerContactPatch(detailRow, {
-        name: customerName,
-        phone1: customerPhone1,
-        phone2: String(effectiveContactNo2 || '').trim() || null,
-        phone2_name:
-          String(contact2Name || '')
-            .trim()
-            .slice(0, 60) || null,
-        whatsapp: String(resolvedWhatsapp || '').trim() || null,
-        address: String(address || '').trim() || null,
-      });
-      if (Object.keys(patch).length > 0 && !isOnline) {
-        toast.warning(
-          'Reconnect before changing customer master details. Existing-customer booking edits can be queued offline.'
-        );
-        releaseSubmitLock();
-        return;
-      }
-      if (Object.keys(patch).length > 0) {
-        try {
-          await customersApi.update(customer.id, patch);
-        } catch (err) {
-          const msg = getApiErrorMessage(err, 'Customer details could not be synced');
-          if (patch.phone1 !== undefined) add('contactNo1', msg);
-          if (patch.address !== undefined) add('address', msg);
-          if (patch.phone1 === undefined && patch.address === undefined) add('customer', msg);
-          rejectSubmit({
-            errors,
-            setErrors: setFieldErrors,
-            toast,
-            message: msg,
-            fieldRefs,
-            scrollOrder: BOOKING_FIELD_SCROLL_ORDER,
-          });
-          releaseSubmitLock();
-          return;
-        }
-      }
-
       if (wasReconcileRef.current && isOnline) {
         const reconcileCheck = await validateReconcileProductLines(lines);
         if (!reconcileCheck.ok) {
@@ -3820,6 +3774,12 @@ const CreateOrder = ({ mode, orderId }) => {
     const draftCart = Array.isArray(parsed.cart) ? parsed.cart : [];
     if (draftCart.length === 0) return;
 
+    const activeBookingDraftId = getActiveDraftId();
+    if (activeBookingDraftId) {
+      const activeRow = readDraftList().find((d) => d.id === activeBookingDraftId);
+      if (activeRow?.snapshot) return;
+    }
+
     skipDraftPersistRef.current = true;
     quickBillHandoffAppliedRef.current = true;
 
@@ -3889,11 +3849,19 @@ const CreateOrder = ({ mode, orderId }) => {
   useLayoutEffect(() => {
     if (isEditMode) return;
     const handoff = readCustomOrderBookingHandoff();
-    if (!handoff?.custom_order_id || !handoff?.product_id) return;
+    if (!handoff?.custom_order_id) return;
 
     skipDraftPersistRef.current = true;
     customOrderHandoffAppliedRef.current = true;
     customOrderHandoffIdRef.current = handoff.custom_order_id;
+    draftHydrateDoneRef.current = true;
+    setBookingDateTime(bookingDateTimeForConvert());
+    if (!handoff.product_id) {
+      window.setTimeout(() => {
+        skipDraftPersistRef.current = false;
+      }, 600);
+      return;
+    }
 
     const c = handoff.customer || {};
     const applyHandoffCustomerSnapshot = (masterCustomer = null) => {
@@ -3982,49 +3950,58 @@ const CreateOrder = ({ mode, orderId }) => {
     const handoffLinePrice = toNonNegativeAmount(fin.price);
     const handoffLineDiscount = toNonNegativeAmount(fin.line_discount);
 
-    productsApi
-      .get(handoff.product_id)
-      .then(async (resp) => {
-        const product = resp?.data;
-        if (!product?.id) return;
+    const handoffProductIds = [
+      ...new Set(
+        [handoff.product_id, ...(Array.isArray(handoff.product_ids) ? handoff.product_ids : [])]
+          .map((id) => String(id || '').trim())
+          .filter(Boolean)
+      ),
+    ];
+
+    Promise.all(handoffProductIds.map((productId) => productsApi.get(productId).then((resp) => resp?.data).catch(() => null)))
+      .then(async (products) => {
+        const valid = products.filter((product) => product?.id);
+        if (!valid.length) return;
         const from = normalizeCustomOrderSqlDate(handoffPickupDate || pickupDate) || todayISO;
         const to =
           normalizeCustomOrderSqlDate(handoffReturnDate || returnDate) ||
           addDaysISO(from, returnOffsetDays);
-        let freeQty = Number(product.qty || 1);
-        try {
-          const availability = await productsApi.checkAvailability({
-            product_id: product.id,
-            from,
-            to,
-            qty: 1,
-          });
-          const data = availability?.data || {};
-          if (data.free_qty != null) freeQty = Number(data.free_qty);
-        } catch {
-          /* use catalog qty */
-        }
-        const rec = await fetchRecommendedAccessories(
-          {
-            id: product.id,
-            category_id: product.category_id || '',
-          },
-          { from, to }
-        );
-        const accessoryLines = toAccessoryLines(rec).filter((a) => a.selected);
-        setLines([
-          {
+        const nextLines = [];
+        for (let index = 0; index < valid.length; index++) {
+          const product = valid[index];
+          let freeQty = Number(product.qty || 1);
+          try {
+            const availability = await productsApi.checkAvailability({
+              product_id: product.id,
+              from,
+              to,
+              qty: 1,
+            });
+            const data = availability?.data || {};
+            if (data.free_qty != null) freeQty = Number(data.free_qty);
+          } catch {
+            /* use catalog qty */
+          }
+          const rec = await fetchRecommendedAccessories(
+            {
+              id: product.id,
+              category_id: product.category_id || '',
+            },
+            { from, to }
+          );
+          const accessoryLines = toAccessoryLines(rec).filter((a) => a.selected);
+          nextLines.push({
             line_id: createLocalId(),
             product_id: product.id,
-            code_snapshot: product.code || handoff.product_code,
-            name_snapshot: product.name || handoff.product_name,
+            code_snapshot: product.code || (index === 0 ? handoff.product_code : ''),
+            name_snapshot: product.name || (index === 0 ? handoff.product_name : ''),
             main_image: product.main_image || null,
             qty: 1,
             price:
-              handoffLinePrice > 0
+              index === 0 && handoffLinePrice > 0
                 ? handoffLinePrice
                 : catalogPriceForType(product, getDefaultProductLineType(product)),
-            discount: handoffLineDiscount,
+            discount: index === 0 ? handoffLineDiscount : 0,
             gst_percent: gstEnabled ? gstDefaultRate : 0,
             type: fin.order_type === 'sell' ? 'sell' : getDefaultProductLineType(product),
             category_id: product.category_id || null,
@@ -4037,15 +4014,16 @@ const CreateOrder = ({ mode, orderId }) => {
             repair_qty: 0,
             next_available_date: null,
             gap_days: 0,
-            tailor_notes: tailorNotes,
+            tailor_notes: index === 0 ? tailorNotes : '',
             tailor_note_image: '',
             sales_person_id: isSalesmanEligibleUser(currentUser) ? currentUser.id : null,
             sales_person_name: isSalesmanEligibleUser(currentUser)
               ? String(currentUser?.name || currentUser?.email || '').trim()
               : '',
             accessories: accessoryLines,
-          },
-        ]);
+          });
+        }
+        if (nextLines.length) setLines(nextLines);
       })
       .catch(() => {
         toast.warning('Could not load product from custom order');
@@ -4054,12 +4032,13 @@ const CreateOrder = ({ mode, orderId }) => {
     window.setTimeout(() => {
       skipDraftPersistRef.current = false;
     }, 600);
-  }, [isEditMode]);
+  }, [isEditMode, location.key]);
 
   useEffect(() => {
     if (isEditMode) return;
-    if (location.state?.fromCustomOrder) {
+    if (location.state?.fromCustomOrder || isCustomOrderBookingHandoffActive()) {
       draftHydrateDoneRef.current = true;
+      setBookingDateTime(bookingDateTimeForConvert());
       return;
     }
     const fresh = location.state?.fresh;
@@ -4094,7 +4073,9 @@ const CreateOrder = ({ mode, orderId }) => {
     }, 1200);
   }, [
     isEditMode,
+    location.key,
     location.state?.fresh,
+    location.state?.fromCustomOrder,
     releaseSubmitLock,
     applyBookingDraftSnapshot,
     getBlankBookingSnapshot,
@@ -4104,8 +4085,16 @@ const CreateOrder = ({ mode, orderId }) => {
     if (isEditMode) return;
     if (draftHydrateDoneRef.current) return;
 
-    if (quickBillHandoffAppliedRef.current || customOrderHandoffAppliedRef.current) {
+    if (
+      quickBillHandoffAppliedRef.current ||
+      customOrderHandoffAppliedRef.current ||
+      location.state?.fromCustomOrder ||
+      isCustomOrderBookingHandoffActive()
+    ) {
       draftHydrateDoneRef.current = true;
+      if (!quickBillHandoffAppliedRef.current) {
+        setBookingDateTime(bookingDateTimeForConvert());
+      }
       return;
     }
 
@@ -4123,30 +4112,19 @@ const CreateOrder = ({ mode, orderId }) => {
     }
 
     skipDraftPersistRef.current = true;
+    draftRestoreKeepLinesRef.current = true;
     applyBookingDraftSnapshot(row.snapshot);
     bookingDraftIdRef.current = activeId;
     setBookingDraftId(activeId);
     if (row.updatedAt) setLastDraftSavedAt(Number(row.updatedAt) || Date.now());
     setDraftSaveStatus('saved');
 
-    if (row.snapshot?.customer?.id) {
-      const snap = row.snapshot;
-      customersApi
-        .get(snap.customer.id)
-        .then((resp) => {
-          applyCustomerFromApiWithSnapshot(resp?.data || null, snap);
-        })
-        .catch(() => {
-          /* keep snapshot customer */
-        });
-    }
-
     window.setTimeout(() => {
       skipDraftPersistRef.current = false;
-      flushBookingDraftToStorageRef.current();
-    }, 800);
+      draftRestoreKeepLinesRef.current = false;
+    }, 1200);
     draftHydrateDoneRef.current = true;
-  }, [isEditMode, applyBookingDraftSnapshot, applyCustomerFromApiWithSnapshot]);
+  }, [isEditMode, applyBookingDraftSnapshot, location.state?.fromCustomOrder, location.key]);
 
   useEffect(() => {
     if (!isEditMode) return;
@@ -4315,7 +4293,7 @@ const CreateOrder = ({ mode, orderId }) => {
     if (!hasRentProduct && !hasRentAccessory) return;
 
     const timer = window.setTimeout(() => {
-      if (skipDraftPersistRef.current) return;
+      if (skipDraftPersistRef.current || draftRestoreKeepLinesRef.current) return;
       const windowOpts = {
         from: pickupDate,
         to: returnDate,
@@ -4327,7 +4305,10 @@ const CreateOrder = ({ mode, orderId }) => {
           const { lines: refreshed, deselectedNames } = await refreshRentAccessoryLinesAvailability(
             current,
             windowOpts,
-            { grandfatherPersisted: isEditMode }
+            {
+              grandfatherPersisted: isEditMode,
+              keepSelected: draftRestoreKeepLinesRef.current,
+            }
           );
           if (deselectedNames.length > 0) {
             const uniq = [...new Set(deselectedNames)];
@@ -4345,7 +4326,7 @@ const CreateOrder = ({ mode, orderId }) => {
       }
       chain
         .then((refreshed) => {
-          if (skipDraftPersistRef.current) return;
+          if (skipDraftPersistRef.current || draftRestoreKeepLinesRef.current) return;
           if (!Array.isArray(refreshed)) return;
           if (refreshed.length === 0 && linesRef.current.length > 0) return;
           setLines(refreshed);
@@ -4446,7 +4427,7 @@ const CreateOrder = ({ mode, orderId }) => {
   }, [lastDraftSavedAt]);
 
   const handleManualSaveDraft = useCallback(() => {
-    if (flushBookingDraftToStorage()) {
+    if (flushBookingDraftToStorage({ force: true })) {
       toast.success('Draft saved on this device');
     } else {
       setDraftSaveStatus(bookingDraftIdRef.current ? 'saved' : 'idle');
@@ -5068,8 +5049,15 @@ const CreateOrder = ({ mode, orderId }) => {
                               className="w-8 h-8 rounded border border-gray-100 bg-gray-50 object-contain shrink-0 mt-0.5"
                             />
                             <div className="min-w-0 flex-1">
-                              <div className="text-xs font-medium text-gray-800 truncate">
-                                {p.name}
+                              <div className="flex flex-wrap items-center gap-1">
+                                <div className="text-xs font-medium text-gray-800 truncate">
+                                  {p.name}
+                                </div>
+                                {p.suggested_as_pair ? (
+                                  <Badge tone="brand" className="text-[10px] shrink-0">
+                                    Pair
+                                  </Badge>
+                                ) : null}
                               </div>
                               <div className="text-xs text-gray-500">
                                 {p.code} ·{' '}
@@ -5077,6 +5065,11 @@ const CreateOrder = ({ mode, orderId }) => {
                                   catalogPriceForType(p, getDefaultProductLineType(p))
                                 )}
                               </div>
+                              {p.suggested_as_pair && p.pair_of_code ? (
+                                <div className="text-[10px] text-brand mt-0.5">
+                                  Pair of {p.pair_of_code}
+                                </div>
+                              ) : null}
                               <div className="text-[11px] text-gray-500 mt-0.5">
                                 {buildAvailabilityMeta(p, { includeReturnPending: false }) || '—'}
                               </div>

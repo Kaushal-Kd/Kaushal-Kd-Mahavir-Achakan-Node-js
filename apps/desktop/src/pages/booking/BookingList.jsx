@@ -5,6 +5,7 @@ import {
   formatOrderTime,
   formatOrderTime12,
   ORDER_STATUS_LABELS,
+  resolveOrderContactPhone1,
 } from '@wrs/shared';
 import { ACTIONS, MODULES, hasPermission } from '@wrs/shared';
 import {
@@ -452,7 +453,7 @@ const BookingList = () => {
         header: 'Customer No',
         columnPickerLabel: 'Customer No.',
         render: (r) => (
-          <span className="font-mono text-xs">{r.customer_phone || r.pickup_number || '—'}</span>
+          <span className="font-mono text-xs">{resolveOrderContactPhone1(r) || '—'}</span>
         ),
       },
       buildCustomerAddressColumn(),

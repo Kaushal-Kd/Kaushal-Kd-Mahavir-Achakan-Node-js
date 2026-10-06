@@ -16,7 +16,7 @@ import {
   getDaysLeft,
   PRIORITY_TONE,
   resolveNextBookingLink,
-  sortLaundryJobProductsByPriority,
+  sortLaundryJobProductsByCode,
 } from './laundryQueueUtils.js';
 
 const STATUS_BADGE = {
@@ -78,7 +78,7 @@ const ReturnWashingModal = ({ jobId, onClose }) => {
 
   const filteredProductRows = useMemo(() => {
     const filtered = filterLaundryJobProducts(productRows, { categoryId: categoryFilter, search });
-    return sortLaundryJobProductsByPriority(filtered);
+    return sortLaundryJobProductsByCode(filtered);
   }, [productRows, categoryFilter, search]);
 
   const filteredReturnableProducts = useMemo(
@@ -314,7 +314,7 @@ const ReturnWashingModal = ({ jobId, onClose }) => {
                 <section>
                   <h4 className="text-[11px] font-semibold text-gray-700 mb-1.5 sticky top-0 bg-white z-[1] pb-1">
                     Products
-                    <span className="font-normal text-gray-500 ml-1">(sorted by priority)</span>
+                    <span className="font-normal text-gray-500 ml-1">(sorted A–Z by code)</span>
                   </h4>
                 {productRows.length === 0 ? (
                   <p className="text-xs text-gray-500 py-3 text-center">No product lines in this job.</p>

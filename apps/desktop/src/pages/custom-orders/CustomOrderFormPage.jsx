@@ -8,6 +8,10 @@ import {
   formatDate,
   formatDateTime,
   hasPermission,
+  customOrderHasLinkedProduct,
+  customOrderItemsFromOrder,
+  isCustomOrderItemFilled,
+  nextUnlinkedCustomOrderItem,
   normalizeCustomOrderRetrials,
   normalizePhone,
   nowDatetimeLocal,
@@ -23,6 +27,7 @@ import {
   validateFields,
 } from '@wrs/shared';
 import { ArrowLeft, CalendarPlus, Edit2, ExternalLink, Plus, Printer, Save, Trash2 } from 'lucide-react';
+import PropTypes from 'prop-types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -68,35 +73,182 @@ import CustomOrderProductVerifyModal from './CustomOrderProductVerifyModal.jsx';
 
 const emptyRetrial = () => ({ date: '', notes: '' });
 
-const emptyForm = () => ({
-  status: 'in_progress',
-  customer_id: null,
-  customer_name: '',
-  customer_phone: '',
-  customer_phone2: '',
-  customer_phone2_name: '',
-  customer_whatsapp: '',
-  customer_whatsapp_source: 'phone1',
-  customer_address: '',
-  delivery_date: '',
-  return_date: '',
-  marriage_date: '',
-  design_name: '',
-  category_id: '',
-  product_name: '',
-  color: '',
-  size: '',
-  remarks: '',
-  given_to_tailor: false,
-  tailor_name: '',
-  tailor_date: '',
-  trial_date: '',
-  trial_product: '',
-  retrials: [],
-  measurements: {},
-  design_images: [],
-  trial_images: [],
-});
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function newFormItem() {
+  return {
+    local_key:
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `coi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: null,
+    design_name: '',
+    category_id: '',
+    product_name: '',
+    color: '',
+    size: '',
+    linked_product_id: null,
+    generated_product_code: null,
+  };
+}
+
+function formItemsFromOrder(order) {
+  return customOrderItemsFromOrder(order).map((item) => ({
+    ...newFormItem(),
+    ...item,
+    local_key: item.id || newFormItem().local_key,
+    id: item.id || null,
+    design_name: item.design_name || '',
+    category_id: item.category_id || '',
+    product_name: item.product_name || '',
+    color: item.color || '',
+    size: item.size || '',
+    linked_product_id: item.linked_product_id || null,
+    generated_product_code: item.generated_product_code || null,
+  }));
+}
+
+function snapshotFirstItem(values, items) {
+  const first = items[0] || newFormItem();
+  return {
+    ...values,
+    items,
+    design_name: first.design_name || '',
+    category_id: first.category_id || '',
+    product_name: first.product_name || '',
+    color: first.color || '',
+    size: first.size || '',
+  };
+}
+
+const emptyForm = () =>
+  snapshotFirstItem(
+    {
+      status: 'in_progress',
+      customer_id: null,
+      customer_name: '',
+      customer_phone: '',
+      customer_phone2: '',
+      customer_phone2_name: '',
+      customer_whatsapp: '',
+      customer_whatsapp_source: 'phone1',
+      customer_address: '',
+      delivery_date: '',
+      return_date: '',
+      marriage_date: '',
+      design_name: '',
+      category_id: '',
+      product_name: '',
+      color: '',
+      size: '',
+      remarks: '',
+      given_to_tailor: false,
+      tailor_name: '',
+      tailor_date: '',
+      trial_date: '',
+      trial_product: '',
+      retrials: [],
+      measurements: {},
+      design_images: [],
+      trial_images: [],
+    },
+    [newFormItem()]
+  );
+
+function CustomOrderProductCodeHint({ categoryId, size, categories }) {
+  const { data: codeFormatRes } = useQuery({
+    queryKey: ['product-code-format'],
+    queryFn: () => productsApi.getCodeFormat(),
+    staleTime: 60_000,
+  });
+  const codeFormat = codeFormatRes?.data;
+  const codePadding = Math.max(1, Math.min(10, Number(codeFormat?.padding) || 4));
+  const activePrefix = useMemo(
+    () => resolveProductCodePrefixFromFormat(codeFormat, categoryId),
+    [codeFormat, categoryId]
+  );
+
+  const { data: lastCodeRes, isLoading: lastCodeLoading } = useQuery({
+    queryKey: ['products', 'last-code', categoryId],
+    queryFn: () => productsApi.lastCode({ category_id: categoryId }),
+    enabled: Boolean(categoryId),
+    staleTime: 30_000,
+  });
+
+  const { data: nextCodeRes, isFetching: nextCodeLoading } = useQuery({
+    queryKey: ['products', 'next-code', 'custom-order-form', categoryId, size],
+    queryFn: () =>
+      productsApi.nextCode({
+        category_id: categoryId || undefined,
+        size: size || '',
+      }),
+    enabled: Boolean(categoryId),
+    staleTime: 30_000,
+  });
+
+  const maxCategoryCode = lastCodeRes?.data?.code || null;
+  const maxCategoryNumber = lastCodeRes?.data?.max_number ?? null;
+  const nextCategoryNumber = lastCodeRes?.data?.next_number ?? null;
+  const nextCategoryCodePreview =
+    nextCodeRes?.data?.code ||
+    (activePrefix && nextCategoryNumber != null
+      ? buildProductCode(activePrefix, nextCategoryNumber, codePadding, size)
+      : activePrefix
+        ? buildProductCode(activePrefix, 1, codePadding, size)
+        : '');
+  const selectedCategoryLabel = categories.find((c) => c.id === categoryId)?.label || '';
+
+  if (!categoryId) return null;
+
+  return (
+    <div className="col-span-2 sm:col-span-4 lg:col-span-12 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs text-gray-600 space-y-1">
+      <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+        <span className="text-gray-500">Last code in</span>
+        <span className="font-medium text-gray-800">{selectedCategoryLabel || 'this category'}</span>
+        <span className="text-gray-500">:</span>
+        {lastCodeLoading ? (
+          <span className="text-gray-400">Loading…</span>
+        ) : maxCategoryCode ? (
+          <span className="font-mono font-semibold text-gray-900">{maxCategoryCode}</span>
+        ) : maxCategoryNumber != null && maxCategoryNumber > 0 && activePrefix ? (
+          <span className="font-mono font-semibold text-gray-900">
+            {activePrefix}
+            {String(maxCategoryNumber).padStart(codePadding, '0')}
+          </span>
+        ) : (
+          <span className="text-gray-500 italic">None yet</span>
+        )}
+      </div>
+      {activePrefix ? (
+        <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 text-gray-500">
+          <span>Next code</span>
+          {nextCodeLoading ? (
+            <span className="text-gray-400">Loading…</span>
+          ) : (
+            <span className="font-mono font-medium text-brand">{nextCategoryCodePreview || '—'}</span>
+          )}
+          {size ? <span className="text-gray-400">(includes size {size})</span> : null}
+        </div>
+      ) : (
+        <p className="text-amber-700">
+          Configure a prefix for this category under Configuration → Code format.
+        </p>
+      )}
+    </div>
+  );
+}
+
+CustomOrderProductCodeHint.propTypes = {
+  categoryId: PropTypes.string,
+  size: PropTypes.string,
+  categories: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.string,
+      label: PropTypes.string,
+    })
+  ),
+};
 
 function resolveWhatsappValue({ whatsappSource, whatsappManual, phone1, phone2 }) {
   const p1 = phoneInputDigits(phone1);
@@ -145,6 +297,7 @@ const CustomOrderFormPage = () => {
   const [bookingPromptOrder, setBookingPromptOrder] = useState(null);
   const [pendingEditAfterPrompt, setPendingEditAfterPrompt] = useState(null);
   const [productVerifyOrder, setProductVerifyOrder] = useState(null);
+  const [productVerifyItem, setProductVerifyItem] = useState(null);
   const [productVerifyWasAlreadyCompleted, setProductVerifyWasAlreadyCompleted] = useState(false);
   const [productCreateRequired, setProductCreateRequired] = useState(false);
   const [orderDateTime, setOrderDateTime] = useState(() => nowDatetimeLocal());
@@ -210,54 +363,6 @@ const CustomOrderFormPage = () => {
 
   const categories = useMemo(() => sortCategoriesAZ(categoriesRes?.data), [categoriesRes]);
 
-  const categoryId = values.category_id || '';
-
-  const { data: codeFormatRes } = useQuery({
-    queryKey: ['product-code-format'],
-    queryFn: () => productsApi.getCodeFormat(),
-    staleTime: 60_000,
-  });
-  const codeFormat = codeFormatRes?.data;
-  const codePadding = Math.max(1, Math.min(10, Number(codeFormat?.padding) || 4));
-  const activePrefix = useMemo(
-    () => resolveProductCodePrefixFromFormat(codeFormat, categoryId),
-    [codeFormat, categoryId]
-  );
-
-  const { data: lastCodeRes, isLoading: lastCodeLoading } = useQuery({
-    queryKey: ['products', 'last-code', categoryId],
-    queryFn: () => productsApi.lastCode({ category_id: categoryId }),
-    enabled: Boolean(categoryId),
-    staleTime: 30_000,
-  });
-
-  const { data: nextCodeRes, isFetching: nextCodeLoading } = useQuery({
-    queryKey: ['products', 'next-code', 'custom-order-form', categoryId, values.size],
-    queryFn: () =>
-      productsApi.nextCode({
-        category_id: categoryId || undefined,
-        size: values.size || '',
-      }),
-    enabled: Boolean(categoryId),
-    staleTime: 30_000,
-  });
-
-  const maxCategoryCode = lastCodeRes?.data?.code || null;
-  const maxCategoryNumber = lastCodeRes?.data?.max_number ?? null;
-  const nextCategoryNumber = lastCodeRes?.data?.next_number ?? null;
-  const nextCategoryCodePreview =
-    nextCodeRes?.data?.code ||
-    (activePrefix && nextCategoryNumber != null
-      ? buildProductCode(activePrefix, nextCategoryNumber, codePadding, values.size)
-      : activePrefix
-        ? buildProductCode(activePrefix, 1, codePadding, values.size)
-        : '');
-
-  const selectedCategoryLabel = useMemo(() => {
-    if (!categoryId) return '';
-    return categories.find((c) => c.id === categoryId)?.label || '';
-  }, [categoryId, categories]);
-
   const colors = sortColorsAZ(colorsRes?.data?.items);
   const sizes = sizesRes?.data?.items || [];
   const tailors = tailorsRes?.data?.items || [];
@@ -317,32 +422,33 @@ const CustomOrderFormPage = () => {
       setCustomer(null);
       setCustomerQuery(existing.customer_name || '');
     }
-    setValues({
-      ...emptyForm(),
-      ...existing,
-      customer_id: existing.customer_id || null,
-      customer_phone: existing.customer_phone || '',
-      customer_phone2: existing.customer_phone2 || '',
-      customer_phone2_name: existing.customer_phone2_name || '',
-      customer_whatsapp: existing.customer_whatsapp || '',
-      customer_whatsapp_source: existing.customer_whatsapp_source || 'phone1',
-      customer_address: existing.customer_address || '',
-      category_id: existing.category_id || '',
-      product_name: existing.product_name || '',
-      color: existing.color || '',
-      size: existing.size || '',
-      tailor_name: existing.tailor_name || '',
-      delivery_date: existing.delivery_date || '',
-      return_date: existing.return_date || '',
-      marriage_date: existing.marriage_date || '',
-      tailor_date: existing.tailor_date || '',
-      trial_date: existing.trial_date || '',
-      trial_product: existing.trial_product || '',
-      retrials,
-      measurements: existing.measurements || {},
-      design_images: existing.design_images || [],
-      trial_images: existing.trial_images || [],
-    });
+    setValues(
+      snapshotFirstItem(
+        {
+          ...emptyForm(),
+          ...existing,
+          customer_id: existing.customer_id || null,
+          customer_phone: existing.customer_phone || '',
+          customer_phone2: existing.customer_phone2 || '',
+          customer_phone2_name: existing.customer_phone2_name || '',
+          customer_whatsapp: existing.customer_whatsapp || '',
+          customer_whatsapp_source: existing.customer_whatsapp_source || 'phone1',
+          customer_address: existing.customer_address || '',
+          tailor_name: existing.tailor_name || '',
+          delivery_date: existing.delivery_date || '',
+          return_date: existing.return_date || '',
+          marriage_date: existing.marriage_date || '',
+          tailor_date: existing.tailor_date || '',
+          trial_date: existing.trial_date || '',
+          trial_product: existing.trial_product || '',
+          retrials,
+          measurements: existing.measurements || {},
+          design_images: existing.design_images || [],
+          trial_images: existing.trial_images || [],
+        },
+        formItemsFromOrder(existing)
+      )
+    );
     setOrderDateTime(
       toDatetimeLocalValue(existing.order_date, existing.order_time) || nowDatetimeLocal()
     );
@@ -350,6 +456,29 @@ const CustomOrderFormPage = () => {
   }, [isEdit, existing]);
 
   const set = (key, val) => setValues((v) => ({ ...v, [key]: val }));
+
+  const setItem = (index, key, val) => {
+    setValues((v) => {
+      const items = [...(v.items || [])];
+      items[index] = { ...items[index], [key]: val };
+      return snapshotFirstItem(v, items);
+    });
+    const errKey = `items.${index}.${key}`;
+    if (errors[errKey] || errors.category_id || errors.product_name) {
+      setErrors((er) => ({ ...er, [errKey]: undefined, category_id: undefined, product_name: undefined }));
+    }
+  };
+
+  const addProductItem = () => {
+    setValues((v) => snapshotFirstItem(v, [...(v.items || []), newFormItem()]));
+  };
+
+  const removeProductItem = (index) => {
+    setValues((v) => {
+      const items = (v.items || []).filter((_, i) => i !== index);
+      return snapshotFirstItem(v, items.length ? items : [newFormItem()]);
+    });
+  };
 
   const pickCustomer = (c) => {
     if (!c) return;
@@ -452,14 +581,20 @@ const CustomOrderFormPage = () => {
           notes: r.notes || '',
         }))
       : [];
-    setValues({
-      ...emptyForm(),
-      ...formValues,
-      retrials,
-      measurements: formValues.measurements || {},
-      design_images: formValues.design_images || [],
-      trial_images: formValues.trial_images || [],
-    });
+    const items = formItemsFromOrder(formValues);
+    setValues(
+      snapshotFirstItem(
+        {
+          ...emptyForm(),
+          ...formValues,
+          retrials,
+          measurements: formValues.measurements || {},
+          design_images: formValues.design_images || [],
+          trial_images: formValues.trial_images || [],
+        },
+        items
+      )
+    );
     const c = snap.customer;
     if (c?.id) {
       setCustomer({
@@ -625,18 +760,23 @@ const CustomOrderFormPage = () => {
       const cv = validateCustomOrderForCompletion({
         ...check,
         customer_id: customer?.id || values.customer_id,
+        items: values.items || [],
       });
       if (!cv.ok) fieldErrors._completion = cv.message;
-      if (!values.category_id) fieldErrors.category_id = 'Category is required';
-      if (!String(values.product_name || '').trim()) {
-        fieldErrors.product_name = 'Product name is required';
-      }
     }
-    if (!isEdit) {
-      if (!values.category_id) fieldErrors.category_id = 'Category is required';
-      if (!String(values.product_name || '').trim()) {
-        fieldErrors.product_name = 'Product name is required';
+    const items = Array.isArray(values.items) ? values.items : [];
+    const requireFirst = !isEdit || values.status === 'completed';
+    items.forEach((item, index) => {
+      const filled = isCustomOrderItemFilled(item);
+      if (!filled && !(requireFirst && index === 0)) return;
+      if (!item.category_id) fieldErrors[`items.${index}.category_id`] = 'Category is required';
+      if (!String(item.product_name || '').trim()) {
+        fieldErrors[`items.${index}.product_name`] = 'Product name is required';
       }
+    });
+    if (requireFirst && !items.length) {
+      fieldErrors['items.0.category_id'] = 'Category is required';
+      fieldErrors['items.0.product_name'] = 'Product name is required';
     }
     if (values.given_to_tailor && !tailorSelectValue) {
       fieldErrors.tailor_name =
@@ -662,6 +802,19 @@ const CustomOrderFormPage = () => {
     });
     const { date: orderDate, time: orderTimeRaw } = splitDatetimeLocal(orderDateTime);
     const order_time = orderTimeRaw ? normalizeTime12(orderTimeRaw) : null;
+    const rawItems = Array.isArray(values.items) ? values.items : [];
+    const filledItems = rawItems.filter((item) => isCustomOrderItemFilled(item));
+    const sourceItems = filledItems.length ? filledItems : rawItems.slice(0, 1);
+    const items = sourceItems.map((item, index) => ({
+      ...(UUID_RE.test(String(item.id || '')) ? { id: item.id } : {}),
+      design_name: item.design_name?.trim() || null,
+      category_id: item.category_id || null,
+      product_name: item.product_name?.trim() || null,
+      color: item.color || null,
+      size: item.size || null,
+      display_order: index,
+    }));
+    const first = items[0] || {};
     return {
       status: values.status,
       customer_id: customer?.id || values.customer_id || null,
@@ -679,11 +832,12 @@ const CustomOrderFormPage = () => {
       marriage_date: values.marriage_date || null,
       order_date: orderDate || null,
       order_time,
-      design_name: values.design_name?.trim() || null,
-      category_id: values.category_id || null,
-      product_name: values.product_name?.trim() || null,
-      color: values.color || null,
-      size: values.size || null,
+      design_name: first.design_name || null,
+      category_id: first.category_id || null,
+      product_name: first.product_name || null,
+      color: first.color || null,
+      size: first.size || null,
+      items,
       remarks: values.remarks?.trim() || null,
       given_to_tailor: !!values.given_to_tailor,
       tailor_name: values.given_to_tailor ? values.tailor_name?.trim() || null : null,
@@ -697,14 +851,23 @@ const CustomOrderFormPage = () => {
     };
   };
 
-  const openProductVerify = (order, wasAlreadyCompleted = false) => {
+  const openProductVerify = (order, wasAlreadyCompleted = false, item = null) => {
+    const target = item || nextUnlinkedCustomOrderItem(order);
     setProductVerifyWasAlreadyCompleted(wasAlreadyCompleted);
+    setProductVerifyItem(target);
     setProductVerifyOrder(order);
   };
 
   const handleProductVerifyCreated = (order) => {
+    const next = nextUnlinkedCustomOrderItem(order);
+    if (next) {
+      setProductVerifyItem(next);
+      setProductVerifyOrder(order);
+      return;
+    }
     const wasRequired = productCreateRequired;
     setProductCreateRequired(false);
+    setProductVerifyItem(null);
     setProductVerifyOrder(null);
     if (wasRequired) {
       navigate('/custom-orders');
@@ -739,9 +902,10 @@ const CustomOrderFormPage = () => {
     setPrintLoading(true);
     try {
       const { data } = await customOrdersApi.get(id);
-      const categoryName =
-        categories.find((c) => c.id === data.category_id)?.name || '';
-      await printCustomOrderBill(data, { categoryName, gstPercent: gstDefaultRate });
+      await printCustomOrderBill(data, {
+        categoryNameById: Object.fromEntries(categories.map((c) => [c.id, c.name || c.label || ''])),
+        gstPercent: gstDefaultRate,
+      });
     } catch (err) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not print bill');
     } finally {
@@ -795,9 +959,9 @@ const CustomOrderFormPage = () => {
     });
   };
 
-  const handleOpenProductVerify = () => {
-    const order = existing || { ...values, id };
-    if (order.linked_product_id) {
+  const handleOpenProductVerify = (item = null) => {
+    const order = existing || { ...values, id, items: values.items };
+    if (!nextUnlinkedCustomOrderItem(order) && customOrderHasLinkedProduct(order)) {
       toast.info('Product already created for this order');
       return;
     }
@@ -805,12 +969,12 @@ const CustomOrderFormPage = () => {
       toast.warning('Save the custom order first');
       return;
     }
-    openProductVerify(order, true);
+    openProductVerify(order, true, item);
   };
 
   const handleCreateBooking = () => {
-    const order = existing || { ...values, id };
-    if (!order.linked_product_id) {
+    const order = existing || { ...values, id, items: values.items };
+    if (!customOrderHasLinkedProduct(order)) {
       toast.warning('Create a product for this order first');
       return;
     }
@@ -833,7 +997,7 @@ const CustomOrderFormPage = () => {
   };
 
   const showBookingPanel =
-    isEdit && existing?.linked_product_id && existing?.status !== 'cancelled';
+    isEdit && customOrderHasLinkedProduct(existing) && existing?.status !== 'cancelled';
 
   const draftSavedTimeLabel = useMemo(() => {
     if (!lastDraftSavedAt) return '';
@@ -949,7 +1113,7 @@ const CustomOrderFormPage = () => {
         description={
           isEdit && existing?.updated_at
             ? `Last updated ${formatDate(existing.updated_at)}`
-            : 'Customized product order — customer, product, measurements, and trials'
+            : 'Customized product order — customer, products, measurements, and trials'
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -976,7 +1140,7 @@ const CustomOrderFormPage = () => {
                 Print bill
               </Button>
             ) : null}
-            {isEdit && existing?.linked_product_id && !existing?.linked_order_id ? (
+            {isEdit && customOrderHasLinkedProduct(existing) && !existing?.linked_order_id ? (
               <Button
                 type="button"
                 variant="secondary"
@@ -1239,124 +1403,132 @@ const CustomOrderFormPage = () => {
         </section>
 
         <section className="card p-3">
-          <h2 className={sectionTitleClass}>Product</h2>
-          <div className={formGridClass}>
-            <Input
-              label="Design name"
-              className="col-span-2 sm:col-span-4 lg:col-span-6"
-              inputClassName={compactInputClass}
-              value={values.design_name}
-              onChange={(e) => set('design_name', e.target.value)}
-              disabled={readOnly}
-            />
-            <Select
-              label="Category"
-              className="col-span-2 sm:col-span-2 lg:col-span-3"
-              selectClassName={compactSelectClass}
-              value={values.category_id || ''}
-              onChange={(e) => set('category_id', e.target.value)}
-              options={[
-                { value: '', label: 'Select category' },
-                ...categories.map((c) => ({ value: c.id, label: c.label })),
-              ]}
-              error={errors.category_id}
-              disabled={readOnly}
-            />
-            <Input
-              label="Product name"
-              className="col-span-2 sm:col-span-2 lg:col-span-3"
-              inputClassName={compactInputClass}
-              value={values.product_name}
-              onChange={(e) => set('product_name', e.target.value)}
-              error={errors.product_name}
-              disabled={readOnly}
-            />
-            <Select
-              label="Color"
-              className="col-span-2 sm:col-span-1 lg:col-span-2"
-              selectClassName={compactSelectClass}
-              value={values.color || ''}
-              onChange={(e) => set('color', e.target.value)}
-              options={[
-                { value: '', label: colorsLoading ? 'Loading…' : 'Select' },
-                ...colors.map((c) => ({ value: c, label: c })),
-              ]}
-              disabled={readOnly || colorsLoading}
-            />
-            <Select
-              label="Size"
-              className="col-span-2 sm:col-span-1 lg:col-span-2"
-              selectClassName={compactSelectClass}
-              value={values.size || ''}
-              onChange={(e) => set('size', e.target.value)}
-              options={[
-                { value: '', label: sizesLoading ? 'Loading…' : 'Select' },
-                ...sizes.map((s) => ({ value: s, label: s })),
-              ]}
-              disabled={readOnly || sizesLoading}
-            />
-            {categoryId ? (
-              <div className="col-span-2 sm:col-span-4 lg:col-span-12 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs text-gray-600 space-y-1">
-                <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
-                  <span className="text-gray-500">Last code in</span>
-                  <span className="font-medium text-gray-800">
-                    {selectedCategoryLabel || 'this category'}
-                  </span>
-                  <span className="text-gray-500">:</span>
-                  {lastCodeLoading ? (
-                    <span className="text-gray-400">Loading…</span>
-                  ) : maxCategoryCode ? (
-                    <span className="font-mono font-semibold text-gray-900">{maxCategoryCode}</span>
-                  ) : maxCategoryNumber != null && maxCategoryNumber > 0 && activePrefix ? (
-                    <span className="font-mono font-semibold text-gray-900">
-                      {activePrefix}
-                      {String(maxCategoryNumber).padStart(codePadding, '0')}
-                    </span>
-                  ) : (
-                    <span className="text-gray-500 italic">None yet</span>
-                  )}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-1 mb-2">
+            <h2 className="text-sm font-semibold text-gray-900">
+              Products
+              <span className="ml-2 font-normal text-gray-500">
+                ({(values.items || []).length} {(values.items || []).length === 1 ? 'item' : 'items'})
+              </span>
+            </h2>
+            {!readOnly ? (
+              <Button type="button" size="sm" variant="secondary" icon={Plus} onClick={addProductItem}>
+                Add product
+              </Button>
+            ) : null}
+          </div>
+          <div className="space-y-3">
+            {(values.items || []).map((item, index) => (
+              <div
+                key={item.local_key || item.id || index}
+                className="rounded-md border border-gray-200 p-2.5"
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold text-gray-700">Product {index + 1}</p>
+                  {!readOnly && (values.items || []).length > 1 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      icon={Trash2}
+                      onClick={() => removeProductItem(index)}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
                 </div>
-                {activePrefix ? (
-                  <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 text-gray-500">
-                    <span>Next code</span>
-                    {nextCodeLoading ? (
-                      <span className="text-gray-400">Loading…</span>
-                    ) : (
-                      <span className="font-mono font-medium text-brand">
-                        {nextCategoryCodePreview || '—'}
+                <div className={formGridClass}>
+                  <Input
+                    label="Design name"
+                    className="col-span-2 sm:col-span-4 lg:col-span-6"
+                    inputClassName={compactInputClass}
+                    value={item.design_name}
+                    onChange={(e) => setItem(index, 'design_name', e.target.value)}
+                    disabled={readOnly}
+                  />
+                  <Select
+                    label="Category"
+                    className="col-span-2 sm:col-span-2 lg:col-span-3"
+                    selectClassName={compactSelectClass}
+                    value={item.category_id || ''}
+                    onChange={(e) => setItem(index, 'category_id', e.target.value)}
+                    options={[
+                      { value: '', label: 'Select category' },
+                      ...categories.map((c) => ({ value: c.id, label: c.label })),
+                    ]}
+                    error={errors[`items.${index}.category_id`]}
+                    disabled={readOnly}
+                  />
+                  <Input
+                    label="Product name"
+                    className="col-span-2 sm:col-span-2 lg:col-span-3"
+                    inputClassName={compactInputClass}
+                    value={item.product_name}
+                    onChange={(e) => setItem(index, 'product_name', e.target.value)}
+                    error={errors[`items.${index}.product_name`]}
+                    disabled={readOnly}
+                  />
+                  <Select
+                    label="Color"
+                    className="col-span-2 sm:col-span-1 lg:col-span-2"
+                    selectClassName={compactSelectClass}
+                    value={item.color || ''}
+                    onChange={(e) => setItem(index, 'color', e.target.value)}
+                    options={[
+                      { value: '', label: colorsLoading ? 'Loading…' : 'Select' },
+                      ...colors.map((c) => ({ value: c, label: c })),
+                    ]}
+                    disabled={readOnly || colorsLoading}
+                  />
+                  <Select
+                    label="Size"
+                    className="col-span-2 sm:col-span-1 lg:col-span-2"
+                    selectClassName={compactSelectClass}
+                    value={item.size || ''}
+                    onChange={(e) => setItem(index, 'size', e.target.value)}
+                    options={[
+                      { value: '', label: sizesLoading ? 'Loading…' : 'Select' },
+                      ...sizes.map((s) => ({ value: s, label: s })),
+                    ]}
+                    disabled={readOnly || sizesLoading}
+                  />
+                  <CustomOrderProductCodeHint
+                    categoryId={item.category_id || ''}
+                    size={item.size || ''}
+                    categories={categories}
+                  />
+                  {item.linked_product_id ? (
+                    <div className="col-span-2 sm:col-span-4 lg:col-span-12 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="font-mono font-semibold text-brand">
+                        Product: {item.generated_product_code || '—'}
                       </span>
-                    )}
-                    {values.size ? (
-                      <span className="text-gray-400">(includes size {values.size})</span>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p className="text-amber-700">
-                    Configure a prefix for this category under Configuration → Code format.
-                  </p>
-                )}
+                      <Link
+                        to={`/products/${item.linked_product_id}/edit`}
+                        className="text-brand hover:underline inline-flex items-center gap-1"
+                      >
+                        Open product <ExternalLink size={12} />
+                      </Link>
+                    </div>
+                  ) : null}
+                  {!readOnly &&
+                  isEdit &&
+                  existing &&
+                  UUID_RE.test(String(item.id || '')) &&
+                  !item.linked_product_id &&
+                  isCustomOrderItemFilled(item) ? (
+                    <div className="col-span-2 sm:col-span-4 lg:col-span-12">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleOpenProductVerify(item)}
+                      >
+                        Create product
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            ) : null}
-            {existing?.linked_product_id ? (
-              <div className="col-span-2 sm:col-span-4 lg:col-span-12 flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-mono font-semibold text-brand">
-                  Product: {existing.generated_product_code || '—'}
-                </span>
-                <Link
-                  to={`/products/${existing.linked_product_id}/edit`}
-                  className="text-brand hover:underline inline-flex items-center gap-1"
-                >
-                  Open product <ExternalLink size={12} />
-                </Link>
-              </div>
-            ) : null}
-            {!readOnly && isEdit && existing && !existing.linked_product_id ? (
-              <div className="col-span-2 sm:col-span-4 lg:col-span-12">
-                <Button type="button" size="sm" variant="secondary" onClick={handleOpenProductVerify}>
-                  Create product
-                </Button>
-              </div>
-            ) : null}
+            ))}
           </div>
         </section>
 
@@ -1589,10 +1761,12 @@ const CustomOrderFormPage = () => {
 
       <CustomOrderProductVerifyModal
         order={productVerifyOrder}
+        item={productVerifyItem}
         isOpen={Boolean(productVerifyOrder)}
         onClose={() => {
           if (productCreateRequired) return;
           setProductVerifyOrder(null);
+          setProductVerifyItem(null);
         }}
         onCreated={handleProductVerifyCreated}
         required={productCreateRequired}

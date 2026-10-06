@@ -120,6 +120,18 @@ const EMPTY_ACCOUNTS = [];
 const EMPTY_JOBS = [];
 const EMPTY_PURCHASES = [];
 
+const PV_SORT_OPTS = [
+  { value: 'recent', label: 'Recent' },
+  { value: 'az', label: 'A to Z' },
+  { value: 'za', label: 'Z to A' },
+];
+
+function resolvePaymentVoucherSort(sortKey) {
+  if (sortKey === 'az') return 'voucher_num';
+  if (sortKey === 'za') return '-voucher_num';
+  return '-pv.created_at';
+}
+
 /** Payment vouchers linked to purchase or washing bills. */
 const PaymentVoucherList = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -127,6 +139,7 @@ const PaymentVoucherList = () => {
   const [perPage, setPerPage] = useState(DEFAULT_TABLE_PER_PAGE);
   const [search, setSearch] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
+  const [sortKey, setSortKey] = useState('recent');
   const [filterEntryDate, setFilterEntryDate] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -225,11 +238,11 @@ const PaymentVoucherList = () => {
 
   const listFilterParams = useMemo(
     () => ({
-      sort: '-entry_date',
+      sort: resolvePaymentVoucherSort(sortKey),
       ...(search ? { search } : {}),
       ...(filterEntryDate ? { entry_date: filterEntryDate } : {}),
     }),
-    [search, filterEntryDate]
+    [search, filterEntryDate, sortKey]
   );
 
   const listQuery = useQuery({
@@ -810,6 +823,27 @@ const PaymentVoucherList = () => {
               setPage(1);
             }}
           />
+          <div>
+            <label className="label" htmlFor="pv-sort">
+              Sort
+            </label>
+            <select
+              id="pv-sort"
+              className="input min-w-[8.5rem]"
+              value={sortKey}
+              aria-label="Sort payment vouchers"
+              onChange={(e) => {
+                setSortKey(e.target.value);
+                setPage(1);
+              }}
+            >
+              {PV_SORT_OPTS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <TableColumnPicker {...pickerProps} />
         </div>
       </div>

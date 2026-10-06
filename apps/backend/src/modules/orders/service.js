@@ -571,6 +571,13 @@ const LIST_ORDER_PRODUCT_QTY_SQL =
 const LIST_ORDER_ACCESSORY_QTY_SQL =
   '(COALESCE((SELECT SUM(qty) FROM order_accessories WHERE order_accessories.order_id = o.id), 0)) AS accessory_qty';
 
+const ORDER_LIST_CUSTOMER_PHONE_SQL =
+  "COALESCE(NULLIF(TRIM(o.contact_phone1), ''), c.phone1) as customer_phone";
+const ORDER_LIST_CUSTOMER_PHONE2_SQL =
+  "COALESCE(NULLIF(TRIM(o.pickup_number), ''), c.phone2) as customer_phone2";
+const ORDER_LIST_CUSTOMER_ADDRESS_SQL =
+  "COALESCE(NULLIF(TRIM(o.contact_address), ''), c.address) as customer_address";
+
 const ORDER_LIST_SEARCH_FIELDS = [
   'o.order_number',
   'o.reference_name',
@@ -682,9 +689,9 @@ export async function listOrders(shopId, query) {
   qb.select(
     'o.*',
     'c.name as customer_name',
-    'c.phone1 as customer_phone',
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE_SQL),
     'c.whatsapp as customer_whatsapp',
-    'c.address as customer_address'
+    knex.raw(ORDER_LIST_CUSTOMER_ADDRESS_SQL)
   );
 
   if (lean) {
@@ -871,8 +878,8 @@ export async function listBookedProducts(shopId, query) {
     'o.return_date',
     'o.pickup_name',
     'c.name as customer_name',
-    'c.phone1 as customer_phone',
-    'c.address as customer_address',
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE_SQL),
+    knex.raw(ORDER_LIST_CUSTOMER_ADDRESS_SQL),
     knex.raw('COALESCE(oi.code_snapshot, p.code) as product_code'),
     'oi.name_snapshot as product_name',
     'oi.qty',
@@ -1057,6 +1064,7 @@ function applyItemsToCollectLineSelect(qb) {
     'o.customer_notes',
     'o.pickup_name',
     'o.pickup_number',
+    'o.contact_phone1',
     'o.paid_amount',
     'o.deposit_amount',
     'o.deposit_received',
@@ -1066,11 +1074,11 @@ function applyItemsToCollectLineSelect(qb) {
     'o.subtotal',
     'o.discount_total',
     'c.name as customer_name',
-    'c.phone1 as customer_phone',
-    'c.phone2 as customer_phone2',
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE_SQL),
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE2_SQL),
     'c.phone2_name as customer_phone2_name',
     'c.whatsapp as customer_whatsapp',
-    'c.address as customer_address',
+    knex.raw(ORDER_LIST_CUSTOMER_ADDRESS_SQL),
     knex.raw('COALESCE(oi.code_snapshot, p.code) as product_code'),
     'p.color as product_color',
     'p.notes as product_catalog_notes',
@@ -1134,6 +1142,7 @@ function buildAccessoryOnlyPrepareLinesQb(shopId, query, opts = {}) {
     'o.customer_notes',
     'o.pickup_name',
     'o.pickup_number',
+    'o.contact_phone1',
     'o.paid_amount',
     'o.deposit_amount',
     'o.deposit_received',
@@ -1143,11 +1152,11 @@ function buildAccessoryOnlyPrepareLinesQb(shopId, query, opts = {}) {
     'o.subtotal',
     'o.discount_total',
     'c.name as customer_name',
-    'c.phone1 as customer_phone',
-    'c.phone2 as customer_phone2',
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE_SQL),
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE2_SQL),
     'c.phone2_name as customer_phone2_name',
     'c.whatsapp as customer_whatsapp',
-    'c.address as customer_address',
+    knex.raw(ORDER_LIST_CUSTOMER_ADDRESS_SQL),
     knex.raw('NULL as product_code'),
     knex.raw('NULL as product_color'),
     knex.raw('NULL as product_catalog_notes'),
@@ -1211,6 +1220,7 @@ export async function listItemsToCollect(shopId, query) {
     'o.customer_notes',
     'o.pickup_name',
     'o.pickup_number',
+    'o.contact_phone1',
     'o.paid_amount',
     'o.deposit_amount',
     'o.deposit_received',
@@ -1220,11 +1230,11 @@ export async function listItemsToCollect(shopId, query) {
     'o.subtotal',
     'o.discount_total',
     'c.name as customer_name',
-    'c.phone1 as customer_phone',
-    'c.phone2 as customer_phone2',
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE_SQL),
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE2_SQL),
     'c.phone2_name as customer_phone2_name',
     'c.whatsapp as customer_whatsapp',
-    'c.address as customer_address',
+    knex.raw(ORDER_LIST_CUSTOMER_ADDRESS_SQL),
     'o.sales_person_id',
     'sp_order.name as sales_person_name'
   );
@@ -1315,6 +1325,7 @@ export async function listItemsToPrepare(shopId, query) {
     'o.customer_notes',
     'o.pickup_name',
     'o.pickup_number',
+    'o.contact_phone1',
     'o.paid_amount',
     'o.deposit_amount',
     'o.deposit_received',
@@ -1324,11 +1335,11 @@ export async function listItemsToPrepare(shopId, query) {
     'o.subtotal',
     'o.discount_total',
     'c.name as customer_name',
-    'c.phone1 as customer_phone',
-    'c.phone2 as customer_phone2',
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE_SQL),
+    knex.raw(ORDER_LIST_CUSTOMER_PHONE2_SQL),
     'c.phone2_name as customer_phone2_name',
     'c.whatsapp as customer_whatsapp',
-    'c.address as customer_address',
+    knex.raw(ORDER_LIST_CUSTOMER_ADDRESS_SQL),
     'o.sales_person_id',
     'sp_order.name as sales_person_name'
   );
@@ -1568,10 +1579,15 @@ export async function getOrder(shopId, id) {
   orderPayload.ordinary_security_net = await getOrdinarySecurityNet(knex, shopId, id);
   orderPayload.replacement_requirements = await listOrderReplacementRequirements(knex, shopId, id);
   if (customer) {
-    orderPayload.customer_phone = customer.phone1;
-    orderPayload.customer_phone2 = customer.phone2;
-    orderPayload.customer_phone2_name = customer.phone2_name;
+    const snapPhone = String(order.contact_phone1 || '').trim();
+    const snapPhone2 = String(order.pickup_number || '').trim();
+    const snapAddr = String(order.contact_address || '').trim();
+    orderPayload.customer_phone = snapPhone || customer.phone1;
+    orderPayload.customer_phone2 = snapPhone2 || customer.phone2;
+    orderPayload.customer_phone2_name =
+      String(order.pickup_name || '').trim() || customer.phone2_name;
     orderPayload.customer_whatsapp = customer.whatsapp;
+    orderPayload.customer_address = snapAddr || customer.address;
   }
   await attachNextBookingAlerts(knex, shopId, orderPayload);
   await attachLinkedCustomOrders(shopId, [orderPayload]);

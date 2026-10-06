@@ -1,3 +1,5 @@
+import { resolveOrderContactPhone1 } from '@wrs/shared';
+
 import { ordersApi } from './api/orders.js';
 import { buildAccessoryTokenSegments, resolveSlipOrderAddress } from './deliverySlipFormat.js';
 
@@ -14,10 +16,9 @@ function enrichSlipOrder(order, row) {
       row?.pickup_name ||
       '',
     customer_phone:
-      customer?.phone1 ||
-      order.customer_phone ||
-      row?.customer_phone ||
+      resolveOrderContactPhone1({ ...order, customer }) ||
       order.pickup_number ||
+      row?.customer_phone ||
       row?.pickup_number ||
       '',
     customer_address: resolveSlipOrderAddress(order, row),

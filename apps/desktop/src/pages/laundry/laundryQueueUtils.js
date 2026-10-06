@@ -1,4 +1,4 @@
-import { resolveLaundryPriority } from '@wrs/shared';
+import { naturalSortKey, resolveLaundryPriority } from '@wrs/shared';
 
 export const PRIORITY_RANK = {
   Urgent: 1,
@@ -129,11 +129,18 @@ export function groupLaundryAccessoriesByCategory(rows) {
   );
 }
 
-/** Filter laundry job product lines by category and code/name search. */
-export function sortLaundryJobProductsByPriority(rows) {
+/** Compare product codes A–Z with numeric series (A-0001, A-0002, A-0010). */
+export function compareLaundryProductCode(a, b) {
+  const left = naturalSortKey(a);
+  const right = naturalSortKey(b);
+  return left.localeCompare(right) || String(a || '').localeCompare(String(b || ''));
+}
+
+/** Sort laundry job product lines A–Z by code, with numeric series (0001, 0002, 0010). */
+export function sortLaundryJobProductsByCode(rows) {
   return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
-    const rankDiff = (PRIORITY_RANK[a.priority] || 99) - (PRIORITY_RANK[b.priority] || 99);
-    if (rankDiff !== 0) return rankDiff;
+    const codeDiff = compareLaundryProductCode(a.code, b.code);
+    if (codeDiff !== 0) return codeDiff;
     return String(a.name || '').localeCompare(String(b.name || ''), undefined, {
       sensitivity: 'base',
     });
@@ -168,9 +175,7 @@ export function sortWashingQueue(items, sortBy, prioritySettings) {
   const presented = items.map((item) => presentWashingQueueItem(item, prioritySettings));
   return [...presented].sort((a, b) => {
     if (sortBy === 'code') {
-      return String(a.code || '').localeCompare(String(b.code || ''), undefined, {
-        sensitivity: 'base',
-      });
+      return compareLaundryProductCode(a.code, b.code);
     }
     if (sortBy === 'name') {
       return String(a.name || '').localeCompare(String(b.name || ''), undefined, {

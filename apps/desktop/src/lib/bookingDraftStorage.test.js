@@ -6,6 +6,7 @@ import {
   compactBookingDraftSnapshot,
   isSnapshotTriviallyEmpty,
   readDraftList,
+  resolveReusableBookingDraftId,
   upsertBookingDraft,
   writeDraftList,
 } from './bookingDraftStorage.js';
@@ -89,6 +90,83 @@ describe('upsertBookingDraft', () => {
     assert.equal(stored.snapshot.lines[0].name_snapshot, 'Sherwani');
     assert.equal(stored.snapshot.lines[0].accessories[0].accessory_id, 'x1');
     assert.equal(isSnapshotTriviallyEmpty(stored.snapshot), false);
+  });
+
+  it('reuses the existing draft when id is new but customer is the same', () => {
+    installMemoryStorage();
+    upsertBookingDraft({
+      id: 'd1',
+      title: 'AMITBHAI NEW BILL CHECK',
+      snapshot: {
+        customer: { id: 'c1', name: 'AMITBHAI NEW BILL CHECK', phone1: '0123456789' },
+        contactNo1: '0123456789',
+        address: 'HALVAD NEW',
+        whatsappSource: 'phone1',
+        lines: [{ line_id: 'l1', code_snapshot: 'SS-01', name_snapshot: 'Sherwani' }],
+      },
+    });
+    const row = upsertBookingDraft({
+      id: 'd2',
+      title: 'AMITBHAI NEW BILL CHECK',
+      snapshot: {
+        customer: { id: 'c1', name: 'AMITBHAI NEW BILL CHECK', phone1: '0123456789' },
+        contactNo1: '0987654321',
+        address: 'HALVAD UPDATED',
+        whatsappSource: 'phone1',
+        lines: [
+          { line_id: 'l1', code_snapshot: 'SS-01', name_snapshot: 'Sherwani' },
+          { line_id: 'l2', code_snapshot: 'SS-02', name_snapshot: 'Indo' },
+        ],
+      },
+    });
+    assert.equal(row.id, 'd1');
+    const list = readDraftList();
+    assert.equal(list.length, 1);
+    assert.equal(list[0].id, 'd1');
+    assert.equal(list[0].snapshot.contactNo1, '0987654321');
+    assert.equal(list[0].snapshot.address, 'HALVAD UPDATED');
+    assert.equal(list[0].snapshot.lines.length, 2);
+  });
+
+  it('reuses by title when customer id is missing', () => {
+    installMemoryStorage();
+    upsertBookingDraft({
+      id: 't1',
+      title: 'AMITBHAI NEW BILL CHECK',
+      snapshot: { customer: { name: 'AMITBHAI NEW BILL CHECK' }, lines: [] },
+    });
+    const row = upsertBookingDraft({
+      id: 't2',
+      title: 'AMITBHAI NEW BILL CHECK',
+      snapshot: { customer: { name: 'AMITBHAI NEW BILL CHECK' }, contactNo1: '111', lines: [] },
+    });
+    assert.equal(row.id, 't1');
+    assert.equal(readDraftList().length, 1);
+  });
+
+  it('resolveReusableBookingDraftId prefers stored id then customer', () => {
+    installMemoryStorage();
+    upsertBookingDraft({
+      id: 'keep',
+      title: 'Ravi',
+      snapshot: { customer: { id: 'c9', name: 'Ravi' }, lines: [] },
+    });
+    assert.equal(
+      resolveReusableBookingDraftId({
+        id: 'keep',
+        snapshot: { customer: { id: 'c9', name: 'Ravi' } },
+        title: 'Ravi',
+      }),
+      'keep'
+    );
+    assert.equal(
+      resolveReusableBookingDraftId({
+        id: 'other',
+        snapshot: { customer: { id: 'c9', name: 'Ravi' } },
+        title: 'Ravi',
+      }),
+      'keep'
+    );
   });
 
   it('retries after quota by compacting', () => {

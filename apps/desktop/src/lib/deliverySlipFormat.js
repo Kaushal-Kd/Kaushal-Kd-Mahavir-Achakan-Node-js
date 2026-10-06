@@ -1,3 +1,5 @@
+import { resolveOrderContactAddress, resolveOrderContactPhone1 } from '@wrs/shared';
+
 import { accessoryGroupNotes } from './accessoryRemarksDisplay.js';
 import { pdfSafeText } from '../utils/pdfSafeText.js';
 
@@ -13,8 +15,13 @@ import { pdfSafeText } from '../utils/pdfSafeText.js';
  * @returns {string}
  */
 export function resolveSlipOrderAddress(order, row) {
-  const customer = order?.customer;
-  return String(row?.customer_address || order?.customer_address || customer?.address || '').trim();
+  return resolveOrderContactAddress({
+    ...(order && typeof order === 'object' ? order : {}),
+    ...(row && typeof row === 'object' ? row : {}),
+    customer: order?.customer || row?.customer,
+    contact_address: row?.contact_address || order?.contact_address,
+    customer_address: row?.customer_address || order?.customer_address,
+  });
 }
 
 /**
@@ -51,11 +58,10 @@ export function enrichSlipOrderForTokens(order) {
       pickup_number: '',
     };
   }
-  const customer = order.customer;
   return {
     ...order,
     customer_name: resolveSlipCustomerName(order),
-    customer_phone: customer?.phone1 || order.customer_phone || order.pickup_number || '',
+    customer_phone: resolveOrderContactPhone1(order) || order.pickup_number || '',
     customer_address: resolveSlipOrderAddress(order),
     order_number: order.order_number || '',
     pickup_date: order.pickup_date,

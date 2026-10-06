@@ -465,12 +465,32 @@ export async function listLaundryJobs(shopId, query = {}) {
     qb.andWhereRaw('(lj.payable_amount - COALESCE(lj.paid_to_washing_amount, 0)) > ?', [1e-6]);
   }
 
+  const search = String(query.search || '').trim();
+  if (search) {
+    const like = `%${search}%`;
+    qb.where((b) => {
+      b.where('lj.job_no', 'like', like)
+        .orWhere('lj.vendor_name', 'like', like)
+        .orWhere('lj.pickup_by', 'like', like)
+        .orWhere('lj.remarks', 'like', like)
+        .orWhereExists(function productCodeExists() {
+          this.select(knex.raw('1'))
+            .from('laundry_job_products as ljp')
+            .whereRaw('ljp.laundry_job_id = lj.id')
+            .andWhere('ljp.shop_id', shopId)
+            .andWhere((inner) => {
+              inner
+                .where('ljp.product_code', 'like', like)
+                .orWhere('ljp.product_name', 'like', like);
+            });
+        });
+    });
+  }
+
   const result = await paginate(qb, {
     page: query.page,
     per_page: query.per_page || 50,
-    search: query.search,
     sort: query.sort || '-lj.created_at',
-    search_fields: ['lj.job_no', 'lj.vendor_name', 'lj.pickup_by', 'lj.remarks'],
   });
 
   result.data = await annotateListRowsWithVendorOutstanding(shopId, result.data);

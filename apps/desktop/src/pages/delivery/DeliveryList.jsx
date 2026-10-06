@@ -9,6 +9,7 @@ import {
   formatOrderTime12,
   MODULES,
   hasPermission,
+  resolveOrderContactPhone1,
   toLocalISODate,
 } from '@wrs/shared';
 import {
@@ -56,7 +57,7 @@ import {
   orderReturnedAt,
 } from '../../lib/listTimestampColumns.js';
 import { ordersApi } from '../../lib/api/orders.js';
-import { getRowStageSelectOptions, stageFromOrderStatus } from '../../lib/orderListStage.js';
+import { getRowStageSelectOptions, isCompletedHandoverStage, stageFromOrderStatus } from '../../lib/orderListStage.js';
 import { buildOrdersListSortParam, ORDER_LIST_SORT_FIELDS } from '../../lib/listOrderSort.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import {
@@ -97,10 +98,10 @@ function stageLabelForExport(status) {
   return CHECKLIST_STAGE_OPTIONS.find((opt) => opt.value === stage)?.label || stage || '';
 }
 
-/** Row tint for completed handovers without changing chronological order. */
-function deliveredRowClass(row) {
-  if (stageFromOrderStatus(row?.status) !== 'delivered') return '';
-  return 'bg-green-50 hover:bg-green-100/80';
+/** Subtle tint for delivered (and later) rows so pending handovers stay visually primary. */
+function completedHandoverRowClass(row) {
+  if (!isCompletedHandoverStage(row?.status)) return '';
+  return 'completed-handover-row';
 }
 
 /** Default delivery list: all pre-handover stages plus delivered rows. */
@@ -450,7 +451,7 @@ const DeliveryList = () => {
       header: 'Customer No',
       columnPickerLabel: 'Customer No.',
       render: (r) => (
-        <span className="font-mono text-xs">{r.customer_phone || r.pickup_number || '—'}</span>
+        <span className="font-mono text-xs">{resolveOrderContactPhone1(r) || '—'}</span>
       ),
     },
     buildCustomerAddressColumn(),
@@ -693,9 +694,9 @@ const DeliveryList = () => {
             }
             if (c.key === 'pickup_name') return r.customer_name || r.pickup_name || '';
             if (c.key === 'reference_name') return r.reference_name || '';
-            if (c.key === 'pickup_number') return r.customer_phone || r.pickup_number || '';
+            if (c.key === 'pickup_number') return resolveOrderContactPhone1(r) || r.pickup_number || '';
             if (c.key === 'customer_whatsapp') return r.customer_whatsapp || '';
-            if (c.key === 'customer_address') return r.customer_address || '';
+            if (c.key === 'customer_address') return r.contact_address || r.customer_address || '';
             if (c.key === 'rent_total') {
               const subtotal = Number(r.subtotal ?? 0);
               const discount = Number(r.discount_total ?? 0);
@@ -859,7 +860,7 @@ const DeliveryList = () => {
     <>
       <PageHeader
         title="Delivery / Handover"
-        description="Orders waiting to be handed over, shown earliest first. Completed deliveries use a green row highlight."
+        description="Orders waiting to be handed over, shown earliest first. Delivered and later stages use a light green row so pending handovers stay easy to scan."
       />
 
       <div className="card p-1.5 mb-2 flex flex-wrap items-center gap-1.5">
@@ -929,7 +930,7 @@ const DeliveryList = () => {
         rowKey="id"
         getRowClassName={(row) =>
           [
-            deliveredRowClass(row),
+            completedHandoverRowClass(row),
             bookingAlertRowClass(row, checklistRowWarningClass(orderHasNextBookingAlert(row))),
           ]
             .filter(Boolean)

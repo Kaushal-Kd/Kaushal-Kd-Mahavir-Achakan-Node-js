@@ -228,12 +228,34 @@ export function formatPreparePdfProductStatus(row) {
   );
 }
 
+function contactDisplay(value) {
+  return String(value ?? '').trim();
+}
+
+function contactDigits(value) {
+  return contactDisplay(value).replace(/\D/g, '');
+}
+
+function firstContact(...values) {
+  for (const value of values) {
+    const text = contactDisplay(value);
+    if (text) return text;
+  }
+  return '';
+}
+
 function prepareContactMobile(row) {
-  return String(row?.customer_phone || row?.pickup_number || '').trim();
+  return firstContact(row?.contact_phone1, row?.customer_phone);
 }
 
 function prepareContactWhatsapp(row) {
-  return String(row?.customer_whatsapp || '').trim();
+  const mobile = prepareContactMobile(row);
+  const mobileDigits = contactDigits(mobile);
+  const storedWhatsapp = firstContact(row?.customer_whatsapp);
+  const secondNumber = firstContact(row?.pickup_number, row?.customer_phone2);
+  if (storedWhatsapp && contactDigits(storedWhatsapp) !== mobileDigits) return storedWhatsapp;
+  if (secondNumber && contactDigits(secondNumber) !== mobileDigits) return secondNumber;
+  return storedWhatsapp || secondNumber || '';
 }
 
 export function getPrepareContactNumbers(row) {
@@ -243,27 +265,19 @@ export function getPrepareContactNumbers(row) {
   };
 }
 
-/** Mobile and WhatsApp as separate labeled lines, even when the digits match. */
+/** Mobile and WhatsApp as separate labeled lines so both numbers stay readable. */
 export function buildPreparePdfContactRichLines(row) {
   const mobile = prepareContactMobile(row);
   const whatsapp = prepareContactWhatsapp(row);
   /** @type {import('../utils/pdfRichText.js').PdfRichLine[]} */
   const lines = [];
   if (mobile) {
-    lines.push({
-      segments: [
-        { text: 'Mobile  ', bold: true },
-        { text: mobile, bold: false },
-      ],
-    });
+    lines.push({ segments: [{ text: 'Mobile', bold: true }] });
+    lines.push({ segments: [{ text: mobile, bold: false }] });
   }
   if (whatsapp) {
-    lines.push({
-      segments: [
-        { text: 'WhatsApp  ', bold: true },
-        { text: whatsapp, bold: false },
-      ],
-    });
+    lines.push({ segments: [{ text: 'WhatsApp', bold: true }] });
+    lines.push({ segments: [{ text: whatsapp, bold: false }] });
   }
   return lines;
 }

@@ -156,6 +156,8 @@ function AppSettingsTab() {
       setDraftValue('');
     } else if (row.type === APP_SETTING_TYPES.YES_NO) {
       setDraftValue(formatYesNo(parseYesNo(row.value, row.value)));
+    } else if (row.type === APP_SETTING_TYPES.TIME) {
+      setDraftValue(String(row.value ?? '').trim().slice(0, 5));
     } else {
       setDraftValue(String(row.value ?? ''));
     }
@@ -168,6 +170,8 @@ function AppSettingsTab() {
       value = formatInvoiceMargin(marginDraft);
     } else if (editRow.type === APP_SETTING_TYPES.YES_NO) {
       value = formatYesNo(parseYesNo(draftValue, 'No'));
+    } else if (editRow.type === APP_SETTING_TYPES.TIME) {
+      value = String(draftValue || '').trim().slice(0, 5);
     } else if (editRow.type === APP_SETTING_TYPES.PIPE_NUMBERS) {
       value = formatPipeNumbers(parsePipeNumbers(draftValue, draftValue));
     }
@@ -264,8 +268,8 @@ function AppSettingsTab() {
           label="Time"
           type="time"
           step={60}
-          value={draftValue}
-          onChange={(e) => setDraftValue(e.target.value)}
+          value={String(draftValue || '').slice(0, 5)}
+          onChange={(e) => setDraftValue(String(e.target.value || '').slice(0, 5))}
         />
       );
     }

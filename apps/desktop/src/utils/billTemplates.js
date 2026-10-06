@@ -12,6 +12,9 @@ import {
   addDays,
   formatCurrency,
   formatDate,
+  resolveOrderContactAddress,
+  resolveOrderContactPhone1,
+  resolveOrderContactPhone2,
   round2,
   todayIndiaISODate,
   toLocalISODate,
@@ -902,20 +905,22 @@ function orderCustomerName(order) {
 }
 
 function orderCustomerAddress(order) {
-  return String(order.customer?.address || order.customer_address || '').trim();
+  return resolveOrderContactAddress(order);
 }
 
 function orderPhone2Name(order) {
   return String(
-    order.customer?.phone2_name || order.customer_phone2_name || order.contact2_name || ''
+    order.pickup_name ||
+      order.customer_phone2_name ||
+      order.contact2_name ||
+      order.customer?.phone2_name ||
+      ''
   ).trim();
 }
 
 function orderCustomerPhoneLines(order) {
-  const phone1 = String(
-    order.customer?.phone1 || order.customer_phone || order.pickup_number || ''
-  ).trim();
-  const phone2 = String(order.customer?.phone2 || order.customer_phone2 || '').trim();
+  const phone1 = resolveOrderContactPhone1(order);
+  const phone2 = resolveOrderContactPhone2(order);
   const phone2Name = orderPhone2Name(order);
   const lines = [];
   const seen = new Set();
@@ -925,7 +930,7 @@ function orderCustomerPhoneLines(order) {
     seen.add(keyOf(phone1));
   }
   if (phone2 && !seen.has(keyOf(phone2))) {
-    lines.push({ number: phone2, name: phone2Name });
+    lines.push({ number: phone2, name: phone1 ? phone2Name : '' });
   }
   return lines.slice(0, 2);
 }

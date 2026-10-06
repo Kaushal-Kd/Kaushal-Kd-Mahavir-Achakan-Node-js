@@ -4,6 +4,9 @@ import { describe, it } from 'node:test';
 import {
   bookingCustomerContactSummary,
   hydrateBookingCustomerFields,
+  inferWhatsappSource,
+  normalizeWhatsappSource,
+  restoreWhatsappFromDraftSnapshot,
 } from './bookingCustomerHydration.js';
 
 describe('hydrateBookingCustomerFields', () => {
@@ -27,8 +30,39 @@ describe('hydrateBookingCustomerFields', () => {
       { contact_phone1: '9333333333', contact_address: 'Order addr', pickup_number: '9444444444' }
     );
     assert.equal(result.contactNo1, '9333333333');
-    assert.equal(result.contactNo2, '9222222222');
+    assert.equal(result.contactNo2, '9444444444');
     assert.equal(result.address, 'Order addr');
+  });
+
+  it('ignores another booking snapshot when a different customer is selected', () => {
+    const result = hydrateBookingCustomerFields(
+      { id: 'c2', phone1: '9000000002', address: 'New customer' },
+      {
+        customer_id: 'c1',
+        contact_phone1: '9000000025',
+        contact_address: 'Bill 25 addr',
+      }
+    );
+    assert.equal(result.contactNo1, '9000000002');
+    assert.equal(result.address, 'New customer');
+  });
+
+  it('keeps each booking snapshot when two bills share one customer', () => {
+    const shared = { id: 'c1', phone1: '9000000024', address: 'Shared addr' };
+    const bill25 = hydrateBookingCustomerFields(shared, {
+      customer_id: 'c1',
+      contact_phone1: '9000000025',
+      contact_address: 'Bill 25 addr',
+    });
+    const bill24 = hydrateBookingCustomerFields(shared, {
+      customer_id: 'c1',
+      contact_phone1: '9000000024',
+      contact_address: 'Bill 24 addr',
+    });
+    assert.equal(bill25.contactNo1, '9000000025');
+    assert.equal(bill24.contactNo1, '9000000024');
+    assert.equal(bill25.address, 'Bill 25 addr');
+    assert.equal(bill24.address, 'Bill 24 addr');
   });
 
   it('falls back to customer when order snapshot missing', () => {
@@ -47,5 +81,40 @@ describe('bookingCustomerContactSummary', () => {
     const summary = bookingCustomerContactSummary({}, {});
     assert.equal(summary.contactNo1, '—');
     assert.equal(summary.address, '—');
+  });
+});
+
+describe('restoreWhatsappFromDraftSnapshot', () => {
+  it('keeps Same as Contact 1 even when master whatsapp looks like Other', () => {
+    const restored = restoreWhatsappFromDraftSnapshot(
+      {
+        whatsappSource: 'phone1',
+        contactNo1: '0123456789',
+        whatsappManual: '0123456789',
+      },
+      { phone1: '0123456789', whatsapp: '9999999999' }
+    );
+    assert.equal(restored.source, 'phone1');
+  });
+
+  it('maps legacy other to manual', () => {
+    assert.equal(normalizeWhatsappSource('other'), 'manual');
+    const restored = restoreWhatsappFromDraftSnapshot({ whatsapp_source: 'other' }, null);
+    assert.equal(restored.source, 'manual');
+  });
+
+  it('does not infer Other when snapshot source is missing and numbers match phone1', () => {
+    const restored = restoreWhatsappFromDraftSnapshot(
+      { contactNo1: '0123456789', whatsappManual: '0123456789' },
+      { phone1: '', whatsapp: '0123456789' }
+    );
+    assert.equal(restored.source, 'phone1');
+  });
+
+  it('infers Other only when the number matches neither contact', () => {
+    assert.equal(
+      inferWhatsappSource({ phone1: '1111111111', phone2: '2222222222', whatsapp: '3333333333' }),
+      'manual'
+    );
   });
 });

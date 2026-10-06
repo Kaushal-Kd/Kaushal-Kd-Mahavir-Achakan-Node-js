@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import Button from '../../components/ui/Button.jsx';
 import AccountSelectWithQr from '../../components/accounts/AccountSelectWithQr.jsx';
+import DatePicker from '../../components/ui/DatePicker.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useModalSize } from '../../hooks/useModalSize.js';
 import { ordersApi } from '../../lib/api/orders.js';
@@ -16,6 +17,7 @@ import { toast } from '../../stores/uiStore.js';
 import EditableOrderSecurityCap from './EditableOrderSecurityCap.jsx';
 
 const today = () => todayIndiaISODate();
+const isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 const toNonNegativeNumber = (v) => {
   if (v === '' || v == null) return 0;
   return round2(Math.max(0, Number(v) || 0));
@@ -34,6 +36,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
   const [receiveAmount, setReceiveAmount] = useState('');
   const [receiveMode, setReceiveMode] = useState('receive');
   const [paymentAccountId, setPaymentAccountId] = useState('');
+  const [paymentDate, setPaymentDate] = useState(today);
   // Extra discount to apply now (label shows total discount; input is +extra).
   const [discountDraft, setDiscountDraft] = useState('0');
   const [securityCapDraft, setSecurityCapDraft] = useState(0);
@@ -154,6 +157,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
     setSecurityAmount('');
     setReceiveAmount('');
     setReceiveMode('receive');
+    setPaymentDate(today());
     setDiscountDraft('0');
     setSecurityCapDraft(round2(Number(order.deposit_amount) || 0));
   }, [isOpen, order?.id]);
@@ -227,6 +231,11 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
         toast.error('Amounts cannot be negative');
         throw new Error('validation');
       }
+      const paymentDateIso = String(paymentDate || '').trim().slice(0, 10);
+      if ((receiveNum > 0 || secNum > 0) && !isIsoDate(paymentDateIso)) {
+        toast.error('Select the payment date');
+        throw new Error('validation');
+      }
       const workingBalance = round2(Number(workingOrder.balance || 0));
       if (!isRefund && receiveNum > workingBalance) {
         toast.error(
@@ -279,7 +288,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
         order_id: workingOrder.id,
         customer_id: workingOrder.customer_id,
         payment_type: 'cash',
-        payment_date: today(),
+        payment_date: paymentDateIso,
         transaction_id: null,
         notes: null,
       };
@@ -357,6 +366,10 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
         toast.error('No changes to save');
         return;
       }
+    }
+    if ((receiveNum > 0 || secNum > 0) && !isIsoDate(paymentDate)) {
+      toast.error('Select the payment date');
+      return;
     }
     submitMut.mutate();
   };
@@ -507,7 +520,23 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 items-end">
+            <div className="min-w-0">
+              <label
+                htmlFor="settlement-payment-date"
+                className="block text-[9px] font-medium text-gray-600 mb-0.5"
+              >
+                Payment date
+              </label>
+              <DatePicker
+                id="settlement-payment-date"
+                required
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(String(e.target.value || '').slice(0, 10))}
+                inputClassName="h-7 py-0.5 px-1.5 text-[10px] pr-8"
+                placeholder="DD-MM-YYYY"
+              />
+            </div>
             <div className="min-w-0">
               <label
                 htmlFor="settlement-advance"

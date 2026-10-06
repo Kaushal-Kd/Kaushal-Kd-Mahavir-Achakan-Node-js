@@ -1,5 +1,7 @@
 /**
- * Build a partial customer update from booking form values vs stored customer row.
+ * Build a partial customer update from form values vs stored customer row.
+ * Booking save must not call this for an existing shared customer — contact
+ * edits belong on that order (`contact_phone1`, `pickup_number`, `contact_address`).
  * @param {object} detailRow — customer from API
  * @param {{ name?: string, phone1?: string, phone2?: string|null, phone2_name?: string|null, whatsapp?: string|null, address?: string|null }} next
  * @returns {Record<string, string|null>}

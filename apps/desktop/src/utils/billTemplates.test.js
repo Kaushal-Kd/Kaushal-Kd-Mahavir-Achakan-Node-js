@@ -90,34 +90,40 @@ describe('bill template blank-paper controls', () => {
     assert.match(html, /class="acc-indent"/);
   });
 
-  it('prints both distinct customer mobile numbers', () => {
+  it('prints both distinct customer mobile numbers from this booking', () => {
     const html = renderBillHtml({
       order: {
         ...SAMPLE_ORDER,
-        pickup_number: '9000000001',
+        contact_phone1: '9000000001',
+        pickup_number: '9000000002',
         customer_phone: '9000000001',
-        customer_phone2: '9000000002',
+        customer_phone2: '9999999999',
+        customer: { phone1: '9000000001', phone2: '9999999999' },
       },
       shop,
     });
     assert.match(html, /9000000001/);
     assert.match(html, /9000000002/);
+    assert.doesNotMatch(html, /9999999999/);
   });
 
   it('prints contact no. 2 name in brackets after the second number', () => {
     const html = renderBillHtml({
       order: {
         ...SAMPLE_ORDER,
-        pickup_number: '9825497629',
+        contact_phone1: '9825497629',
+        pickup_number: '9512997629',
+        pickup_name: 'POTE',
         customer_phone: '9825497629',
-        customer_phone2: '9512997629',
-        customer: { phone1: '9825497629', phone2: '9512997629', phone2_name: 'POTE' },
+        customer_phone2: '9000000000',
+        customer: { phone1: '9825497629', phone2: '9000000000', phone2_name: 'MASTER' },
       },
       shop,
     });
     assert.match(html, /9825497629/);
     assert.match(html, /9512997629 \(POTE\)/);
     assert.doesNotMatch(html, /9825497629 \(POTE\)/);
+    assert.doesNotMatch(html, /9000000000/);
   });
 
   it('prints the configured vertical offset in inches', () => {

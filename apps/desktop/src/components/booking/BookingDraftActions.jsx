@@ -107,6 +107,11 @@ const BookingDraftActions = ({
         setDraftListTick((t) => t + 1);
         return;
       }
+      try {
+        sessionStorage.removeItem('wrs.quickBillDraft');
+      } catch {
+        /* ignore */
+      }
       setActiveDraftId(row.id);
       setDraftsModalOpen(false);
       setDraftListTick((t) => t + 1);

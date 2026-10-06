@@ -2,11 +2,15 @@ import {
   ACTIONS,
   CUSTOM_ORDER_STATUS_LABELS,
   CUSTOM_ORDER_SELECTABLE_STATUS_VALUES,
+  customOrderHasLinkedProduct,
+  customOrderItemsFromOrder,
+  formatCustomOrderProductsLabel,
   formatDate,
   formatBookingDateTime,
   MODULES,
   hasPermission,
   getCustomOrderTrialReminderEntry,
+  nextUnlinkedCustomOrderItem,
   normalizeCustomOrderRetrials,
   toLocalISODate,
 } from '@wrs/shared';
@@ -273,7 +277,8 @@ const CustomOrderList = () => {
   };
 
   const openProductVerifyModal = (row) => {
-    if (!row?.id || row.linked_product_id) return;
+    if (!row?.id) return;
+    if (!nextUnlinkedCustomOrderItem(row) && customOrderHasLinkedProduct(row)) return;
     setProductVerifyWasAlreadyCompleted(false);
     setProductVerifyOrder(row);
   };
@@ -284,7 +289,7 @@ const CustomOrderList = () => {
   };
 
   const startBookingFromRow = (row) => {
-    if (!row?.linked_product_id) {
+    if (!customOrderHasLinkedProduct(row)) {
       toast.warning('Create a product for this order first');
       return;
     }
@@ -340,6 +345,11 @@ const CustomOrderList = () => {
   );
 
   const handleProductVerifyCreated = (order) => {
+    const next = nextUnlinkedCustomOrderItem(order);
+    if (next) {
+      setProductVerifyOrder(order);
+      return;
+    }
     setProductVerifyOrder(null);
     if (shouldOfferBookingAfterComplete(order, productVerifyWasAlreadyCompleted)) {
       setBookingPromptOrder(order);
@@ -554,35 +564,68 @@ const CustomOrderList = () => {
         header: 'Design',
         columnPickerLabel: 'Design name',
         className: 'text-xs',
-        render: (r) => textCell(r.design_name),
+        render: (r) =>
+          textCell(
+            customOrderItemsFromOrder(r)
+              .map((item) => item.design_name)
+              .filter(Boolean)
+              .join(', ')
+          ),
       },
       {
         key: 'category_name',
         header: 'Category',
         columnPickerLabel: 'Category',
         className: 'text-xs',
-        render: (r) => textCell(r.category_id ? categoryNameById.get(r.category_id) : null),
+        render: (r) =>
+          textCell(
+            [
+              ...new Set(
+                customOrderItemsFromOrder(r)
+                  .map((item) => (item.category_id ? categoryNameById.get(item.category_id) : ''))
+                  .filter(Boolean)
+              ),
+            ].join(', ')
+          ),
       },
       {
         key: 'product_name',
         header: 'Product',
         columnPickerLabel: 'Product name',
         className: 'text-xs',
-        render: (r) => textCell(r.product_name || r.design_name),
+        render: (r) => textCell(formatCustomOrderProductsLabel(r) || r.product_name || r.design_name),
       },
       {
         key: 'color',
         header: 'Color',
         columnPickerLabel: 'Color',
         className: 'text-xs',
-        render: (r) => textCell(r.color),
+        render: (r) =>
+          textCell(
+            [
+              ...new Set(
+                customOrderItemsFromOrder(r)
+                  .map((item) => item.color)
+                  .filter(Boolean)
+              ),
+            ].join(', ')
+          ),
       },
       {
         key: 'size',
         header: 'Size',
         columnPickerLabel: 'Size',
         className: 'text-xs',
-        render: (r) => textCell(r.size),
+        render: (r) =>
+          textCell(
+            [
+              ...new Set(
+                customOrderItemsFromOrder(r)
+                  .map((item) => item.size)
+                  .filter(Boolean)
+              ),
+            ].join(', ')
+          ),
       },
       {
         key: 'remarks',
@@ -686,7 +729,13 @@ const CustomOrderList = () => {
         header: 'Product code',
         columnPickerLabel: 'Product code',
         className: 'text-xs font-mono whitespace-nowrap',
-        render: (r) => r.generated_product_code || '—',
+        render: (r) =>
+          customOrderItemsFromOrder(r)
+            .map((item) => item.generated_product_code)
+            .filter(Boolean)
+            .join(', ') ||
+          r.generated_product_code ||
+          '—',
       },
       {
         key: 'linked_bill_no',
@@ -707,7 +756,7 @@ const CustomOrderList = () => {
           }
           if (
             canEdit &&
-            r.linked_product_id &&
+            customOrderHasLinkedProduct(r) &&
             !r.linked_order_id
           ) {
             return (
@@ -791,9 +840,7 @@ const CustomOrderList = () => {
                     try {
                       const { data } = await customOrdersApi.get(r.id);
                       await printCustomOrderBill(data, {
-                        categoryName: r.category_id
-                          ? categoryNameById.get(r.category_id) || ''
-                          : '',
+                        categoryNameById: Object.fromEntries(categoryNameById),
                       });
                     } catch (err) {
                       toast.error(
@@ -833,7 +880,7 @@ const CustomOrderList = () => {
               ) : null}
               {canEdit &&
               !cancelled &&
-              r.linked_product_id &&
+              customOrderHasLinkedProduct(r) &&
               !r.linked_order_id ? (
                 <Button
                   type="button"
@@ -860,7 +907,7 @@ const CustomOrderList = () => {
                   onClick={() => navigate(`/booking/${r.linked_order_id}`)}
                 />
               ) : null}
-              {canEdit && !cancelled && !r.linked_product_id ? (
+              {canEdit && !cancelled && nextUnlinkedCustomOrderItem(r) ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -1277,6 +1324,7 @@ const CustomOrderList = () => {
 
       <CustomOrderProductVerifyModal
         order={productVerifyOrder}
+        item={productVerifyOrder ? nextUnlinkedCustomOrderItem(productVerifyOrder) : null}
         isOpen={Boolean(productVerifyOrder)}
         onClose={() => setProductVerifyOrder(null)}
         onCreated={handleProductVerifyCreated}

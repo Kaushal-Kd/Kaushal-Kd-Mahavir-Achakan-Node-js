@@ -46,10 +46,12 @@ import {
   sortCartLinesNewestFirst,
   stripAvailabilityCartDraftMeta,
 } from '../../lib/availabilityCart.js';
+import { setActiveDraftId } from '../../lib/bookingDraftStorage.js';
 import {
   fetchRelatedProductAvailability,
   relatedToCartProduct,
 } from '../../lib/availabilityRelatedProducts.js';
+import { loadPairSuggestionsForMatches } from '../../lib/productPairSuggestions.js';
 import { draftsApi } from '../../lib/api/drafts.js';
 import { productsApi } from '../../lib/api/products.js';
 import { washingQueueApi } from '../../lib/api/washingQueue.js';
@@ -352,7 +354,24 @@ const CheckAvailability = () => {
     );
   };
 
-  const productMatches = productSearchQuery.data || [];
+  const pairSuggestionQuery = useQuery({
+    queryKey: [
+      'availability-pair-suggestions',
+      (productSearchQuery.data || []).map((p) => p.id).join(','),
+      code,
+    ],
+    queryFn: () =>
+      loadPairSuggestionsForMatches({
+        matches: productSearchQuery.data || [],
+        search: code,
+        forBooking: false,
+      }),
+    enabled:
+      allowProductAutocomplete &&
+      code.trim().length >= 1 &&
+      (productSearchQuery.data || []).length > 0,
+  });
+  const productMatches = pairSuggestionQuery.data || productSearchQuery.data || [];
 
   const selectedCodeProduct = useMemo(() => {
     const trimmed = code.trim();
@@ -678,6 +697,7 @@ const CheckAvailability = () => {
     } catch {
       /* ignore quota errors */
     }
+    setActiveDraftId(null);
     // No location.state.fresh — cart handoff via sessionStorage must load on Create Booking.
     navigate('/booking/new');
   };
@@ -903,9 +923,17 @@ const CheckAvailability = () => {
                             idx === codeHighlight ? 'bg-brand-light' : 'hover:bg-gray-50'
                           )}
                         >
-                          <div className="min-w-0 font-medium text-gray-900 truncate">{p.name}</div>
+                          <div className="flex min-w-0 items-center gap-1">
+                            <div className="min-w-0 font-medium text-gray-900 truncate">{p.name}</div>
+                            {p.suggested_as_pair ? (
+                              <Badge tone="brand" className="text-[10px] shrink-0">
+                                Pair
+                              </Badge>
+                            ) : null}
+                          </div>
                           <div className="min-w-0 truncate text-[10px] font-mono text-gray-500">
                             {p.code}
+                            {p.suggested_as_pair && p.pair_of_code ? ` · pair of ${p.pair_of_code}` : ''}
                           </div>
                         </button>
                       ))
@@ -2224,7 +2252,7 @@ const CartListView = ({
           {/* Customer header */}
           <div className="flex flex-wrap items-center gap-2 bg-brand-light/40 border-b border-gray-200 px-2.5 py-1.5">
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-gray-900 truncate">
+              <div className="text-sm font-bold text-gray-900 truncate">
                 {group.customer_name}
               </div>
               {group.customer_phone ? (

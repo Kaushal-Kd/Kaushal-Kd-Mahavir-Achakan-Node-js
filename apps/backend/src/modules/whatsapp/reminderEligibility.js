@@ -1,6 +1,6 @@
-import { normalizeSqlDateToIso } from '@wrs/shared';
+import { DELIVERY_PENDING_ORDER_STATUSES, normalizeSqlDateToIso, parseOrderTimeTo24 } from '@wrs/shared';
 
-export const DELIVERY_REMINDER_ORDER_STATUSES = ['in_preparation'];
+export const DELIVERY_REMINDER_ORDER_STATUSES = [...DELIVERY_PENDING_ORDER_STATUSES];
 
 export function isDeliveryReminderOrderStatus(status) {
   return DELIVERY_REMINDER_ORDER_STATUSES.includes(String(status || '').trim());
@@ -34,8 +34,6 @@ export function canReactivateDeliveryReminder(job) {
 
 export function deliveryReminderScheduledAt(deliveryDate, time) {
   const previousDate = shiftIsoCalendarDate(deliveryDate, -1);
-  const validTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(time || '').trim())
-    ? String(time).trim()
-    : '10:00';
+  const validTime = parseOrderTimeTo24(time) || '10:00';
   return new Date(`${previousDate}T${validTime}:00+05:30`);
 }

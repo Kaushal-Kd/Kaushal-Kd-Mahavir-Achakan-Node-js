@@ -16,6 +16,17 @@ test('enrichSlipOrderForTokens accepts a missing order and a null customer', () 
   );
 });
 
+test('enrichSlipOrderForTokens prefers this booking contact snapshot over the customer master', () => {
+  assert.equal(
+    enrichSlipOrderForTokens({
+      contact_phone1: '9000000025',
+      customer_phone: '9000000024',
+      customer: { phone1: '9000000024' },
+    }).customer_phone,
+    '9000000025'
+  );
+});
+
 test('product tokens show booking notes and exclude catalog remarks', () => {
   const fields = buildProductTokenSlipFields({
     id: 'order-1::item-1',

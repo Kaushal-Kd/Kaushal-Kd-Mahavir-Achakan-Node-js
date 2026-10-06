@@ -15,6 +15,8 @@ import {
   normalizeProductCode,
   toLocalISODate,
   computeCustomOrderTotals,
+  customOrderItemsFromOrder,
+  primaryCustomOrderItemFields,
   validateCustomOrderMeasurements,
   validateCustomOrderForCompletion,
   validateCustomOrderPaymentAccounts,
@@ -209,6 +211,112 @@ function roundMoney(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
 
+function mapCustomOrderItemRow(row) {
+  if (!row) return row;
+  return {
+    id: row.id,
+    design_name: row.design_name || '',
+    category_id: row.category_id || '',
+    product_name: row.product_name || '',
+    color: row.color || '',
+    size: row.size || '',
+    linked_product_id: row.linked_product_id || null,
+    generated_product_code: row.generated_product_code || null,
+    display_order: Number(row.display_order || 0),
+  };
+}
+
+async function loadCustomOrderItems(shopId, orderIds) {
+  const ids = [...new Set((orderIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const rows = await knex('custom_order_items')
+    .where({ shop_id: shopId })
+    .whereIn('custom_order_id', ids)
+    .orderBy('display_order')
+    .orderBy('created_at');
+  const map = new Map();
+  for (const row of rows) {
+    const key = String(row.custom_order_id);
+    const list = map.get(key) || [];
+    list.push(mapCustomOrderItemRow(row));
+    map.set(key, list);
+  }
+  return map;
+}
+
+async function attachCustomOrderItems(shopId, orders) {
+  const list = Array.isArray(orders) ? orders : orders ? [orders] : [];
+  if (!list.length) return orders;
+  const itemsByOrder = await loadCustomOrderItems(
+    shopId,
+    list.map((row) => row.id)
+  );
+  for (const order of list) {
+    const saved = itemsByOrder.get(String(order.id));
+    order.items = saved && saved.length ? saved : customOrderItemsFromOrder(order);
+  }
+  return Array.isArray(orders) ? list : list[0];
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value) {
+  return UUID_RE.test(String(value || '').trim());
+}
+
+function itemsFromBody(body, existing = null) {
+  if (Array.isArray(body?.items)) {
+    const existingById = new Map(
+      (existing?.items || [])
+        .filter((item) => isUuid(item?.id))
+        .map((item) => [String(item.id), item])
+    );
+    return body.items.map((item) => {
+      const prev = isUuid(item?.id) ? existingById.get(String(item.id)) : null;
+      return {
+        ...item,
+        linked_product_id: item.linked_product_id || prev?.linked_product_id || null,
+        generated_product_code: item.generated_product_code || prev?.generated_product_code || null,
+      };
+    });
+  }
+  if (existing?.items) return existing.items;
+  return customOrderItemsFromOrder({ ...existing, ...body });
+}
+
+async function replaceCustomOrderItems(trx, shopId, orderId, items) {
+  await trx('custom_order_items').where({ shop_id: shopId, custom_order_id: orderId }).del();
+  const list = Array.isArray(items) ? items : [];
+  const rows = list.map((item, index) => ({
+    id: isUuid(item.id) ? String(item.id).trim() : uuid(),
+    shop_id: shopId,
+    custom_order_id: orderId,
+    design_name: String(item.design_name || '').trim() || null,
+    category_id: item.category_id || null,
+    product_name: String(item.product_name || '').trim() || null,
+    color: String(item.color || '').trim() || null,
+    size: String(item.size || '').trim() || null,
+    linked_product_id: item.linked_product_id || null,
+    generated_product_code: item.generated_product_code || null,
+    display_order: Number(item.display_order ?? index) || 0,
+  }));
+  if (rows.length) await trx('custom_order_items').insert(rows);
+  return rows;
+}
+
+function applyPrimaryItemSnapshot(patch, items) {
+  const primary = primaryCustomOrderItemFields(items);
+  patch.design_name = primary.design_name;
+  patch.category_id = primary.category_id;
+  patch.product_name = primary.product_name;
+  patch.color = primary.color;
+  patch.size = primary.size;
+  patch.linked_product_id = primary.linked_product_id;
+  patch.generated_product_code = primary.generated_product_code;
+  return patch;
+}
+
 function pickFinancialInput(body, existing, key, fallback = 0) {
   if (body[key] !== undefined) return body[key];
   if (existing?.[key] !== undefined && existing?.[key] !== null) return existing[key];
@@ -343,14 +451,33 @@ export async function listCustomOrders(shopId, query) {
   const qb = buildListQb(shopId, query)
     .leftJoin('orders as lo', 'lo.id', 'co.linked_order_id')
     .select('co.*', 'lo.order_number as linked_order_number', 'lo.bill_no as linked_bill_no_num');
+  const search = String(query.search || '').trim();
+  if (search) {
+    const like = `%${search}%`;
+    qb.where((b) => {
+      for (const f of SEARCH_FIELDS) b.orWhere(f, 'like', like);
+      b.orWhereExists(function itemSearch() {
+        this.select(knex.raw('1'))
+          .from('custom_order_items as coi')
+          .whereRaw('coi.custom_order_id = co.id')
+          .andWhere((inner) => {
+            inner
+              .where('coi.product_name', 'like', like)
+              .orWhere('coi.design_name', 'like', like)
+              .orWhere('coi.generated_product_code', 'like', like);
+          });
+      });
+    });
+  }
   const result = await paginate(qb, {
     page: query.page,
     per_page: query.per_page,
-    search: query.search,
     sort: query.sort || '-co.created_at',
-    search_fields: SEARCH_FIELDS,
   });
-  result.data = (result.data || []).map((row) => mapCustomOrderRowWithLinkedBooking(row));
+  result.data = await attachCustomOrderItems(
+    shopId,
+    (result.data || []).map((row) => mapCustomOrderRowWithLinkedBooking(row))
+  );
   return result;
 }
 
@@ -361,7 +488,7 @@ export async function getCustomOrder(shopId, id) {
     .select('co.*', 'lo.order_number as linked_order_number', 'lo.bill_no as linked_bill_no_num')
     .first();
   if (!row) throw notFound('Custom order not found');
-  return mapCustomOrderRowWithLinkedBooking(row);
+  return attachCustomOrderItems(shopId, mapCustomOrderRowWithLinkedBooking(row));
 }
 
 export async function createCustomOrder(shopId, body, userId) {
@@ -375,6 +502,7 @@ export async function createCustomOrder(shopId, body, userId) {
   const paymentAccounts = validateCustomOrderPaymentAccounts(body);
   if (!paymentAccounts.ok) throw badRequest(paymentAccounts.message);
 
+  const items = itemsFromBody(body);
   const id = await knex.transaction(async (trx) => {
     const cfg = await loadDocumentTypeNumbering(trx, shopId, 'custom_order');
     const seq = await nextCustomOrderSequence(
@@ -385,7 +513,10 @@ export async function createCustomOrder(shopId, body, userId) {
     );
     const orderNumber = buildOrderNumber({ prefix: cfg.effective_prefix, sequence: seq });
     const newId = uuid();
-    const patch = await rowFromBodyWithFinancials(shopId, body, userId);
+    const patch = applyPrimaryItemSnapshot(
+      await rowFromBodyWithFinancials(shopId, body, userId),
+      items
+    );
 
     await trx('custom_orders').insert({
       id: newId,
@@ -396,6 +527,7 @@ export async function createCustomOrder(shopId, body, userId) {
       created_at: trx.fn.now(),
       updated_at: trx.fn.now(),
     });
+    await replaceCustomOrderItems(trx, shopId, newId, items);
 
     return newId;
   });
@@ -413,10 +545,11 @@ export async function updateCustomOrder(shopId, id, body, userId) {
     await assertMeasurementsValid(shopId, body.measurements);
   }
 
+  const items = itemsFromBody(body, existing);
   const nextStatus = body.status ?? existing.status;
   const becomingCompleted = nextStatus === 'completed' && existing.status !== 'completed';
   if (becomingCompleted) {
-    const merged = { ...existing, ...body, status: nextStatus };
+    const merged = { ...existing, ...body, items, status: nextStatus };
     const v = validateCustomOrderForCompletion(merged);
     if (!v.ok) throw badRequest(v.message);
   }
@@ -426,14 +559,22 @@ export async function updateCustomOrder(shopId, id, body, userId) {
     if (!paymentAccounts.ok) throw badRequest(paymentAccounts.message);
   }
 
-  const patch = await rowFromBodyWithFinancials(shopId, body, userId, existing);
+  const patch = applyPrimaryItemSnapshot(
+    await rowFromBodyWithFinancials(shopId, body, userId, existing),
+    items
+  );
   if (body.trial_date !== undefined || body.retrials !== undefined) {
     patch.trial_reminder_dismissed_date = null;
     patch.trial_reminder_dismissed_kind = null;
   }
-  await knex('custom_orders')
-    .where({ shop_id: shopId, id })
-    .update({ ...patch, updated_at: knex.fn.now() });
+  await knex.transaction(async (trx) => {
+    await trx('custom_orders')
+      .where({ shop_id: shopId, id })
+      .update({ ...patch, updated_at: knex.fn.now() });
+    if (Array.isArray(body.items)) {
+      await replaceCustomOrderItems(trx, shopId, id, items);
+    }
+  });
 
   return getCustomOrder(shopId, id);
 }
@@ -474,19 +615,36 @@ export async function createProductFromCustomOrder(shopId, customOrderId, userId
     throw badRequest('Product cannot be created for a cancelled custom order');
   }
 
-  if (order.linked_product_id) {
+  const items = customOrderItemsFromOrder(order);
+  const itemId = String(overrides.item_id || '').trim();
+  let itemIndex = -1;
+  if (itemId) {
+    itemIndex = items.findIndex((item) => String(item.id || '') === itemId);
+    if (itemIndex < 0) throw notFound('Custom order product line not found');
+  } else {
+    itemIndex = items.findIndex((item) => !item.linked_product_id);
+    if (itemIndex < 0) itemIndex = 0;
+  }
+  const item = items[itemIndex] || {};
+
+  if (item.linked_product_id) {
+    const product = await getProduct(shopId, item.linked_product_id);
+    return { custom_order: order, product };
+  }
+  if (!itemId && order.linked_product_id && itemIndex === 0) {
     const product = await getProduct(shopId, order.linked_product_id);
     return { custom_order: order, product };
   }
 
-  const categoryId = overrides.category_id ?? order.category_id;
-  const size = String(overrides.size ?? order.size ?? '').trim();
+  const categoryId = overrides.category_id ?? item.category_id ?? order.category_id;
+  const size = String(overrides.size ?? item.size ?? order.size ?? '').trim();
   const name = String(
-    overrides.name ?? order.product_name ?? order.design_name ?? ''
+    overrides.name ?? item.product_name ?? item.design_name ?? order.product_name ?? order.design_name ?? ''
   ).trim();
 
   const mergedForValidation = {
     ...order,
+    items,
     category_id: categoryId,
     product_name: name,
   };
@@ -515,10 +673,10 @@ export async function createProductFromCustomOrder(shopId, customOrderId, userId
         : null
       : String(order.remarks || '').trim() || null;
   const color =
-    overrides.color !== undefined ? overrides.color : order.color || null;
+    overrides.color !== undefined ? overrides.color : item.color || order.color || null;
   const qty = overrides.qty != null ? Number(overrides.qty) : 1;
   const productType = overrides.type || (order.order_type === 'sell' ? 'sell' : 'rent');
-  const unitPrice = roundMoney(Number(order.price || 0));
+  const unitPrice = itemIndex === 0 ? roundMoney(Number(order.price || 0)) : 0;
   const priceRent = productType === 'sell' ? 0 : unitPrice;
   const priceSell = productType === 'sell' || productType === 'both' ? unitPrice : 0;
 
@@ -539,18 +697,37 @@ export async function createProductFromCustomOrder(shopId, customOrderId, userId
     is_active: true,
   });
 
-  await knex('custom_orders')
-    .where({ shop_id: shopId, id: customOrderId })
-    .update({
-      linked_product_id: product.id,
-      generated_product_code: code,
-      category_id: categoryId,
-      product_name: name,
-      color,
-      size: size || null,
+  const nextItems = items.map((row, index) =>
+    index === itemIndex
+      ? {
+          ...row,
+          id: row.id,
+          category_id: categoryId,
+          product_name: name,
+          color,
+          size: size || '',
+          linked_product_id: product.id,
+          generated_product_code: code,
+        }
+      : row
+  );
+
+  await knex.transaction(async (trx) => {
+    const parentPatch = {
       updated_by: userId || null,
       updated_at: knex.fn.now(),
-    });
+    };
+    if (itemIndex === 0) {
+      parentPatch.linked_product_id = product.id;
+      parentPatch.generated_product_code = code;
+      parentPatch.category_id = categoryId;
+      parentPatch.product_name = name;
+      parentPatch.color = color;
+      parentPatch.size = size || null;
+    }
+    await trx('custom_orders').where({ shop_id: shopId, id: customOrderId }).update(parentPatch);
+    await replaceCustomOrderItems(trx, shopId, customOrderId, nextItems);
+  });
 
   const updated = await getCustomOrder(shopId, customOrderId);
   return { custom_order: updated, product };

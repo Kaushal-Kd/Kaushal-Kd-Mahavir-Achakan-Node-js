@@ -129,21 +129,52 @@ test('Prepare contact cell stacks labeled mobile and WhatsApp on separate lines'
   const contact = ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.find(
     (column) => column.key === 'customer_phone'
   );
-  assert.equal(contact.get(booking), 'Mobile  9876543210\nWhatsApp  9123456780');
+  assert.equal(contact.get(booking), 'Mobile\n9876543210\nWhatsApp\n9123456780');
   assert.equal(
     contact.get({ ...booking, customer_whatsapp: booking.customer_phone }),
-    'Mobile  9876543210\nWhatsApp  9876543210'
+    'Mobile\n9876543210\nWhatsApp\n9876543210'
   );
-  assert.equal(contact.get({ ...booking, customer_whatsapp: '' }), 'Mobile  9876543210');
+  assert.equal(contact.get({ ...booking, customer_whatsapp: '' }), 'Mobile\n9876543210');
   assert.equal(
     formatPreparePdfContact({ customer_phone: '', customer_whatsapp: '9123456780' }),
-    'WhatsApp  9123456780'
+    'WhatsApp\n9123456780'
   );
   const rich = contact.richGet(booking);
-  assert.equal(rich.length, 2);
-  assert.equal(rich[0].segments[0].text, 'Mobile  ');
+  assert.equal(rich.length, 4);
+  assert.equal(rich[0].segments[0].text, 'Mobile');
   assert.equal(rich[0].segments[0].bold, true);
-  assert.equal(rich[1].segments[0].text, 'WhatsApp  ');
+  assert.equal(rich[1].segments[0].text, '9876543210');
+  assert.equal(rich[2].segments[0].text, 'WhatsApp');
+});
+
+test('Prepare contact uses the second booking number when WhatsApp copies phone 1', () => {
+  assert.equal(
+    formatPreparePdfContact({
+      customer_phone: '9979100777',
+      customer_whatsapp: '9979100777',
+      customer_phone2: '9123456780',
+      pickup_number: '9123456780',
+    }),
+    'Mobile\n9979100777\nWhatsApp\n9123456780'
+  );
+  assert.equal(
+    formatPreparePdfContact({
+      contact_phone1: '9876543210',
+      customer_phone: '1111111111',
+      customer_whatsapp: '9123456780',
+    }),
+    'Mobile\n9876543210\nWhatsApp\n9123456780'
+  );
+  assert.equal(
+    formatPreparePdfContact({
+      contact_phone1: '9000000025',
+      customer_phone: '9000000024',
+      customer_whatsapp: '9000000025',
+      pickup_number: '9111111111',
+      customer_phone2: '9222222222',
+    }),
+    'Mobile\n9000000025\nWhatsApp\n9111111111'
+  );
 });
 
 test('Prepare print status reports the live product status separately', () => {

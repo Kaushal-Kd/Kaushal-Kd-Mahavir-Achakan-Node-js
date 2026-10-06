@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import Button from '../../components/ui/Button.jsx';
 import AccountSelectWithQr from '../../components/accounts/AccountSelectWithQr.jsx';
+import DatePicker from '../../components/ui/DatePicker.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { useWhatsAppOutbound } from '../../contexts/WhatsAppOutboundContext.jsx';
 import { useModalSize } from '../../hooks/useModalSize.js';
@@ -22,6 +23,7 @@ import SecurityTransactionsModal from './SecurityTransactionsModal.jsx';
 import { formatSingleSecurityTxInline } from './securityTxInlineSummary.js';
 
 const today = () => todayIndiaISODate();
+const isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 const toNonNegativeNumber = (v) => {
   if (v === '' || v == null) return 0;
   return round2(Math.max(0, Number(v) || 0));
@@ -50,6 +52,7 @@ const DeliverySettlementModal = ({
   const [securityAccountId, setSecurityAccountId] = useState('');
   const [receiveAmount, setReceiveAmount] = useState('');
   const [paymentAccountId, setPaymentAccountId] = useState('');
+  const [paymentDate, setPaymentDate] = useState(today);
   const [depositStatus, setDepositStatus] = useState('unpaid');
   const [deliveryRemark, setDeliveryRemark] = useState('');
   // Extra discount to apply at delivery time (shown as +value in input; label shows total).
@@ -187,6 +190,7 @@ const DeliverySettlementModal = ({
     setPaymentAccountId('');
     setSecurityAmount('');
     setReceiveAmount('');
+    setPaymentDate(today());
     setDiscountDraft('0');
     setDeliveryRemark('');
     setSecurityCapDraft(round2(Number(order.deposit_amount) || 0));
@@ -252,6 +256,11 @@ const DeliverySettlementModal = ({
       const nextDepositStatus =
         depositStatus === 'returned' ? 'returned' : willSecurityBeFullyPaid ? 'paid' : 'unpaid';
 
+      const paymentDateIso = String(paymentDate || '').trim().slice(0, 10);
+      if ((secNum > 0 || receiveNum > 0) && !isIsoDate(paymentDateIso)) {
+        toast.error('Select the payment date');
+        throw new Error('validation');
+      }
       const payload = {
         idempotency_key: syncService.createIdempotencyKey(),
         discount_total: round2(Number(discountTotal)),
@@ -261,7 +270,7 @@ const DeliverySettlementModal = ({
         security_account_id: secId,
         receive_amount: receiveNum,
         payment_account_id: payId,
-        payment_date: today(),
+        payment_date: paymentDateIso || today(),
         delivery_remark: paymentNotes,
         stage_updates: Array.isArray(stageUpdates) ? stageUpdates : [],
       };
@@ -356,6 +365,10 @@ const DeliverySettlementModal = ({
         toast.error('No changes to save');
         return;
       }
+    }
+    if ((secNum > 0 || receiveNum > 0) && !isIsoDate(paymentDate)) {
+      toast.error('Select the payment date');
+      return;
     }
     submitMut.mutate({ discountTotal: discountTotalDraft });
   };
@@ -566,7 +579,23 @@ const DeliverySettlementModal = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-start">
+              <div className="min-w-0">
+                <label
+                  htmlFor="delivery-payment-date"
+                  className="block text-[10px] font-medium text-gray-600 mb-1"
+                >
+                  Payment date
+                </label>
+                <DatePicker
+                  id="delivery-payment-date"
+                  required
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(String(e.target.value || '').slice(0, 10))}
+                  inputClassName="h-9 py-1 px-2 text-[11px] pr-8"
+                  placeholder="DD-MM-YYYY"
+                />
+              </div>
               <div className="min-w-0">
                 <label
                   htmlFor="delivery-advance"

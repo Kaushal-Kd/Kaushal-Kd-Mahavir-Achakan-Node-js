@@ -1,4 +1,4 @@
-import { SYSTEM_LOG_MODULES, systemLogActionLabel, toLocalISODate, toIndiaYearMonth, DELIVERY_PENDING_ORDER_STATUSES } from '@wrs/shared';
+import { SYSTEM_LOG_MODULES, systemLogActionLabel, toLocalISODate, toIndiaYearMonth, todayIndiaISODate, DELIVERY_PENDING_ORDER_STATUSES } from '@wrs/shared';
 
 import knex from '../../db/knex.js';
 import { countItemsToCollect, countItemsToPrepare } from '../orders/service.js';
@@ -13,7 +13,7 @@ export default async function dashboardRoutes(fastify) {
     const shopId = request.shopId;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayISO = toLocalISODate(today);
+    const todayISO = todayIndiaISODate();
 
     const daySettings = await loadDashboardDaySettings(shopId);
     const pendingDeliveryRange = lookbackRange(today, daySettings.pendingDeliveryDays);

@@ -116,15 +116,77 @@ export function pruneDraftList(list) {
   return sorted.slice(0, MAX_BOOKING_DRAFTS);
 }
 
+export function normalizeDraftIdentityKey(title) {
+  return String(title || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+export function isGenericDraftTitle(title) {
+  const t = normalizeDraftIdentityKey(title);
+  return !t || t === 'untitled' || t === 'untitled draft' || t === 'untitled booking';
+}
+
+/**
+ * Reuse an existing row so Continue → save → refresh cannot spawn a same-name clone.
+ * Prefer the given id when it already exists, then same customer id, then same title.
+ */
+export function resolveReusableBookingDraftId({ id, snapshot, title } = {}) {
+  const list = readDraftList();
+  const sid = String(id || '').trim();
+  if (sid && list.some((d) => d.id === sid)) return sid;
+
+  const customerId = String(snapshot?.customer?.id || '').trim();
+  if (customerId) {
+    const match = list.find((d) => String(d.snapshot?.customer?.id || '').trim() === customerId);
+    if (match?.id) return match.id;
+  }
+
+  const label = normalizeDraftIdentityKey(title || draftLabelFromSnapshot(snapshot));
+  if (!isGenericDraftTitle(label)) {
+    const match = list.find((d) => normalizeDraftIdentityKey(d.title) === label);
+    if (match?.id) return match.id;
+  }
+  return sid || null;
+}
+
+function isOverlappingBookingDraft(row, { keepId, customerId, identity }) {
+  if (!row?.id || row.id === keepId) return false;
+  if (customerId && String(row.snapshot?.customer?.id || '').trim() === customerId) return true;
+  if (!isGenericDraftTitle(identity) && normalizeDraftIdentityKey(row.title) === identity) {
+    return true;
+  }
+  return false;
+}
+
 export function upsertBookingDraft({ id, title, snapshot }) {
   const now = Date.now();
   const compactSnap = compactBookingDraftSnapshot(snapshot);
   if (!compactSnap) return null;
-  const list = readDraftList();
-  const idx = list.findIndex((d) => d.id === id);
-  const row = {
+  const label = String(title || draftLabelFromSnapshot(compactSnap) || 'Untitled draft').slice(
+    0,
+    120
+  );
+  const resolvedId = resolveReusableBookingDraftId({
     id,
-    title: String(title || 'Untitled draft').slice(0, 120),
+    snapshot: compactSnap,
+    title: label,
+  }) || String(id || '').trim();
+  if (!resolvedId) return null;
+
+  const customerId = String(compactSnap?.customer?.id || '').trim();
+  const identity = normalizeDraftIdentityKey(label);
+  const list = readDraftList().filter((d) => {
+    if (d.id === resolvedId) return true;
+    if (id && d.id === id && id !== resolvedId) return false;
+    return !isOverlappingBookingDraft(d, { keepId: resolvedId, customerId, identity });
+  });
+
+  const idx = list.findIndex((d) => d.id === resolvedId);
+  const row = {
+    id: resolvedId,
+    title: label,
     updatedAt: now,
     snapshot: compactSnap,
   };

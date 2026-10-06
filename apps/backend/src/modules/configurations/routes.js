@@ -158,6 +158,14 @@ export default async function configurationRoutes(fastify) {
     if (key.startsWith('DASHBOARD_')) {
       invalidateDashboardDaySettingsCache(request.shopId);
     }
+    if (key === 'whatsapp.delivery_reminder_time' || key === 'whatsapp.delivery_reminder_enabled') {
+      try {
+        const { ensureWhatsAppReminderJobs } = await import('../whatsapp/reminderService.js');
+        await ensureWhatsAppReminderJobs();
+      } catch (error) {
+        request.log.warn({ err: error }, '[whatsapp] failed to reschedule delivery reminders');
+      }
+    }
     await request.audit('settings', 'UPDATE', { id: key, new: { value: checked.value } });
     return {
       ok: true,

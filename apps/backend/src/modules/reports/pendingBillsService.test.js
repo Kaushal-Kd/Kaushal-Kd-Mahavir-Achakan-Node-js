@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { pendingBillsQuerySchema } from '@wrs/shared';
+
 import { mapPendingBillRow } from './pendingBillsService.js';
+
+test('pending bills export allows 500 rows per page', () => {
+  const parsed = pendingBillsQuerySchema.parse({ per_page: 500 });
+  assert.equal(parsed.per_page, 500);
+});
 
 test('pending bill rows include a rounded advance amount', () => {
   assert.deepEqual(

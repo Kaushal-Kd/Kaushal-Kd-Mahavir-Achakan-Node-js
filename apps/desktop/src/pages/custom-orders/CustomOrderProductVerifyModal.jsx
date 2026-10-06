@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import PropTypes from 'prop-types';
 import { useEffect, useMemo, useState } from 'react';
+import { customOrderItemsFromOrder } from '@wrs/shared';
 
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
@@ -29,24 +30,25 @@ function mergeOrderPhotos(order) {
   return out;
 }
 
-function buildFormFromOrder(order) {
+function buildFormFromOrder(order, item = null) {
+  const source = item || customOrderItemsFromOrder(order)[0] || order;
   const photos = mergeOrderPhotos(order);
   return {
-    category_id: order?.category_id || '',
-    name: String(order?.product_name || order?.design_name || '').trim(),
+    category_id: source?.category_id || order?.category_id || '',
+    name: String(source?.product_name || source?.design_name || order?.product_name || order?.design_name || '').trim(),
     code: '',
-    color: order?.color || '',
-    size: order?.size || '',
+    color: source?.color || order?.color || '',
+    size: source?.size || order?.size || '',
     notes: String(order?.remarks || '').trim(),
     photos,
     main_image: photos[0] || '',
   };
 }
 
-const CustomOrderProductVerifyModal = ({ order, isOpen, onClose, onCreated, required = false }) => {
+const CustomOrderProductVerifyModal = ({ order, item = null, isOpen, onClose, onCreated, required = false }) => {
   const queryClient = useQueryClient();
   const { createProductMut } = useCustomOrderMutations();
-  const [values, setValues] = useState(() => buildFormFromOrder(order));
+  const [values, setValues] = useState(() => buildFormFromOrder(order, item));
   const [errors, setErrors] = useState({});
   const [codeTouched, setCodeTouched] = useState(false);
 
@@ -84,10 +86,10 @@ const CustomOrderProductVerifyModal = ({ order, isOpen, onClose, onCreated, requ
 
   useEffect(() => {
     if (!isOpen || !order) return;
-    setValues(buildFormFromOrder(order));
+    setValues(buildFormFromOrder(order, item));
     setErrors({});
     setCodeTouched(false);
-  }, [isOpen, order?.id]);
+  }, [isOpen, order?.id, item?.id]);
 
   useEffect(() => {
     if (!isOpen || !categoryId || codeTouched) return;
@@ -154,6 +156,7 @@ const CustomOrderProductVerifyModal = ({ order, isOpen, onClose, onCreated, requ
       qty: 1,
       type: 'rent',
     };
+    if (item?.id) body.item_id = item.id;
     if (codeTouched && values.code?.trim()) {
       body.code = values.code.trim();
       body.code_is_manual = true;
@@ -166,7 +169,11 @@ const CustomOrderProductVerifyModal = ({ order, isOpen, onClose, onCreated, requ
       },
       {
         onSuccess: async (result) => {
-          const code = result?.custom_order?.generated_product_code || values.code;
+          const createdItem =
+            (result?.custom_order?.items || []).find((row) =>
+              item?.id ? String(row.id) === String(item.id) : row.linked_product_id
+            ) || result?.custom_order;
+          const code = createdItem?.generated_product_code || result?.custom_order?.generated_product_code || values.code;
           await queryClient.invalidateQueries({ queryKey: ['products', 'next-code'] });
           if (values.category_id) {
             await queryClient.invalidateQueries({
@@ -175,7 +182,6 @@ const CustomOrderProductVerifyModal = ({ order, isOpen, onClose, onCreated, requ
           }
           toast.success(`Product ${code} created`);
           onCreated?.(result?.custom_order || order);
-          onClose?.();
         },
         onError: (e) =>
           toast.error(e.response?.data?.error?.message || e?.message || 'Could not create product'),
@@ -185,7 +191,16 @@ const CustomOrderProductVerifyModal = ({ order, isOpen, onClose, onCreated, requ
 
   if (!order) return null;
 
-  const modalTitle = required ? 'Create product' : 'Review product details';
+  const items = customOrderItemsFromOrder(order);
+  const itemIndex = item?.id
+    ? items.findIndex((row) => String(row.id) === String(item.id))
+    : items.findIndex((row) => !row.linked_product_id);
+  const remaining = items.filter((row) => !row.linked_product_id).length;
+  const productLabel =
+    items.length > 1
+      ? `product ${itemIndex >= 0 ? itemIndex + 1 : 1} of ${items.length}`
+      : 'product';
+  const modalTitle = required ? `Create ${productLabel}` : `Review ${productLabel} details`;
   const saveLabel = required ? 'Create product' : 'Save and create product';
 
   return (
@@ -219,7 +234,8 @@ const CustomOrderProductVerifyModal = ({ order, isOpen, onClose, onCreated, requ
         {required ? (
           <>
             Order <span className="font-mono">{order.order_number}</span> saved. Create the
-            inventory product to finish.
+            inventory {productLabel} to finish
+            {remaining > 1 ? ` (${remaining} remaining)` : ''}.
           </>
         ) : (
           <>
@@ -330,6 +346,15 @@ CustomOrderProductVerifyModal.propTypes = {
     size: PropTypes.string,
     design_images: PropTypes.arrayOf(PropTypes.string),
     trial_images: PropTypes.arrayOf(PropTypes.string),
+    items: PropTypes.array,
+  }),
+  item: PropTypes.shape({
+    id: PropTypes.string,
+    category_id: PropTypes.string,
+    product_name: PropTypes.string,
+    design_name: PropTypes.string,
+    color: PropTypes.string,
+    size: PropTypes.string,
   }),
   isOpen: PropTypes.bool,
   onClose: PropTypes.func,

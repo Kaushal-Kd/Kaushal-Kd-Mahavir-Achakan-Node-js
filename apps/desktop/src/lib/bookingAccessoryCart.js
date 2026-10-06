@@ -753,31 +753,76 @@ export function reorderBookingLines(lines, dragLineId, dropLineId) {
   };
 }
 
+export function linePairGroupKey(line) {
+  const group = String(line?.pair_group_id || '').trim();
+  if (group) return `g:${group}`;
+  return `l:${String(line?.line_id || line?.id || '')}`;
+}
+
+export function linePairOffset(line) {
+  if (!String(line?.pair_group_id || '').trim()) return 0;
+  const n = Number(line?.pair_offset);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function comparePairGroupMembers(a, b) {
+  const offsetDiff = linePairOffset(a) - linePairOffset(b);
+  if (offsetDiff !== 0) return offsetDiff;
+  const orderDiff = Number(a?.display_order ?? 0) - Number(b?.display_order ?? 0);
+  if (orderDiff !== 0) return orderDiff;
+  return String(a?.line_id || a?.id || '').localeCompare(String(b?.line_id || b?.id || ''));
+}
+
 /**
  * Create Order table: rent products → standalone rent accessories → sale-only products → standalone sell.
+ * Selected product + auto-pulled pair stay together (selected first) even if accessory
+ * availability later moves one line into the sale section.
  * @param {object[]} lines
  */
 export function sortLinesForBookingTable(lines) {
+  const groupsByKey = new Map();
+  for (const line of lines || []) {
+    const key = linePairGroupKey(line);
+    const members = groupsByKey.get(key);
+    if (members) members.push(line);
+    else groupsByKey.set(key, [line]);
+  }
+
   const rentProducts = [];
   const saleProducts = [];
   const rentStandalone = [];
   const saleStandalone = [];
 
-  for (const line of lines || []) {
-    if (line.line_kind === 'standalone_accessory') {
-      if (isSellLine(line)) saleStandalone.push(line);
-      else rentStandalone.push(line);
+  for (const members of groupsByKey.values()) {
+    const sortedMembers = [...members].sort(comparePairGroupMembers);
+    const primary = sortedMembers[0];
+    const group = {
+      display_order: Number(primary?.display_order ?? 0),
+      line_id: String(primary?.line_id || primary?.id || ''),
+      members: sortedMembers,
+    };
+    if (primary?.line_kind === 'standalone_accessory') {
+      if (isSellLine(primary)) saleStandalone.push(group);
+      else rentStandalone.push(group);
       continue;
     }
-    if (productLineIsSaleOnly(line)) saleProducts.push(line);
-    else rentProducts.push(line);
+    if (productLineIsSaleOnly(primary)) saleProducts.push(group);
+    else rentProducts.push(group);
   }
 
+  const emit = (groups) =>
+    groups
+      .sort((a, b) => {
+        if (a.display_order !== b.display_order) return a.display_order - b.display_order;
+        return a.line_id.localeCompare(b.line_id);
+      })
+      .flatMap((g) => g.members);
+
   return [
-    ...sortLinesByDisplayOrder(rentProducts),
-    ...sortLinesByDisplayOrder(rentStandalone),
-    ...sortLinesByDisplayOrder(saleProducts),
-    ...sortLinesByDisplayOrder(saleStandalone),
+    ...emit(rentProducts),
+    ...emit(rentStandalone),
+    ...emit(saleProducts),
+    ...emit(saleStandalone),
   ];
 }
 

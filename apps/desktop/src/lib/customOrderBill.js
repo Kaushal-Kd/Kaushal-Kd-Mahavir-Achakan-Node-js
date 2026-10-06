@@ -1,19 +1,26 @@
-import { computeCustomOrderTotals, round2 } from '@wrs/shared';
+import { computeCustomOrderTotals, customOrderItemsFromOrder, round2 } from '@wrs/shared';
 
 /**
- * @param {object} co
+ * @param {object} item
  * @returns {string}
  */
-function buildCustomOrderItemName(co) {
-  const parts = [co.product_name, co.design_name, co.color, co.size]
+function buildCustomOrderItemName(item) {
+  const parts = [item.product_name, item.design_name, item.color, item.size]
     .map((v) => (v != null ? String(v).trim() : ''))
     .filter(Boolean);
   return parts.join(' · ') || 'Custom order';
 }
 
+function categoryNameForItem(item, options, isPrimary, co) {
+  const byId = options.categoryNameById;
+  if (byId && item?.category_id && byId[item.category_id]) return byId[item.category_id];
+  if (isPrimary) return options.categoryName || co.category_name || '';
+  return '';
+}
+
 /**
  * @param {object} co
- * @param {{ categoryName?: string, gstPercent?: number }} [options]
+ * @param {{ categoryName?: string, categoryNameById?: Record<string, string>, gstPercent?: number }} [options]
  * @returns {object|null} order-shaped payload for printBill
  */
 export function customOrderToBillOrder(co, options = {}) {
@@ -40,6 +47,25 @@ export function customOrderToBillOrder(co, options = {}) {
   const lineTotal = round2(totals.total_amount);
   const orderType = co.order_type === 'sell' ? 'sell' : 'rent';
 
+  const productItems = customOrderItemsFromOrder(co).filter(
+    (item) => item.product_name || item.design_name || item.color || item.size
+  );
+  const sourceItems = productItems.length ? productItems : [co];
+  const items = sourceItems.map((item, index) => {
+    const isPrimary = index === 0;
+    return {
+      type: orderType,
+      name_snapshot: buildCustomOrderItemName(item),
+      category_name: categoryNameForItem(item, options, isPrimary, co),
+      qty: 1,
+      price: isPrimary ? linePrice : 0,
+      discount: isPrimary ? lineDiscount : 0,
+      tax: isPrimary ? lineTax : 0,
+      total: isPrimary ? lineTotal : 0,
+      line_total: isPrimary ? lineTotal : 0,
+    };
+  });
+
   return {
     order_number: co.order_number || '',
     booking_date: co.order_date || null,
@@ -57,19 +83,7 @@ export function customOrderToBillOrder(co, options = {}) {
     paid_amount: round2(totals.paid_amount),
     balance: round2(totals.balance),
     security_deposit: co.paid_security_amt ? round2(co.deposit_amount) : 0,
-    items: [
-      {
-        type: orderType,
-        name_snapshot: buildCustomOrderItemName(co),
-        category_name: options.categoryName || co.category_name || '',
-        qty: 1,
-        price: linePrice,
-        discount: lineDiscount,
-        tax: lineTax,
-        total: lineTotal,
-        line_total: lineTotal,
-      },
-    ],
+    items,
     accessories: [],
   };
 }

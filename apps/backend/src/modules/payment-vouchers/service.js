@@ -243,16 +243,43 @@ export async function getPaymentVoucherRow(shopId, id) {
   return buildPaymentVouchersListQuery(shopId).where('pv.id', id).first();
 }
 
+function firstSortToken(query) {
+  return String(query.sort || '')
+    .split(',')[0]
+    ?.trim();
+}
+
+function isVoucherNumberSort(query) {
+  const first = firstSortToken(query);
+  return first === 'voucher_num' || first === '-voucher_num';
+}
+
+/** PV-0001, PV-0002, PV-0010 — not string order (PV-00010 before PV-0002). */
+function applyVoucherNumberSort(qb, descending) {
+  const dir = descending ? 'DESC' : 'ASC';
+  qb.orderByRaw(
+    `UPPER(IFNULL(NULLIF(REGEXP_SUBSTR(pv.voucher_number, '^[A-Za-z]+'), ''), '')) ${dir}`
+  );
+  qb.orderByRaw(
+    `CAST(NULLIF(REGEXP_SUBSTR(pv.voucher_number, '[0-9]+'), '') AS UNSIGNED) ${dir}`
+  );
+  qb.orderBy('pv.voucher_number', descending ? 'desc' : 'asc');
+}
+
 export async function listPaymentVouchers(shopId, query) {
   const qb = buildPaymentVouchersListQuery(shopId);
   if (query.from) qb.andWhere('pv.entry_date', '>=', query.from);
   if (query.to) qb.andWhere('pv.entry_date', '<=', query.to);
   if (query.entry_date) qb.andWhere('pv.entry_date', query.entry_date);
+  const numberSort = isVoucherNumberSort(query);
+  if (numberSort) {
+    applyVoucherNumberSort(qb, firstSortToken(query) === '-voucher_num');
+  }
   return paginate(qb, {
     page: query.page,
     per_page: query.per_page,
     search: query.search,
-    sort: query.sort || '-pv.entry_date',
+    sort: numberSort ? false : query.sort || '-pv.created_at',
     search_fields: ['pv.voucher_number', 'pv.remarks', 'ca.name', 'da.name'],
   });
 }

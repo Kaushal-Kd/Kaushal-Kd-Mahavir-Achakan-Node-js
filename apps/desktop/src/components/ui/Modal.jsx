@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { armModalCloseGuard } from '../../lib/modalCloseGuard.js';
+import { nextModalDragOffset } from '../../lib/modalDrag.js';
 import Button from './Button.jsx';
 
 const Modal = ({
@@ -78,12 +79,8 @@ const Modal = ({
     const onPointerMove = (event) => {
       const drag = dragRef.current;
       if (!drag || event.pointerId !== drag.pointerId) return;
-      const rawX = drag.startOffsetX + event.clientX - drag.startX;
-      const rawY = drag.startOffsetY + event.clientY - drag.startY;
-      setOffset({
-        x: Math.min(drag.maxX, Math.max(drag.minX, rawX)),
-        y: Math.min(drag.maxY, Math.max(drag.minY, rawY)),
-      });
+      const next = nextModalDragOffset(drag, event.clientX, event.clientY);
+      if (next) setOffset(next);
     };
     const onPointerUp = (event) => {
       if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
@@ -117,30 +114,25 @@ const Modal = ({
       return;
     }
     if (event.target.closest('button, a, input, select, textarea')) return;
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const rect = dialog.getBoundingClientRect();
-    const baseLeft = rect.left - offset.x;
-    const baseTop = rect.top - offset.y;
-    const gutter = 8;
+    if (!dialogRef.current) return;
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       startOffsetX: offset.x,
       startOffsetY: offset.y,
-      minX: gutter - baseLeft,
-      maxX: window.innerWidth - gutter - baseLeft - rect.width,
-      minY: gutter - baseTop,
-      maxY: window.innerHeight - gutter - baseTop - rect.height,
     };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      /* Pointer may already be outside the window; window listeners still track the drag. */
+    }
   };
 
   return createPortal(
     <div
-      className={`fixed inset-0 ${layerClass || 'z-50'} flex items-center justify-center p-2 sm:p-4`}
+      className={`fixed inset-0 overflow-visible ${layerClass || 'z-50'} flex items-center justify-center p-2 sm:p-4`}
     >
       <button
         type="button"

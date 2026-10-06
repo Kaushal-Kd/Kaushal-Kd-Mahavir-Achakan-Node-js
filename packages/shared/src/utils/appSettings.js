@@ -1,4 +1,5 @@
 import { APP_SETTINGS_BY_KEY } from '../constants/appSettingsRegistry.js';
+import { parseOrderTimeTo24 } from './date.js';
 
 const YES_VALUES = new Set(['yes', '1', 'true', 'y']);
 
@@ -121,8 +122,8 @@ export function validateAppSettingValue(key, value) {
     case 'html':
       return { ok: true, value: str };
     case 'time': {
-      const time = str.trim();
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      const time = parseOrderTimeTo24(str);
+      if (!time) {
         return { ok: false, error: 'Time must use 24-hour HH:mm format' };
       }
       return { ok: true, value: time };

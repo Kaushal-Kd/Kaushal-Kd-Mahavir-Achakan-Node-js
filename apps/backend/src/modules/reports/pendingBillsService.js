@@ -40,7 +40,7 @@ export function mapPendingBillRow(row) {
  */
 export async function listPendingBills(shopId, query) {
   const page = Math.max(1, Number(query.page) || 1);
-  const perPage = Math.min(100, Math.max(1, Number(query.per_page) || 20));
+  const perPage = Math.min(500, Math.max(1, Number(query.per_page) || 20));
 
   const base = knex('orders as o')
     .leftJoin('customers as c', function joinCustomer() {
