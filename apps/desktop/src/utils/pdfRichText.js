@@ -30,6 +30,13 @@ export function drawPdfRichLinesInCell(doc, cell, lines) {
       x = cell.x + pad;
       y += LINE_H;
     }
+    if (list[li]?.rule) {
+      if (y > cell.y + cell.height - pad) return;
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.25);
+      doc.line(cell.x + pad, y - 1.2, cell.x + cell.width - pad, y - 1.2);
+      continue;
+    }
     const segments = Array.isArray(list[li]?.segments) ? list[li].segments : [];
     for (const seg of segments) {
       const text = pdfSafeText(seg.text);

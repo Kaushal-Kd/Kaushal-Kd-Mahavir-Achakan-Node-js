@@ -154,11 +154,11 @@ function formatTrialColumnDate(row) {
 }
 
 const filterSelectClass =
-  'border border-gray-200 rounded px-2 h-8 bg-white text-xs min-w-0';
-const filterStatusClass = `${filterSelectClass} w-[7.5rem] shrink-0`;
-const filterDateFieldClass = `${filterSelectClass} w-[5.75rem] shrink-0`;
-const filterDateInputClass = 'h-8 text-xs px-2 py-1';
-const filterDatePickerWrapClass = 'w-[7.25rem] shrink-0';
+  'border border-gray-200 rounded px-2 h-9 lg:h-8 bg-white text-sm lg:text-xs min-w-0 w-full lg:w-auto';
+const filterStatusClass = `${filterSelectClass} lg:w-[7.5rem]`;
+const filterDateFieldClass = `${filterSelectClass} lg:w-[5.75rem]`;
+const filterDateInputClass = 'h-9 lg:h-8 text-sm lg:text-xs px-2 py-1';
+const filterDatePickerWrapClass = 'w-full lg:w-[7.25rem] min-w-0';
 
 const dateFieldOptions = [
   { value: 'order', label: 'Order' },
@@ -1009,13 +1009,13 @@ const CustomOrderList = () => {
         }
       />
 
-      <div className="card w-full min-w-0 p-2 mb-2 overflow-hidden">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 w-full min-w-0">
-          <div className="flex items-center gap-1.5 flex-1 min-w-[10rem] max-w-xs">
+      <div className="card w-full min-w-0 p-2.5 mb-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center gap-2 w-full min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0 w-full sm:col-span-2 lg:flex-1 lg:max-w-xs">
             <Search size={15} className="text-gray-400 shrink-0" aria-hidden />
             <input
               id="custom-orders-search"
-              className="flex-1 min-w-0 outline-none text-xs border border-gray-200 rounded px-2.5 h-8"
+              className="flex-1 min-w-0 outline-none text-sm lg:text-xs border border-gray-200 rounded px-2.5 h-9 lg:h-8"
               placeholder="Search order, customer, design…"
               value={search}
               onChange={(e) => {
@@ -1025,7 +1025,7 @@ const CustomOrderList = () => {
             />
           </div>
 
-          <label className="flex items-center shrink-0">
+          <label className="flex items-center min-w-0 w-full sm:w-auto">
             <span className="text-gray-500 sr-only">Status</span>
             <select
               className={filterStatusClass}
@@ -1044,7 +1044,7 @@ const CustomOrderList = () => {
             </select>
           </label>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 min-w-0 w-full sm:col-span-2 lg:w-auto">
             <select
               className={filterDateFieldClass}
               value={dateField}

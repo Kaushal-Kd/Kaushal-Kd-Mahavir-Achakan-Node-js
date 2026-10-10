@@ -1329,7 +1329,7 @@ function totalsBlock(tpl, order) {
           ${splitRows}
           <tr><td>Subtotal</td><td class="right">${formatBillAmount(order.subtotal || order.total_amount)}</td></tr>
           ${
-            discountAmount
+            discountAmount && tpl.items_config?.show_discount
               ? `<tr class="bill-discount"><td>Discount</td><td class="right">${formatBillAmount(discountAmount)}</td></tr>`
               : ''
           }
@@ -1340,7 +1340,11 @@ function totalsBlock(tpl, order) {
           }
           <tr class="grand-total"><td>Grand total</td><td class="right">${formatBillAmount(order.total_amount)}</td></tr>
           ${paymentRows}
-          <tr class="payable"><td><div class="payable-label">Payable amount</div><div class="payable-hint">Security + balance due</div></td><td class="right">${formatBillAmount(payableAmount)}</td></tr>
+          ${
+            securityAmount
+              ? `<tr class="payable"><td><div class="payable-label">Payable amount</div><div class="payable-hint">Security + balance due</div></td><td class="right">${formatBillAmount(payableAmount)}</td></tr>`
+              : ''
+          }
         </table>
       </div>
     </div>

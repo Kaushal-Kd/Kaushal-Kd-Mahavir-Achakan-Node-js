@@ -132,7 +132,7 @@ test('Prepare contact cell stacks labeled mobile and WhatsApp on separate lines'
   assert.equal(contact.get(booking), 'Mobile\n9876543210\nWhatsApp\n9123456780');
   assert.equal(
     contact.get({ ...booking, customer_whatsapp: booking.customer_phone }),
-    'Mobile\n9876543210\nWhatsApp\n9876543210'
+    'Mobile\n9876543210'
   );
   assert.equal(contact.get({ ...booking, customer_whatsapp: '' }), 'Mobile\n9876543210');
   assert.equal(
@@ -140,14 +140,15 @@ test('Prepare contact cell stacks labeled mobile and WhatsApp on separate lines'
     'WhatsApp\n9123456780'
   );
   const rich = contact.richGet(booking);
-  assert.equal(rich.length, 4);
+  assert.equal(rich.length, 5);
   assert.equal(rich[0].segments[0].text, 'Mobile');
   assert.equal(rich[0].segments[0].bold, true);
   assert.equal(rich[1].segments[0].text, '9876543210');
-  assert.equal(rich[2].segments[0].text, 'WhatsApp');
+  assert.equal(rich[2].rule, true);
+  assert.equal(rich[3].segments[0].text, 'WhatsApp');
 });
 
-test('Prepare contact uses the second booking number when WhatsApp copies phone 1', () => {
+test('Prepare contact lists both mobiles and WhatsApp only when it is a third number', () => {
   assert.equal(
     formatPreparePdfContact({
       customer_phone: '9979100777',
@@ -155,7 +156,7 @@ test('Prepare contact uses the second booking number when WhatsApp copies phone 
       customer_phone2: '9123456780',
       pickup_number: '9123456780',
     }),
-    'Mobile\n9979100777\nWhatsApp\n9123456780'
+    'Mobile\n9979100777\n9123456780'
   );
   assert.equal(
     formatPreparePdfContact({
@@ -173,7 +174,15 @@ test('Prepare contact uses the second booking number when WhatsApp copies phone 
       pickup_number: '9111111111',
       customer_phone2: '9222222222',
     }),
-    'Mobile\n9000000025\nWhatsApp\n9111111111'
+    'Mobile\n9000000025\n9111111111'
+  );
+  assert.equal(
+    formatPreparePdfContact({
+      contact_phone1: '9000000001',
+      pickup_number: '9000000002',
+      customer_whatsapp: '9000000003',
+    }),
+    'Mobile\n9000000001\n9000000002\nWhatsApp\n9000000003'
   );
 });
 

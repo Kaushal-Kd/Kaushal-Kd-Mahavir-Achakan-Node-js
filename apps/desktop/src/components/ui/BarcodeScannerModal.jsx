@@ -7,9 +7,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Button from './Button.jsx';
 import Modal from './Modal.jsx';
 
-// Prioritising CODE128 (our product codes) + the rest of the common 1D/2D
-// formats and turning on TRY_HARDER dramatically improves decode reliability
-// from webcams where the barcode fills only a small portion of the frame.
 const BUILD_HINTS = () => {
   const hints = new Map();
   hints.set(DecodeHintType.POSSIBLE_FORMATS, [
@@ -29,27 +26,54 @@ const BUILD_HINTS = () => {
   return hints;
 };
 
-// CODE128 encodes control characters (FNC1..4, shift codes, etc.) and ZXing
-// can briefly emit a spurious 1-2 character result before it locks on to the
-// real label. We therefore:
-//  - require the decoded text to look like a plausible product code
-//    (at least 3 printable chars, no control chars)
-//  - accept it only after the same value is seen on two consecutive frames.
 const MIN_CODE_LENGTH = 3;
+const SCAN_INTERVAL_MS = 45;
+const CONTINUOUS_COOLDOWN_MS = 450;
+
 const isPlausibleCode = (text) => {
   if (!text) return false;
   const trimmed = String(text).trim();
   if (trimmed.length < MIN_CODE_LENGTH) return false;
-  // Reject strings that are only punctuation / control chars.
   return /[A-Za-z0-9]/.test(trimmed);
 };
 
+function neededHits(text) {
+  return String(text || '').trim().length >= 4 ? 1 : 2;
+}
+
+function stopStream(stream) {
+  stream?.getTracks?.().forEach((track) => {
+    try {
+      track.stop();
+    } catch {
+      /* noop */
+    }
+  });
+}
+
+async function applyLiveFocus(track) {
+  if (!track?.applyConstraints) return;
+  try {
+    await track.applyConstraints({
+      advanced: [{ focusMode: 'continuous' }],
+    });
+  } catch {
+    /* not all cameras support focusMode */
+  }
+}
+
+function tryDecodeCanvas(reader, canvas) {
+  try {
+    return reader.decodeFromCanvas(canvas) || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Live camera barcode / QR scanner.
- *
- * Uses @zxing/browser which supports CODE128 (our product code format) as well
- * as QR, EAN, UPC, etc. The video stream and the ZXing controls are torn down
- * when the modal closes so the camera light goes off immediately.
+ * Starts the camera once, decodes the viewfinder crop, and accepts a product
+ * code on the first solid read so search/scan screens lock in faster.
  */
 const BarcodeScannerModal = ({
   isOpen,
@@ -59,24 +83,21 @@ const BarcodeScannerModal = ({
   continuousScan = false,
 }) => {
   const videoRef = useRef(null);
-  const controlsRef = useRef(null);
+  const streamRef = useRef(null);
   const readerRef = useRef(null);
-  // Tracks the candidate decoded value and how many consecutive frames have
-  // confirmed it, so a transient misread (e.g. a lone "+" from CODE128 control
-  // codes) doesn't get accepted.
+  const canvasRef = useRef(null);
   const pendingRef = useRef({ text: '', hits: 0 });
   const acceptedRef = useRef(false);
-  /** In continuous mode, suppress duplicate fires while the same label stays in frame. */
   const lastAcceptRef = useRef({ text: '', ts: 0 });
-  // Keep the latest callbacks in refs so the reader effect isn't restarted on
-  // every parent render (which would flash the camera stream).
   const onDetectedRef = useRef(onDetected);
+  const selectedDeviceRef = useRef('');
   useEffect(() => {
     onDetectedRef.current = onDetected;
   }, [onDetected]);
 
   const [devices, setDevices] = useState([]);
   const [deviceId, setDeviceId] = useState('');
+  const [cameraEpoch, setCameraEpoch] = useState(0);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
   const [lastHit, setLastHit] = useState('');
@@ -85,155 +106,213 @@ const BarcodeScannerModal = ({
   const hints = useMemo(() => BUILD_HINTS(), []);
   const fileInputRef = useRef(null);
 
-  // Enumerate available cameras when the modal opens.
   useEffect(() => {
-    if (!isOpen) return;
-    let alive = true;
-    (async () => {
+    if (!isOpen) {
+      selectedDeviceRef.current = '';
+      setDeviceId('');
+      setDevices([]);
+      setLastHit('');
       setError('');
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let cancelled = false;
+    let scanTimer = 0;
+    let waitFrame = 0;
+
+    const fireDetected = (text) => {
+      onDetectedRef.current?.(text);
+    };
+
+    const acceptCode = (text) => {
+      if (continuousScan) {
+        const now = Date.now();
+        if (text === lastAcceptRef.current.text && now - lastAcceptRef.current.ts < CONTINUOUS_COOLDOWN_MS) {
+          pendingRef.current = { text: '', hits: 0 };
+          return;
+        }
+        lastAcceptRef.current = { text, ts: now };
+        acceptedRef.current = true;
+        setLastHit(text);
+        fireDetected(text);
+        window.setTimeout(() => {
+          if (!cancelled) {
+            acceptedRef.current = false;
+            pendingRef.current = { text: '', hits: 0 };
+            setLastHit('');
+          }
+        }, CONTINUOUS_COOLDOWN_MS);
+        return;
+      }
+
+      acceptedRef.current = true;
+      setLastHit(text);
+      fireDetected(text);
+    };
+
+    const handleDecodedText = (raw) => {
+      if (cancelled || acceptedRef.current) return;
+      const text = String(raw || '').trim();
+      if (!isPlausibleCode(text)) {
+        pendingRef.current = { text: '', hits: 0 };
+        return;
+      }
+      if (pendingRef.current.text === text) pendingRef.current.hits += 1;
+      else pendingRef.current = { text, hits: 1 };
+      if (pendingRef.current.hits < neededHits(text)) return;
+      acceptCode(text);
+    };
+
+    const scanCrop = (video) => {
+      if (cancelled || acceptedRef.current) return;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (vw < 80 || vh < 80) return;
+      const cropW = Math.max(80, Math.round(vw * 0.9));
+      const cropH = Math.max(48, Math.round(vh * 0.38));
+      const sx = Math.round((vw - cropW) / 2);
+      const sy = Math.round((vh - cropH) / 2);
+      let canvas = canvasRef.current;
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvasRef.current = canvas;
+      }
+      if (canvas.width !== cropW) canvas.width = cropW;
+      if (canvas.height !== cropH) canvas.height = cropH;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
+      const result = tryDecodeCanvas(readerRef.current, canvas);
+      if (result) handleDecodedText(result.getText?.() || '');
+    };
+
+    const loop = (video) => {
+      if (cancelled) return;
+      if (!acceptedRef.current) scanCrop(video);
+      scanTimer = window.setTimeout(() => loop(video), SCAN_INTERVAL_MS);
+    };
+
+    const start = async () => {
+      const video = videoRef.current;
+      if (!video) {
+        waitFrame = window.requestAnimationFrame(() => {
+          if (!cancelled) start();
+        });
+        return;
+      }
+
+      setStarting(true);
+      setError('');
+      setLastHit('');
+      pendingRef.current = { text: '', hits: 0 };
+      acceptedRef.current = false;
+      lastAcceptRef.current = { text: '', ts: 0 };
+
+      const preferredId = selectedDeviceRef.current;
+      const videoConstraints = preferredId
+        ? {
+            deviceId: { exact: preferredId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+          }
+        : {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+          };
+
       try {
-        // Prompt permission so labels are populated.
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        stream.getTracks().forEach((t) => t.stop());
-        const list = await navigator.mediaDevices.enumerateDevices();
-        if (!alive) return;
-        const cams = list.filter((d) => d.kind === 'videoinput');
-        setDevices(cams);
-        // Prefer the back camera when available.
-        const back = cams.find((d) => /back|rear|environment/i.test(d.label));
-        setDeviceId((prev) => prev || back?.deviceId || cams[0]?.deviceId || '');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraints,
+          audio: false,
+        });
+        if (cancelled) {
+          stopStream(stream);
+          return;
+        }
+        streamRef.current = stream;
+        const track = stream.getVideoTracks()[0];
+        await applyLiveFocus(track);
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        await video.play().catch(() => {});
+        if (cancelled) return;
+
+        const liveId = track?.getSettings?.().deviceId || preferredId || '';
+        if (liveId) {
+          selectedDeviceRef.current = liveId;
+          setDeviceId(liveId);
+        }
+
+        try {
+          const list = await navigator.mediaDevices.enumerateDevices();
+          if (!cancelled) {
+            setDevices(list.filter((d) => d.kind === 'videoinput'));
+          }
+        } catch {
+          /* labels may stay empty until permission, scanning still works */
+        }
+
+        readerRef.current = new BrowserMultiFormatReader(hints);
+        setStarting(false);
+        loop(video);
       } catch (e) {
+        if (cancelled) return;
+        setStarting(false);
         setError(
           e?.name === 'NotAllowedError'
             ? 'Camera access was blocked. Allow the camera permission in your browser / system settings and try again.'
             : e?.message || 'Unable to access camera.'
         );
       }
-    })();
-    return () => {
-      alive = false;
     };
-  }, [isOpen]);
 
-  // Start / restart the ZXing reader whenever the selected device changes.
-  useEffect(() => {
-    if (!isOpen || !deviceId || !videoRef.current) return undefined;
-    let cancelled = false;
-    setStarting(true);
-    setError('');
-    setLastHit('');
-    pendingRef.current = { text: '', hits: 0 };
-    acceptedRef.current = false;
-    lastAcceptRef.current = { text: '', ts: 0 };
-    // High-res + TRY_HARDER hints make CODE128 decoding much more reliable on
-    // laptop webcams, which are the primary scanning device here.
-    const reader = new BrowserMultiFormatReader(hints, {
-      delayBetweenScanAttempts: 80,
-      delayBetweenScanSuccess: 300,
-    });
-    readerRef.current = reader;
-    const constraints = {
-      video: {
-        deviceId: { exact: deviceId },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-      audio: false,
-    };
-    reader
-      .decodeFromConstraints(constraints, videoRef.current, (result, _err, controls) => {
-        if (cancelled || acceptedRef.current) return;
-        controlsRef.current = controls;
-        setStarting(false);
-        if (!result) return;
-        const raw = result.getText();
-        const text = String(raw || '').trim();
-        // Discard implausible results (control chars, 1-2 character glitches).
-        if (!isPlausibleCode(text)) {
-          pendingRef.current = { text: '', hits: 0 };
-          return;
-        }
-        // Require two consecutive frames to agree before accepting, so a
-        // one-off partial decode doesn't fire a bogus API call.
-        if (pendingRef.current.text === text) {
-          pendingRef.current.hits += 1;
-        } else {
-          pendingRef.current = { text, hits: 1 };
-        }
-        if (pendingRef.current.hits < 2) return;
-
-        if (continuousScan) {
-          const now = Date.now();
-          if (text === lastAcceptRef.current.text && now - lastAcceptRef.current.ts < 900) {
-            pendingRef.current = { text: '', hits: 0 };
-            return;
-          }
-          lastAcceptRef.current = { text, ts: now };
-          acceptedRef.current = true;
-          setLastHit(text);
-          window.setTimeout(() => {
-            if (!cancelled) onDetectedRef.current?.(text);
-          }, 140);
-          window.setTimeout(() => {
-            if (!cancelled) {
-              acceptedRef.current = false;
-              pendingRef.current = { text: '', hits: 0 };
-              setLastHit('');
-            }
-          }, 700);
-          return;
-        }
-
-        acceptedRef.current = true;
-        setLastHit(text);
-        try {
-          controls?.stop();
-        } catch {
-          /* noop */
-        }
-        // Slight delay so the user sees the green flash before the modal
-        // closes and the product details populate on the page.
-        window.setTimeout(() => {
-          if (!cancelled) onDetectedRef.current?.(text);
-        }, 140);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setStarting(false);
-        setError(e?.message || 'Failed to start scanner.');
-      });
+    start();
 
     return () => {
       cancelled = true;
+      window.clearTimeout(scanTimer);
+      window.cancelAnimationFrame(waitFrame);
       try {
-        controlsRef.current?.stop();
+        stopStream(streamRef.current);
       } catch {
         /* noop */
       }
-      controlsRef.current = null;
+      streamRef.current = null;
       readerRef.current = null;
+      const video = videoRef.current;
+      if (video) video.srcObject = null;
     };
-  }, [isOpen, deviceId, hints, continuousScan]);
+  }, [isOpen, cameraEpoch, hints, continuousScan]);
 
-  // When the modal is fully closed, make sure the tracks are released.
   useEffect(() => {
     if (isOpen) return;
     try {
-      controlsRef.current?.stop();
+      stopStream(streamRef.current);
     } catch {
       /* noop */
     }
-    controlsRef.current = null;
+    streamRef.current = null;
     const video = videoRef.current;
     if (video?.srcObject) {
-      const stream = video.srcObject;
-      stream.getTracks?.().forEach((t) => t.stop());
+      stopStream(video.srcObject);
       video.srcObject = null;
     }
   }, [isOpen]);
 
-  // Decode a barcode from an uploaded image file. Works offline and is a great
-  // fallback when the webcam focus / resolution is too low to read the label.
+  const switchToDevice = (nextId) => {
+    const id = String(nextId || '').trim();
+    if (!id || id === selectedDeviceRef.current || id === deviceId) return;
+    selectedDeviceRef.current = id;
+    setDeviceId(id);
+    setCameraEpoch((n) => n + 1);
+  };
+
   const handleFileSelected = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -248,42 +327,24 @@ const BarcodeScannerModal = ({
     try {
       const reader = new BrowserMultiFormatReader(hints);
       const result = await reader.decodeFromImageUrl(objectUrl);
-      const raw = result?.getText?.() || '';
-      const text = String(raw).trim();
+      const text = String(result?.getText?.() || '').trim();
       if (!isPlausibleCode(text)) {
         setError('Could not read a valid barcode in that image. Try a clearer, closer photo.');
         return;
       }
       if (continuousScan) {
         const now = Date.now();
-        if (text === lastAcceptRef.current.text && now - lastAcceptRef.current.ts < 900) {
-          setDecoding(false);
+        if (text === lastAcceptRef.current.text && now - lastAcceptRef.current.ts < CONTINUOUS_COOLDOWN_MS) {
           return;
         }
         lastAcceptRef.current = { text, ts: now };
-        acceptedRef.current = true;
         setLastHit(text);
-        window.setTimeout(() => {
-          onDetectedRef.current?.(text);
-        }, 140);
-        window.setTimeout(() => {
-          acceptedRef.current = false;
-          setLastHit('');
-        }, 700);
-        setDecoding(false);
+        onDetectedRef.current?.(text);
+        window.setTimeout(() => setLastHit(''), CONTINUOUS_COOLDOWN_MS);
         return;
       }
-
-      acceptedRef.current = true;
       setLastHit(text);
-      try {
-        controlsRef.current?.stop();
-      } catch {
-        /* noop */
-      }
-      window.setTimeout(() => {
-        onDetectedRef.current?.(text);
-      }, 140);
+      onDetectedRef.current?.(text);
     } catch (e) {
       setError(
         e?.message?.includes('NotFoundException') || e?.name === 'NotFoundException'
@@ -321,7 +382,7 @@ const BarcodeScannerModal = ({
               onClick={() => {
                 const idx = devices.findIndex((d) => d.deviceId === deviceId);
                 const next = devices[(idx + 1) % devices.length];
-                if (next) setDeviceId(next.deviceId);
+                if (next) switchToDevice(next.deviceId);
               }}
             >
               Switch camera
@@ -354,9 +415,8 @@ const BarcodeScannerModal = ({
           autoPlay
           playsInline
         />
-        {/* Targeting frame overlay */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="relative w-4/5 h-1/2 border-0">
+          <div className="relative w-[90%] h-[38%] border-0">
             <CornerBrackets />
             <div className="absolute inset-x-0 top-1/2 h-[2px] bg-red-500/80 shadow-[0_0_8px_rgba(239,68,68,0.7)] animate-pulse" />
           </div>
@@ -383,13 +443,13 @@ const BarcodeScannerModal = ({
       <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
         <span>
           {continuousScan
-            ? 'Scan one item after another — close when finished.'
-            : 'Align the barcode within the frame — or use Upload image.'}
+            ? 'Hold the barcode on the red line — next item can scan right away.'
+            : 'Hold the barcode on the red line. Closer is faster.'}
         </span>
         {devices.length > 0 ? (
           <select
             value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
+            onChange={(e) => switchToDevice(e.target.value)}
             className="input h-8 text-xs max-w-[55%]"
           >
             {devices.map((d, i) => (
@@ -405,8 +465,7 @@ const BarcodeScannerModal = ({
 };
 
 const CornerBrackets = () => {
-  const base =
-    'absolute w-8 h-8 border-white/90';
+  const base = 'absolute w-8 h-8 border-white/90';
   return (
     <>
       <span className={`${base} top-0 left-0 border-t-4 border-l-4 rounded-tl-sm`} />
@@ -422,9 +481,7 @@ BarcodeScannerModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   onDetected: PropTypes.func.isRequired,
   title: PropTypes.string,
-  /** When true, each successful decode calls onDetected and keeps the camera running until the user closes the modal. */
   continuousScan: PropTypes.bool,
 };
-
 
 export default BarcodeScannerModal;

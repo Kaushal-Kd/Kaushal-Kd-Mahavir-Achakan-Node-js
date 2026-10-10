@@ -64,18 +64,30 @@ function buildTableBody(columns, rows, richColIndexes) {
  * @param {import('jspdf').jsPDF} doc
  * @param {object} params
  */
+function strokePdfCell(doc, cell) {
+  if (!cell) return;
+  doc.setDrawColor(...BLACK);
+  doc.setLineWidth(0.2);
+  doc.rect(cell.x, cell.y, cell.width, cell.height, 'S');
+}
+
 function attachRichCellDrawing(doc, params) {
   const { columns, richColIndexes, getRowAt } = params;
   return (data) => {
-    if (data.section !== 'body' || !richColIndexes.has(data.column.index)) return;
-    const row = getRowAt(data.row.index);
-    const col = columns[data.column.index];
-    if (!row || typeof col?.richGet !== 'function') return;
-    const richLines = col.richGet(row);
-    if (!Array.isArray(richLines) || !richLines.length) return;
-    doc.setFillColor(...WHITE);
-    doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
-    drawPdfRichLinesInCell(doc, data.cell, richLines);
+    if (data.section === 'body' && richColIndexes.has(data.column.index)) {
+      const row = getRowAt(data.row.index);
+      const col = columns[data.column.index];
+      if (row && typeof col?.richGet === 'function') {
+        const richLines = col.richGet(row);
+        if (Array.isArray(richLines) && richLines.length) {
+          doc.setFillColor(...WHITE);
+          doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
+          drawPdfRichLinesInCell(doc, data.cell, richLines);
+        }
+      }
+    }
+    // White fills and empty cells drop autoTable grid lines — stroke every cell after draw.
+    strokePdfCell(doc, data.cell);
   };
 }
 

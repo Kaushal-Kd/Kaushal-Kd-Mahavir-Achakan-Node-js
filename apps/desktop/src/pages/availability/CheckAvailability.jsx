@@ -815,7 +815,7 @@ const CheckAvailability = () => {
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
               {/* Code + Qty share first column (same width as Customer below) */}
               <div className="relative min-w-0">
-                <div className="flex flex-nowrap items-end gap-2">
+                <div className="flex flex-col sm:flex-row sm:flex-nowrap items-stretch sm:items-end gap-2">
                   <div className="min-w-0 flex-1">
                     <label htmlFor="availability-check-code" className="label">
                       Code<span className="text-red-500 ml-0.5">*</span>

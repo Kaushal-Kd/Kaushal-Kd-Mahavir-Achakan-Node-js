@@ -115,7 +115,7 @@ const BookingDraftActions = ({
       setActiveDraftId(row.id);
       setDraftsModalOpen(false);
       setDraftListTick((t) => t + 1);
-      navigate('/booking/new');
+      navigate('/booking/new', { state: { resumeDraftId: row.id } });
     },
     [mode, navigate, onResumeDraft]
   );

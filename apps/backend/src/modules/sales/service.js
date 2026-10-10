@@ -11,6 +11,7 @@ import { loadDocumentTypeNumbering, nextTableSequence } from '../../lib/document
 import { assertSellProductLinesAvailable } from '../products/service.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
+import { resolveSalesListSort } from './listSort.js';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -250,7 +251,7 @@ export async function listSales(shopId, query) {
   return paginate(qb, {
     page: query.page,
     per_page: query.per_page,
-    sort: query.sort || '-s.sale_date',
+    sort: resolveSalesListSort(query),
   });
 }
 

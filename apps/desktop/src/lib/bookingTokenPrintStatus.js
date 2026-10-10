@@ -20,7 +20,7 @@ function orderHasProductTokenLines(order) {
   return false;
 }
 
-function orderHasPackAccessoryTokenLines(order) {
+export function orderHasPackAccessoryTokenLines(order) {
   if (isTruthyFlag(order?.has_pack_accessory_token)) return true;
   if (Number(order?.pack_accessory_qty) > 0) return true;
   if (

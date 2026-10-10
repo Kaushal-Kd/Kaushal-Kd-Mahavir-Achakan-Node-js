@@ -4173,15 +4173,17 @@ const CreateOrder = ({ mode, orderId }) => {
       return;
     }
 
-    const activeId = getActiveDraftId();
-    if (!activeId) {
+    const resumeId = String(location.state?.resumeDraftId || '').trim();
+    if (!resumeId) {
+      persistActiveDraftStorageKey(null);
       setBookingDateTime(nowDatetimeLocal());
       draftHydrateDoneRef.current = true;
       return;
     }
     const list = readDraftList();
-    const row = list.find((d) => d.id === activeId);
+    const row = list.find((d) => d.id === resumeId);
     if (!row?.snapshot) {
+      persistActiveDraftStorageKey(null);
       draftHydrateDoneRef.current = true;
       return;
     }
@@ -4189,8 +4191,8 @@ const CreateOrder = ({ mode, orderId }) => {
     skipDraftPersistRef.current = true;
     draftRestoreKeepLinesRef.current = true;
     applyBookingDraftSnapshot(row.snapshot);
-    bookingDraftIdRef.current = activeId;
-    setBookingDraftId(activeId);
+    bookingDraftIdRef.current = resumeId;
+    setBookingDraftId(resumeId);
     if (row.updatedAt) setLastDraftSavedAt(Number(row.updatedAt) || Date.now());
     setDraftSaveStatus('saved');
 
@@ -4199,7 +4201,13 @@ const CreateOrder = ({ mode, orderId }) => {
       draftRestoreKeepLinesRef.current = false;
     }, 1200);
     draftHydrateDoneRef.current = true;
-  }, [isEditMode, applyBookingDraftSnapshot, location.state?.fromCustomOrder, location.key]);
+  }, [
+    isEditMode,
+    applyBookingDraftSnapshot,
+    location.state?.fromCustomOrder,
+    location.state?.resumeDraftId,
+    location.key,
+  ]);
 
   useEffect(() => {
     if (!isEditMode) return;

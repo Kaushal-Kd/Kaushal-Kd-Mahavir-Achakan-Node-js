@@ -4,6 +4,14 @@ import { FilterX } from 'lucide-react';
 
 import Button from '../ui/Button.jsx';
 import DatePicker from '../ui/DatePicker.jsx';
+import {
+  FILTER_CARD,
+  FILTER_DATE_CLASS,
+  FILTER_DATE_INPUT,
+  FILTER_FIELD,
+  FILTER_LABEL,
+  FILTER_SELECT,
+} from './responsiveFilterClasses.js';
 
 const DATE_FIELD_OPTS = [
   { value: 'booking_date', label: 'Book' },
@@ -65,12 +73,12 @@ const CompactOrderFilters = ({
 }) => {
   if (variant === 'delivery') {
     return (
-      <div className="card p-1.5 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-        <span className="text-gray-500 font-medium shrink-0">Refine</span>
-        <label className="flex items-center gap-0.5 shrink-0">
-          <span className="text-gray-500">Sort by</span>
+      <div className={FILTER_CARD}>
+        <span className="text-gray-500 font-medium sm:col-span-2 lg:self-center">Refine</span>
+        <label className={FILTER_FIELD}>
+          <span className={FILTER_LABEL}>Sort by</span>
           <select
-            className="border border-gray-200 rounded px-1 py-0.5 h-7 bg-white text-[11px]"
+            className={FILTER_SELECT}
             value={sortBy}
             onChange={(e) => onSortByChange(e.target.value)}
           >
@@ -81,28 +89,28 @@ const CompactOrderFilters = ({
             ))}
           </select>
         </label>
-        <div className="flex items-center gap-0.5 shrink-0">
-          <span className="text-gray-500">Pickup from</span>
+        <div className={FILTER_FIELD}>
+          <span className={FILTER_LABEL}>Pickup from</span>
           <DatePicker
-            className="w-[9.5rem]"
-            inputClassName="h-7 text-[11px] px-1 py-0.5"
+            className={FILTER_DATE_CLASS}
+            inputClassName={FILTER_DATE_INPUT}
             value={dateFrom}
             onChange={(e) => onDateFromChange(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          <span className="text-gray-500">to</span>
+        <div className={FILTER_FIELD}>
+          <span className={FILTER_LABEL}>to</span>
           <DatePicker
-            className="w-[9.5rem]"
-            inputClassName="h-7 text-[11px] px-1 py-0.5"
+            className={FILTER_DATE_CLASS}
+            inputClassName={FILTER_DATE_INPUT}
             value={dateTo}
             onChange={(e) => onDateToChange(e.target.value)}
           />
         </div>
-        <label className="flex items-center gap-0.5 shrink-0 min-w-0">
-          <span className="text-gray-500 shrink-0">Status</span>
+        <label className={FILTER_FIELD}>
+          <span className={FILTER_LABEL}>Status</span>
           <select
-            className="border border-gray-200 rounded px-1 py-0.5 h-7 bg-white text-[11px] max-w-[11rem]"
+            className={FILTER_SELECT}
             value={status}
             onChange={(e) => onStatusChange(e.target.value)}
           >
@@ -118,7 +126,7 @@ const CompactOrderFilters = ({
           variant="ghost"
           size="sm"
           icon={FilterX}
-          className="h-7 px-1.5 text-[11px]"
+          className="h-9 lg:h-7 w-full sm:w-auto px-2 text-sm lg:text-[11px]"
           onClick={onClear}
           disabled={disabledClear}
         >
@@ -130,12 +138,12 @@ const CompactOrderFilters = ({
 
   if (variant === 'return') {
     return (
-      <div className="card p-1.5 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-        <span className="text-gray-500 font-medium shrink-0">Refine</span>
-        <label className="flex items-center gap-0.5 shrink-0">
-          <span className="text-gray-500">Sort by</span>
+      <div className={FILTER_CARD}>
+        <span className="text-gray-500 font-medium sm:col-span-2 lg:self-center">Refine</span>
+        <label className={FILTER_FIELD}>
+          <span className={FILTER_LABEL}>Sort by</span>
           <select
-            className="border border-gray-200 rounded px-1 py-0.5 h-7 bg-white text-[11px]"
+            className={FILTER_SELECT}
             value={sortBy}
             onChange={(e) => onSortByChange(e.target.value)}
           >
@@ -146,28 +154,28 @@ const CompactOrderFilters = ({
             ))}
           </select>
         </label>
-        <div className="flex items-center gap-0.5 shrink-0">
-          <span className="text-gray-500">Return from</span>
+        <div className={FILTER_FIELD}>
+          <span className={FILTER_LABEL}>Return from</span>
           <DatePicker
-            className="w-[9.5rem]"
-            inputClassName="h-7 text-[11px] px-1 py-0.5"
+            className={FILTER_DATE_CLASS}
+            inputClassName={FILTER_DATE_INPUT}
             value={dateFrom}
             onChange={(e) => onDateFromChange(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          <span className="text-gray-500">to</span>
+        <div className={FILTER_FIELD}>
+          <span className={FILTER_LABEL}>to</span>
           <DatePicker
-            className="w-[9.5rem]"
-            inputClassName="h-7 text-[11px] px-1 py-0.5"
+            className={FILTER_DATE_CLASS}
+            inputClassName={FILTER_DATE_INPUT}
             value={dateTo}
             onChange={(e) => onDateToChange(e.target.value)}
           />
         </div>
-        <label className="flex items-center gap-0.5 shrink-0 min-w-0">
-          <span className="text-gray-500 shrink-0">Status</span>
+        <label className={FILTER_FIELD}>
+          <span className={FILTER_LABEL}>Status</span>
           <select
-            className="border border-gray-200 rounded px-1 py-0.5 h-7 bg-white text-[11px] max-w-[11rem]"
+            className={FILTER_SELECT}
             value={status}
             onChange={(e) => onStatusChange(e.target.value)}
           >
@@ -183,7 +191,7 @@ const CompactOrderFilters = ({
           variant="ghost"
           size="sm"
           icon={FilterX}
-          className="h-7 px-1.5 text-[11px]"
+          className="h-9 lg:h-7 w-full sm:w-auto px-2 text-sm lg:text-[11px]"
           onClick={onClear}
           disabled={disabledClear}
         >
@@ -194,12 +202,12 @@ const CompactOrderFilters = ({
   }
 
   return (
-    <div className="card p-1.5 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-      <span className="text-gray-500 font-medium shrink-0">Filters</span>
-      <label className="flex items-center gap-0.5 shrink-0">
-        <span className="text-gray-500">Date by</span>
+    <div className={FILTER_CARD}>
+      <span className="text-gray-500 font-medium sm:col-span-2 lg:self-center">Filters</span>
+      <label className={FILTER_FIELD}>
+        <span className={FILTER_LABEL}>Date by</span>
         <select
-          className="border border-gray-200 rounded px-1 py-0.5 h-7 bg-white text-[11px]"
+          className={FILTER_SELECT}
           value={dateField}
           onChange={(e) => onDateFieldChange(e.target.value)}
         >
@@ -210,10 +218,10 @@ const CompactOrderFilters = ({
           ))}
         </select>
       </label>
-      <label className="flex items-center gap-0.5 shrink-0">
-        <span className="text-gray-500">Sort by</span>
+      <label className={FILTER_FIELD}>
+        <span className={FILTER_LABEL}>Sort by</span>
         <select
-          className="border border-gray-200 rounded px-1 py-0.5 h-7 bg-white text-[11px]"
+          className={FILTER_SELECT}
           value={sortBy}
           onChange={(e) => onSortByChange(e.target.value)}
         >
@@ -224,28 +232,28 @@ const CompactOrderFilters = ({
           ))}
         </select>
       </label>
-      <div className="flex items-center gap-0.5 shrink-0">
-        <span className="text-gray-500">From</span>
+      <div className={FILTER_FIELD}>
+        <span className={FILTER_LABEL}>From</span>
         <DatePicker
-          className="w-[9.5rem]"
-          inputClassName="h-7 text-[11px] px-1 py-0.5"
+          className={FILTER_DATE_CLASS}
+          inputClassName={FILTER_DATE_INPUT}
           value={dateFrom}
           onChange={(e) => onDateFromChange(e.target.value)}
         />
       </div>
-      <div className="flex items-center gap-0.5 shrink-0">
-        <span className="text-gray-500">To</span>
+      <div className={FILTER_FIELD}>
+        <span className={FILTER_LABEL}>To</span>
         <DatePicker
-          className="w-[9.5rem]"
-          inputClassName="h-7 text-[11px] px-1 py-0.5"
+          className={FILTER_DATE_CLASS}
+          inputClassName={FILTER_DATE_INPUT}
           value={dateTo}
           onChange={(e) => onDateToChange(e.target.value)}
         />
       </div>
-      <label className="flex items-center gap-0.5 shrink-0 min-w-0">
-        <span className="text-gray-500 shrink-0">Status</span>
+      <label className={FILTER_FIELD}>
+        <span className={FILTER_LABEL}>Status</span>
         <select
-          className="border border-gray-200 rounded px-1 py-0.5 h-7 bg-white text-[11px] max-w-[9.5rem]"
+          className={FILTER_SELECT}
           value={status}
           onChange={(e) => onStatusChange(e.target.value)}
         >
@@ -262,7 +270,7 @@ const CompactOrderFilters = ({
         variant="ghost"
         size="sm"
         icon={FilterX}
-        className="h-7 px-1.5 text-[11px]"
+        className="h-9 lg:h-7 w-full sm:w-auto px-2 text-sm lg:text-[11px]"
         onClick={onClear}
         disabled={disabledClear}
       >

@@ -268,6 +268,24 @@ describe('bill template blank-paper controls', () => {
     assert.doesNotMatch(html.slice(html.indexOf('class="totals"'), grandIdx), />Security</);
   });
 
+  it('hides payable amount when the bill has no security', () => {
+    const html = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        security_deposit: 0,
+        deposit_amount: 0,
+        balance: 7000,
+        paid_amount: 0,
+        total_amount: 7000,
+      },
+      shop,
+    });
+    assert.doesNotMatch(html, />Payable amount</);
+    assert.doesNotMatch(html, /Security \+ balance due/);
+    assert.doesNotMatch(html, />Security</);
+    assert.match(html, /Balance due/);
+  });
+
   it('prints payable as unpaid security plus bill balance and skips paid security', () => {
     const unpaidHtml = renderBillHtml({
       order: {
@@ -340,6 +358,19 @@ describe('bill template blank-paper controls', () => {
     assert.doesNotMatch(html, /₹0(?![\d,])/);
     assert.match(html, /₹11,000/);
     assert.match(html, /Free sherwani/);
+  });
+
+  it('hides the totals discount row when the invoice discount column is off', () => {
+    const html = renderBillHtml({
+      order: SAMPLE_ORDER,
+      shop,
+      template: { items_config: { show_discount: false } },
+    });
+    const totalsStart = html.indexOf('class="totals"');
+    assert.ok(totalsStart >= 0);
+    assert.doesNotMatch(html.slice(totalsStart), />Discount</);
+    assert.doesNotMatch(html, />Disc</);
+    assert.match(html, /Grand total/);
   });
 
   it('prints live booking discount_total above grand total', () => {

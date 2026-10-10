@@ -69,6 +69,7 @@ import {
 import {
   bookingTokenPrintIconClassName,
   hasTokenPrintStamp,
+  orderHasPackAccessoryTokenLines,
 } from '../../lib/bookingTokenPrintStatus.js';
 import { getRowStageSelectOptions, stageFromOrderStatus } from '../../lib/orderListStage.js';
 import { bookingListMobileCard } from '../../lib/listMobileCards.jsx';
@@ -934,6 +935,7 @@ const BookingList = () => {
         onChooseAccessories={() => runTokenPrint('accessory')}
         loading={tokenPrintLoading}
         orderLabel={tokenPrintTarget?.order_number || tokenPrintTarget?.bill_no || ''}
+        showAccessories={orderHasPackAccessoryTokenLines(tokenPrintTarget)}
         productPrinted={hasTokenPrintStamp(tokenPrintTarget?.product_token_printed_at)}
         accessoryPrinted={hasTokenPrintStamp(tokenPrintTarget?.accessory_token_printed_at)}
       />

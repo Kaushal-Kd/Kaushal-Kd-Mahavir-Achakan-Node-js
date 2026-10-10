@@ -477,21 +477,21 @@ const ProductsAvailable = () => {
         }
       />
 
-      <div className="card p-2 mb-3 min-w-0 overflow-hidden">
-        <div className="flex flex-nowrap items-end gap-1 w-full min-w-0">
-          <div className="min-w-0 flex-[1.15] basis-0">
+      <div className="card p-2.5 mb-3 min-w-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2 items-end">
+          <div className="min-w-0 sm:col-span-2 lg:col-span-3">
             <label
               htmlFor="products-available-code"
-              className="block text-[10px] font-medium text-gray-600 mb-0.5 truncate"
+              className="block text-xs font-medium text-gray-600 mb-1"
             >
-              Code, name, or design details
+              Code, name, or design
             </label>
             <div className="relative min-w-0">
               <input
                 id="products-available-code"
                 type="search"
-                className="input w-full min-w-0 h-8 text-xs px-2 py-1 pr-8"
-                placeholder="Code, name, or design details"
+                className="input w-full min-w-0 h-9 text-sm px-2.5 py-1 pr-9"
+                placeholder="Code, name, or design"
                 value={searchInput}
                 onChange={(e) => {
                   setSearchInput(e.target.value);
@@ -505,11 +505,11 @@ const ProductsAvailable = () => {
               <button
                 type="button"
                 onClick={() => setScannerOpen(true)}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-brand p-0.5"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-brand p-1"
                 title="Scan barcode"
                 aria-label="Scan barcode"
               >
-                <Camera size={14} />
+                <Camera size={16} />
               </button>
             </div>
           </div>
@@ -523,8 +523,8 @@ const ProductsAvailable = () => {
               setDeliveryDate(next);
               setReturnDate(addDaysISO(next, returnOffsetDays));
             }}
-            className="min-w-0 flex-1 basis-0 [&_.label]:text-[10px] [&_.label]:mb-0.5 [&_.label]:truncate"
-            inputClassName="h-8 text-xs px-1.5 py-1"
+            className="min-w-0 lg:col-span-2"
+            inputClassName="h-9 text-sm px-2.5 py-1"
           />
 
           <DatePicker
@@ -533,55 +533,53 @@ const ProductsAvailable = () => {
             value={returnDate}
             min={deliveryDate}
             onChange={(e) => setReturnDate(e.target.value)}
-            className="min-w-0 flex-1 basis-0 [&_.label]:text-[10px] [&_.label]:mb-0.5 [&_.label]:truncate"
-            inputClassName="h-8 text-xs px-1.5 py-1"
+            className="min-w-0 lg:col-span-2"
+            inputClassName="h-9 text-sm px-2.5 py-1"
           />
 
           {categoryOptions?.length ? (
             <Select
-              label=""
+              label="Category"
               aria-label="Category"
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
               options={categoryOptions}
-              className="min-w-0 flex-[0.85] basis-0 [&_select]:h-8 [&_select]:text-xs [&_select]:py-1 [&_select]:px-1.5 [&_select]:truncate"
+              className="min-w-0 lg:col-span-1 [&_select]:h-9 [&_select]:text-sm"
             />
           ) : null}
 
           {sizeOptions?.length ? (
             <Select
-              label=""
+              label="Size"
               aria-label="Size"
               value={sizeFilter}
               onChange={(e) => setSizeFilter(e.target.value)}
               options={sizeOptions}
-              className="min-w-0 flex-[0.55] basis-0 [&_select]:h-8 [&_select]:text-xs [&_select]:py-1 [&_select]:px-1.5"
+              className="min-w-0 lg:col-span-1 [&_select]:h-9 [&_select]:text-sm"
             />
           ) : null}
 
           {colorOptions?.length ? (
             <Select
-              label=""
+              label="Color"
               aria-label="Color"
               value={colorFilter}
               onChange={(e) => setColorFilter(e.target.value)}
               options={colorOptions}
-              className="min-w-0 flex-[0.55] basis-0 [&_select]:h-8 [&_select]:text-xs [&_select]:py-1 [&_select]:px-1.5"
+              className="min-w-0 lg:col-span-1 [&_select]:h-9 [&_select]:text-sm"
             />
           ) : null}
 
-          <div className="min-w-0 flex-[0.9] basis-0">
-            <span className="block text-[10px] font-medium text-gray-600 mb-0.5 truncate">
-              Rent
-            </span>
-            <div className="flex min-w-0 items-center gap-0.5">
+          <div className="min-w-0 lg:col-span-1">
+            <span className="block text-xs font-medium text-gray-600 mb-1">Rent</span>
+            <div className="flex min-w-0 items-center gap-1">
               <input
                 id="products-available-rent-min"
                 type="number"
                 min="0"
                 step="1"
                 aria-label="Rent minimum"
-                className="input min-w-0 flex-1 h-8 text-xs px-1.5 py-1"
+                className="input min-w-0 flex-1 h-9 text-sm px-2 py-1"
                 placeholder="Min"
                 value={rentMin}
                 onChange={(e) => setRentMin(e.target.value)}
@@ -595,7 +593,7 @@ const ProductsAvailable = () => {
                 min="0"
                 step="1"
                 aria-label="Rent maximum"
-                className="input min-w-0 flex-1 h-8 text-xs px-1.5 py-1"
+                className="input min-w-0 flex-1 h-9 text-sm px-2 py-1"
                 placeholder="Max"
                 value={rentMax}
                 onChange={(e) => setRentMax(e.target.value)}
@@ -610,7 +608,7 @@ const ProductsAvailable = () => {
             variant="primary"
             size="sm"
             icon={Search}
-            className="h-8 shrink-0 px-2.5 text-xs whitespace-nowrap"
+            className="h-9 w-full sm:w-auto lg:col-span-1 px-3 text-sm"
             onClick={runSearch}
             loading={isFetching && !!appliedFilters}
             aria-label="Search products"
@@ -686,7 +684,7 @@ const ProductsAvailable = () => {
                   <div className="text-xs font-medium text-gray-800 tabular-nums mt-0.5">
                     Rent: {formatProductRent(p.price_rent)}
                   </div>
-                  <div className="text-xs font-mono text-gray-800 truncate mt-0.5">
+                  <div className="text-xs font-mono text-gray-800 break-all mt-0.5">
                     Code: {formatProductCodeLabel(p)}
                   </div>
                   <div className="text-[11px] text-gray-500 truncate mt-0.5">{p.name}</div>

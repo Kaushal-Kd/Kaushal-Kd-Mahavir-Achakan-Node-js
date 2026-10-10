@@ -526,21 +526,25 @@ const ItemToPrepareList = () => {
       columnPickerLabel: 'Mobile / WhatsApp',
       className: 'text-xs',
       render: (r) => {
-        const { mobile, whatsapp } = getPrepareContactNumbers(r);
-        if (!mobile && !whatsapp) return <span className="text-gray-400">—</span>;
+        const { mobiles, whatsapp } = getPrepareContactNumbers(r);
+        if (!mobiles.length && !whatsapp) return <span className="text-gray-400">—</span>;
         return (
           <div className="space-y-0.5 leading-tight">
-            {mobile ? (
-              <p>
-                <span className="text-[10px] font-medium text-gray-500">Mobile </span>
-                <span className="font-mono text-xs text-gray-900">{mobile}</span>
-              </p>
+            {mobiles.length ? (
+              <div>
+                <p className="text-[10px] font-medium text-gray-500">Mobile</p>
+                {mobiles.map((number) => (
+                  <p key={number} className="font-mono text-xs text-gray-900">
+                    {number}
+                  </p>
+                ))}
+              </div>
             ) : null}
             {whatsapp ? (
-              <p>
-                <span className="text-[10px] font-medium text-gray-500">WhatsApp </span>
-                <span className="font-mono text-xs text-gray-900">{whatsapp}</span>
-              </p>
+              <div>
+                <p className="text-[10px] font-medium text-gray-500">WhatsApp</p>
+                <p className="font-mono text-xs text-gray-900">{whatsapp}</p>
+              </div>
             ) : null}
           </div>
         );

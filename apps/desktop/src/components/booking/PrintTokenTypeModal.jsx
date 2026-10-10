@@ -8,7 +8,7 @@ function tokenChoiceVariant(printed) {
 }
 
 function tokenChoiceClassName(printed) {
-  return printed ? '' : 'bg-gray-200 text-gray-500 hover:bg-gray-300';
+  return printed ? '' : 'bg-brand-light text-brand hover:bg-brand-200';
 }
 
 const PrintTokenTypeModal = ({

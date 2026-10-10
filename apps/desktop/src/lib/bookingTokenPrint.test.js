@@ -5,6 +5,7 @@ import {
   bookingTokenPrintIconClassName,
   hasTokenPrintStamp,
   isBookingTokenFullyPrinted,
+  orderHasPackAccessoryTokenLines,
   stampTokenPrintedLocally,
 } from './bookingTokenPrintStatus.js';
 
@@ -48,6 +49,19 @@ test('accessory-only bookings turn blue after accessory tokens print', () => {
   assert.equal(isBookingTokenFullyPrinted(row), false);
   assert.equal(
     isBookingTokenFullyPrinted({ ...row, accessory_token_printed_at: new Date() }),
+    true
+  );
+});
+
+test('only pack-with-rent accessories count as printable tokens', () => {
+  assert.equal(orderHasPackAccessoryTokenLines({ accessory_qty: 4, has_pack_accessory_token: 0 }), false);
+  assert.equal(
+    orderHasPackAccessoryTokenLines({ accessories: [{ given_status: 'given_with_rent' }] }),
+    false
+  );
+  assert.equal(orderHasPackAccessoryTokenLines({ has_pack_accessory_token: 1 }), true);
+  assert.equal(
+    orderHasPackAccessoryTokenLines({ accessories: [{ given_status: 'pack_with_rent' }] }),
     true
   );
 });

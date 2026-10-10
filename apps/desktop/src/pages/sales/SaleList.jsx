@@ -41,6 +41,13 @@ const todayStr = () => todayIndiaISODate();
 
 const EXPORT_PER_PAGE = 500;
 
+const SALE_SORT_OPTS = [
+  { value: 'high', label: 'High to Low' },
+  { value: 'low', label: 'Low to High' },
+  { value: 'az', label: 'A to Z' },
+  { value: 'za', label: 'Z to A' },
+];
+
 const SaleList = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -72,9 +79,10 @@ const SaleList = () => {
   const [cancelTarget, setCancelTarget] = useState(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [billActionLoading, setBillActionLoading] = useState(null);
+  const [sortKey, setSortKey] = useState('high');
 
   const listQuery = useQuery({
-    queryKey: ['sales', { page, perPage, search, dateFrom, dateTo, pendingOnly }],
+    queryKey: ['sales', { page, perPage, search, dateFrom, dateTo, pendingOnly, sortKey }],
     queryFn: () =>
       salesApi.list({
         page,
@@ -83,7 +91,7 @@ const SaleList = () => {
         from: dateFrom || undefined,
         to: dateTo || undefined,
         pending_only: pendingOnly || undefined,
-        sort: '-s.sale_date',
+        sort_by: sortKey,
       }),
     keepPreviousData: true,
   });
@@ -109,7 +117,7 @@ const SaleList = () => {
       from: dateFrom || undefined,
       to: dateTo || undefined,
       pending_only: pendingOnly || undefined,
-      sort: '-s.sale_date',
+      sort_by: sortKey,
     };
     let p = 1;
     const acc = [];
@@ -121,7 +129,7 @@ const SaleList = () => {
       p += 1;
     } while (p <= totalPages);
     return acc;
-  }, [search, dateFrom, dateTo, pendingOnly]);
+  }, [search, dateFrom, dateTo, pendingOnly, sortKey]);
 
   const runListPdf = async (mode) => {
     setExportBusy(true);
@@ -487,6 +495,22 @@ const SaleList = () => {
           />
           Pending Bills
         </label>
+
+        <select
+          className="border border-gray-200 rounded-md px-2.5 py-1.5 text-sm bg-white"
+          value={sortKey}
+          aria-label="Sort sales"
+          onChange={(e) => {
+            setSortKey(e.target.value);
+            setPage(1);
+          }}
+        >
+          {SALE_SORT_OPTS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
 
         <TableColumnPicker {...pickerProps} />
 

@@ -8,26 +8,25 @@ import { accessoriesApi } from '../../lib/api/accessories.js';
 import { draftsApi } from '../../lib/api/drafts.js';
 import { queryKeys } from '../../lib/queryKeys.js';
 import { ordersApi } from '../../lib/api/orders.js';
-import { productsApi } from '../../lib/api/products.js';
 import { salesApi } from '../../lib/api/sales.js';
 
 import Badge from '../ui/Badge.jsx';
 import { useIsMobileNav } from '../../hooks/useBreakpoint.js';
 import { lazyRetry } from '../../lib/lazyRetry.js';
 import { toast, useUIStore } from '../../stores/uiStore.js';
-import { resolveBillFromScan } from '../../utils/billBarcode.js';
+import { parseBillBarcodeValue, resolveBillFromScan } from '../../utils/billBarcode.js';
 import ShopSelector from './ShopSelector.jsx';
 import SyncIndicator from './SyncIndicator.jsx';
 import UserMenu from './UserMenu.jsx';
 
 const CART_DRAFT_KIND = 'availability_cart';
-const BarcodeScannerModal = lazyRetry(() => import('../ui/BarcodeScannerModal.jsx'));
+const loadBarcodeScanner = () => import('../ui/BarcodeScannerModal.jsx');
+const BarcodeScannerModal = lazyRetry(loadBarcodeScanner);
 
 const SEARCH_HIT_LIMIT = 8;
 
 const KIND_META = {
   booking: { typeLabel: 'Booking', path: (row) => `/booking/${row.id}` },
-  product: { typeLabel: 'Product', path: (row) => `/products/${row.id}/edit` },
   sale: { typeLabel: 'Sale', path: (row) => `/sales/${row.id}/edit` },
   accessory: { typeLabel: 'Accessory', path: (row) => `/master/accessory/${row.id}/edit` },
 };
@@ -39,12 +38,6 @@ function bookingSearchTitle(row) {
     row.customer_phone || row.contact_phone1 || row.pickup_number || row.phone1 || row.phone2 || '';
   const parts = [no, name, phone].filter(Boolean);
   return parts.length ? parts.join(' · ') : `Booking #${row.id}`;
-}
-
-function productSearchTitle(row) {
-  const name = row.name || 'Product';
-  const code = row.code || row.barcode || '';
-  return code ? `${name} · ${code}` : name;
 }
 
 function saleSearchTitle(row) {
@@ -99,12 +92,6 @@ const TopBar = () => {
         enabled: searchEnabled,
       },
       {
-        queryKey: ['topbar-search', 'products', term],
-        queryFn: () =>
-          productsApi.list({ search: term, per_page: SEARCH_HIT_LIMIT }).then((r) => r.data || []),
-        enabled: searchEnabled,
-      },
-      {
         queryKey: ['topbar-search', 'sales', term],
         queryFn: () =>
           salesApi
@@ -125,13 +112,12 @@ const TopBar = () => {
       },
     ],
   });
-  const [bookingQ, productQ, saleQ, accessoryQ] = searchQueries;
+  const [bookingQ, saleQ, accessoryQ] = searchQueries;
   const loading = searchEnabled && searchQueries.some((q) => q.isLoading);
   const bookings = bookingQ?.data || [];
-  const products = productQ?.data || [];
   const sales = saleQ?.data || [];
   const accessories = accessoryQ?.data || [];
-  const hasAnyResult = bookings.length || products.length || sales.length || accessories.length;
+  const hasAnyResult = bookings.length || sales.length || accessories.length;
 
   const searchHits = useMemo(() => {
     const hits = [];
@@ -141,14 +127,15 @@ const TopBar = () => {
     for (const row of sales) {
       hits.push({ kind: 'sale', row, title: saleSearchTitle(row) });
     }
-    for (const row of products) {
-      hits.push({ kind: 'product', row, title: productSearchTitle(row) });
-    }
     for (const row of accessories) {
       hits.push({ kind: 'accessory', row, title: accessorySearchTitle(row) });
     }
     return hits;
-  }, [bookings, products, sales, accessories]);
+  }, [bookings, sales, accessories]);
+
+  useEffect(() => {
+    loadBarcodeScanner();
+  }, []);
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(search), 200);
@@ -189,6 +176,12 @@ const TopBar = () => {
       const code = String(scanned || '').trim();
       if (!code) return;
       setScannerOpen(false);
+      if (!parseBillBarcodeValue(code)) {
+        setSearch(code);
+        setDebouncedSearch(code);
+        setDropdownOpen(true);
+        return;
+      }
       const resolved = await resolveBillFromScan({
         scanned: code,
         listOrders: (params) => ordersApi.list(params),
@@ -251,7 +244,7 @@ const TopBar = () => {
               handleScannedCode(search);
             }
           }}
-          placeholder="Search bookings, products, sales…"
+          placeholder="Search bookings, sales…"
           className="w-full min-w-0 flex-1 bg-transparent outline-none text-sm text-gray-700 placeholder:text-gray-400"
           aria-label="Search"
         />

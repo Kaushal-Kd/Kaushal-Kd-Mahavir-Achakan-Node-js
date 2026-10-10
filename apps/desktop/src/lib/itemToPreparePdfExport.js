@@ -244,38 +244,58 @@ function firstContact(...values) {
   return '';
 }
 
-function prepareContactMobile(row) {
-  return firstContact(row?.contact_phone1, row?.customer_phone);
+function uniqueContacts(...values) {
+  const seen = new Set();
+  const numbers = [];
+  for (const value of values) {
+    const text = contactDisplay(value);
+    const digits = contactDigits(text);
+    if (!text || !digits || seen.has(digits)) continue;
+    seen.add(digits);
+    numbers.push(text);
+  }
+  return numbers;
+}
+
+function prepareContactMobiles(row) {
+  return uniqueContacts(
+    firstContact(row?.contact_phone1, row?.customer_phone),
+    firstContact(row?.pickup_number, row?.customer_phone2)
+  );
 }
 
 function prepareContactWhatsapp(row) {
-  const mobile = prepareContactMobile(row);
-  const mobileDigits = contactDigits(mobile);
   const storedWhatsapp = firstContact(row?.customer_whatsapp);
-  const secondNumber = firstContact(row?.pickup_number, row?.customer_phone2);
-  if (storedWhatsapp && contactDigits(storedWhatsapp) !== mobileDigits) return storedWhatsapp;
-  if (secondNumber && contactDigits(secondNumber) !== mobileDigits) return secondNumber;
-  return storedWhatsapp || secondNumber || '';
+  if (!storedWhatsapp) return '';
+  const waDigits = contactDigits(storedWhatsapp);
+  const mobileDigits = new Set(prepareContactMobiles(row).map(contactDigits));
+  if (mobileDigits.has(waDigits)) return '';
+  return storedWhatsapp;
 }
 
 export function getPrepareContactNumbers(row) {
+  const mobiles = prepareContactMobiles(row);
   return {
-    mobile: prepareContactMobile(row),
+    mobile: mobiles.join('\n'),
+    mobiles,
     whatsapp: prepareContactWhatsapp(row),
   };
 }
 
-/** Mobile and WhatsApp as separate labeled lines so both numbers stay readable. */
+/** Mobile lists both phones; WhatsApp only when it is not already one of those numbers. */
 export function buildPreparePdfContactRichLines(row) {
-  const mobile = prepareContactMobile(row);
+  const mobiles = prepareContactMobiles(row);
   const whatsapp = prepareContactWhatsapp(row);
   /** @type {import('../utils/pdfRichText.js').PdfRichLine[]} */
   const lines = [];
-  if (mobile) {
+  if (mobiles.length) {
     lines.push({ segments: [{ text: 'Mobile', bold: true }] });
-    lines.push({ segments: [{ text: mobile, bold: false }] });
+    for (const number of mobiles) {
+      lines.push({ segments: [{ text: number, bold: false }] });
+    }
   }
   if (whatsapp) {
+    if (mobiles.length) lines.push({ rule: true });
     lines.push({ segments: [{ text: 'WhatsApp', bold: true }] });
     lines.push({ segments: [{ text: whatsapp, bold: false }] });
   }
@@ -284,6 +304,7 @@ export function buildPreparePdfContactRichLines(row) {
 
 export function formatPreparePdfContact(row) {
   return (buildPreparePdfContactRichLines(row) || [])
+    .filter((line) => !line.rule)
     .map((line) => (line.segments || []).map((segment) => segment.text).join(''))
     .join('\n');
 }
