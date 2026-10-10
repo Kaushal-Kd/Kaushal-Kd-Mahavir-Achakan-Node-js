@@ -9,7 +9,6 @@ import {
   listRemindersToNotify,
   loadNotifiedKeys,
   persistNotifiedKey,
-  reminderDueAtMs,
   reminderOccurrenceKey,
   REMINDER_NOTIFY_CATCHUP_MS,
   REMINDER_NOTIFY_GRACE_MS,
@@ -17,7 +16,7 @@ import {
   requestBrowserNotificationPermission,
   showBrowserReminderNotification,
 } from '../lib/reminderBrowserNotifications.js';
-import { isReminderAssignedToUser } from '../lib/reminderDateTime.js';
+import { isReminderAssignedToUser, reminderDueAtMs } from '../lib/reminderDateTime.js';
 import { useAuthStore } from '../stores/authStore.js';
 import { useShopStore } from '../stores/shopStore.js';
 
