@@ -1,6 +1,137 @@
 /**
- * Custom-order product lines. Parent `custom_orders` columns stay a snapshot of the first item.
+ * Custom-order product lines. Parent `custom_orders` columns stay a snapshot of the first item
+ * (plus earliest trial / any-given-to-tailor for list and reminders).
  */
+
+/**
+ * @returns {object}
+ */
+export function emptyCustomOrderItemWorkshop() {
+  return {
+    measurements: {},
+    given_to_tailor: false,
+    tailor_name: '',
+    tailor_date: '',
+    trial_date: '',
+    trial_product: '',
+    retrials: [],
+    design_images: [],
+    trial_images: [],
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function asSqlDate(value) {
+  if (value == null || value === '') return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return '';
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Record<string, unknown>}
+ */
+function asMeasurements(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+function asStringArray(value) {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Array<{ date: string, notes: string }>}
+ */
+function asRetrials(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((row) => row && typeof row === 'object')
+    .map((row) => ({
+      date: asSqlDate(row.date),
+      notes: row.notes != null ? String(row.notes) : '',
+    }));
+}
+
+/**
+ * @param {object} [src]
+ * @returns {object}
+ */
+export function normalizeCustomOrderItemWorkshop(src) {
+  const row = src && typeof src === 'object' ? src : {};
+  return {
+    measurements: asMeasurements(row.measurements),
+    given_to_tailor: !!row.given_to_tailor,
+    tailor_name: String(row.tailor_name || '').trim(),
+    tailor_date: asSqlDate(row.tailor_date),
+    trial_date: asSqlDate(row.trial_date),
+    trial_product: String(row.trial_product || '').trim(),
+    retrials: asRetrials(row.retrials),
+    design_images: asStringArray(row.design_images),
+    trial_images: asStringArray(row.trial_images),
+  };
+}
+
+/**
+ * @param {object} [src]
+ * @returns {boolean}
+ */
+export function customOrderItemHasWorkshopData(src) {
+  const w = normalizeCustomOrderItemWorkshop(src);
+  return Boolean(
+    Object.values(w.measurements).some((v) => String(v ?? '').trim()) ||
+      w.given_to_tailor ||
+      w.tailor_name ||
+      w.tailor_date ||
+      w.trial_date ||
+      w.trial_product ||
+      w.retrials.some((row) => row.date) ||
+      w.design_images.length ||
+      w.trial_images.length
+  );
+}
+
+/**
+ * Parent-order snapshot: first item's measurements/images, any given-to-tailor, earliest trial.
+ * @param {object[]} [items]
+ * @returns {object}
+ */
+export function aggregateCustomOrderWorkshop(items) {
+  const list = (items || []).map(normalizeCustomOrderItemWorkshop);
+  const first = list[0] || emptyCustomOrderItemWorkshop();
+  const tailorSrc = list.find((item) => item.given_to_tailor) || first;
+  let earliestTrial = first.trial_date || '';
+  for (const item of list) {
+    if (item.trial_date && (!earliestTrial || item.trial_date < earliestTrial)) {
+      earliestTrial = item.trial_date;
+    }
+  }
+  return {
+    measurements: first.measurements,
+    given_to_tailor: list.some((item) => item.given_to_tailor),
+    tailor_name: tailorSrc.tailor_name,
+    tailor_date: tailorSrc.tailor_date,
+    trial_date: earliestTrial,
+    trial_product: first.trial_product,
+    retrials: first.retrials,
+    design_images: first.design_images,
+    trial_images: first.trial_images,
+  };
+}
 
 /**
  * @returns {object}
@@ -15,6 +146,7 @@ export function emptyCustomOrderItem() {
     size: '',
     linked_product_id: null,
     generated_product_code: null,
+    ...emptyCustomOrderItemWorkshop(),
   };
 }
 
@@ -33,27 +165,38 @@ export function normalizeCustomOrderItem(row) {
     size: String(src.size || '').trim(),
     linked_product_id: src.linked_product_id || null,
     generated_product_code: src.generated_product_code || null,
+    ...normalizeCustomOrderItemWorkshop(src),
   };
 }
 
 /**
  * Prefer saved `items`; otherwise one line from the parent product columns.
+ * First item inherits order-level workshop fields when it has none (legacy rows).
  * @param {object} [order]
  * @returns {object[]}
  */
 export function customOrderItemsFromOrder(order) {
   const row = order && typeof order === 'object' ? order : {};
+  const parentWorkshop = normalizeCustomOrderItemWorkshop(row);
+  const parentHasWorkshop = customOrderItemHasWorkshopData(row);
   if (Array.isArray(row.items) && row.items.length > 0) {
-    return row.items.map(normalizeCustomOrderItem);
+    return row.items.map((item, index) => {
+      const n = normalizeCustomOrderItem(item);
+      if (index === 0 && !customOrderItemHasWorkshopData(item) && parentHasWorkshop) {
+        return { ...n, ...parentWorkshop };
+      }
+      return n;
+    });
   }
-  const fallback = normalizeCustomOrderItem(row);
+  const fallback = normalizeCustomOrderItem({ ...row, ...parentWorkshop });
   const hasAny =
     fallback.design_name ||
     fallback.category_id ||
     fallback.product_name ||
     fallback.color ||
     fallback.size ||
-    fallback.linked_product_id;
+    fallback.linked_product_id ||
+    parentHasWorkshop;
   return hasAny ? [fallback] : [emptyCustomOrderItem()];
 }
 
@@ -97,7 +240,13 @@ export function formatCustomOrderProductsLabel(order) {
 export function isCustomOrderItemFilled(item) {
   const n = normalizeCustomOrderItem(item);
   return Boolean(
-    n.design_name || n.category_id || n.product_name || n.color || n.size || n.linked_product_id
+    n.design_name ||
+      n.category_id ||
+      n.product_name ||
+      n.color ||
+      n.size ||
+      n.linked_product_id ||
+      customOrderItemHasWorkshopData(item)
   );
 }
 
@@ -136,4 +285,29 @@ export function customOrderLinkedProductIds(order) {
   const parent = order?.linked_product_id ? String(order.linked_product_id) : '';
   if (parent && !ids.includes(parent)) ids.unshift(parent);
   return [...new Set(ids)];
+}
+
+/**
+ * @param {object} [order]
+ * @param {Array<{ id?: string, label?: string, unit?: string }>} [fieldDefs]
+ * @returns {string}
+ */
+export function formatCustomOrderMeasurementsSummary(order, fieldDefs = []) {
+  const items = customOrderItemsFromOrder(order);
+  const parts = [];
+  items.forEach((item, index) => {
+    const measurements =
+      item.measurements && typeof item.measurements === 'object' ? item.measurements : {};
+    const lines = [];
+    for (const def of fieldDefs) {
+      const val = measurements[def.id];
+      const s = String(val ?? '').trim();
+      if (!s) continue;
+      lines.push(`${def.label}: ${s}${def.unit ? ` ${def.unit}` : ''}`);
+    }
+    if (!lines.length) return;
+    const label = item.product_name || item.design_name || `Product ${index + 1}`;
+    parts.push(items.length > 1 ? `${label} — ${lines.join('; ')}` : lines.join('; '));
+  });
+  return parts.join('\n');
 }

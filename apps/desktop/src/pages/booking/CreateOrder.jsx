@@ -84,7 +84,10 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus.js';
 import { useOrderReplacementRequirements } from '../../hooks/api/useOrderReplacements.js';
 import { createQueueId, syncService } from '../../services/syncService.js';
 import { productsApi } from '../../lib/api/products.js';
-import { loadPairSuggestionsForMatches } from '../../lib/productPairSuggestions.js';
+import {
+  loadPairSuggestionsForMatches,
+  resolveBookingAddPrimary,
+} from '../../lib/productPairSuggestions.js';
 import { customOrdersApi } from '../../lib/api/customOrders.js';
 import {
   clearCustomOrderBookingHandoff,
@@ -102,6 +105,8 @@ import { stashTokenDownloadPrompt } from '../../lib/bookingTokenDownloadPrompt.j
 import { queryKeys } from '../../lib/queryKeys.js';
 import { useWhatsAppOutbound } from '../../contexts/WhatsAppOutboundContext.jsx';
 import {
+  buildBookingContactForCustomerEdit,
+  emptyCustomerPatchFromBookingContact,
   hydrateBookingCustomerFields,
   restoreWhatsappFromDraftSnapshot,
 } from '../../lib/bookingCustomerHydration.js';
@@ -1379,6 +1384,29 @@ const CreateOrder = ({ mode, orderId }) => {
   const customerPhone1 = normalizePhone(contactNo1);
   const effectiveContactNo2 = contactNo2SameAsPhone1 ? customerPhone1 : contactNo2;
 
+  const openCustomerEdit = () => {
+    if (!customer?.id) return;
+    const bookingContact = buildBookingContactForCustomerEdit({
+      contactNo1,
+      contactNo2: effectiveContactNo2,
+      contact2Name,
+      contactNo2SameAsPhone1,
+      address,
+      whatsappSource,
+      whatsappManual,
+    });
+    const returnTo = isEditMode ? `/booking/${orderId}/edit` : '/booking/new';
+    navigate(`/customers/${customer.id}/edit?returnTo=${encodeURIComponent(returnTo)}`, {
+      state: { bookingContact },
+    });
+    const patch = emptyCustomerPatchFromBookingContact(customer, bookingContact);
+    if (!patch) return;
+    customersApi
+      .update(customer.id, patch)
+      .then(() => invalidateCustomersDomain(queryClient, { customerId: customer.id }))
+      .catch(() => {});
+  };
+
   const creditLookupPhones = useMemo(() => {
     const p2 = contactNo2SameAsPhone1 ? customerPhone1 : normalizePhone(contactNo2);
     return collectIndianPhones(customerPhone1, p2);
@@ -2289,6 +2317,7 @@ const CreateOrder = ({ mode, orderId }) => {
       const product =
         selectedProduct ||
         byCode ||
+        products.find((p) => !p.suggested_as_pair && isProductBookableForSelection(p, lineQty)) ||
         products.find((p) => isProductBookableForSelection(p, lineQty)) ||
         products[0];
       if (!product) {
@@ -2305,9 +2334,6 @@ const CreateOrder = ({ mode, orderId }) => {
       }
 
       const qtyToAdd = Math.max(1, Number(lineQty) || 1);
-      const primaryCodeKey = String(product.code || '')
-        .trim()
-        .toLowerCase();
 
       resetProductSearchBar();
 
@@ -2362,7 +2388,16 @@ const CreateOrder = ({ mode, orderId }) => {
         }
       }
 
-      const rec = await fetchRecommendedAccessories(product);
+      let primaryProduct =
+        resolveBookingAddPrimary(product, productMatchesWithPairs, productQuery) || product;
+      if (
+        String(primaryProduct.id) !== String(product.id) &&
+        !addedProductIds.has(String(primaryProduct.id)) &&
+        !isProductBookableForSelection(primaryProduct, qtyToAdd)
+      ) {
+        primaryProduct = product;
+      }
+      const rec = await fetchRecommendedAccessories(primaryProduct);
       const accessoryLines = toAccessoryLines(rec).filter((a) => a.selected);
 
       const buildProductBookingLine = (catalog, qty, accessories) => {
@@ -2398,16 +2433,37 @@ const CreateOrder = ({ mode, orderId }) => {
         };
       };
 
-      const linesToAdd = [buildProductBookingLine(product, qtyToAdd, accessoryLines)];
-      const usedProductIds = new Set([String(product.id)]);
-      const usedCodes = new Set(primaryCodeKey ? [primaryCodeKey] : []);
+      const primaryAlreadyAdded = addedProductIds.has(String(primaryProduct.id));
+      const linesToAdd = primaryAlreadyAdded
+        ? []
+        : [buildProductBookingLine(primaryProduct, qtyToAdd, accessoryLines)];
+      const usedProductIds = new Set(
+        [primaryAlreadyAdded ? '' : String(primaryProduct.id)].filter(Boolean)
+      );
+      const primaryCodeKeyForCart = String(primaryProduct.code || '')
+        .trim()
+        .toLowerCase();
+      const usedCodes = new Set(primaryAlreadyAdded || !primaryCodeKeyForCart ? [] : [primaryCodeKeyForCart]);
 
       let relatedList = [];
       try {
-        const relatedRes = await productsApi.getRelatedMapping(product.id, { for_booking: 1 });
+        const relatedRes = await productsApi.getRelatedMapping(primaryProduct.id, { for_booking: 1 });
         relatedList = relatedRes?.data?.products || [];
       } catch {
         relatedList = [];
+      }
+      if (
+        String(product.id) !== String(primaryProduct.id) &&
+        !relatedList.some((row) => String(row.related_product_id || row.id) === String(product.id))
+      ) {
+        relatedList = [
+          {
+            ...product,
+            related_product_id: product.id,
+            is_recommended: true,
+          },
+          ...relatedList,
+        ];
       }
 
       // Dedupe related mapping rows by related_product_id; never include primary.
@@ -2518,27 +2574,46 @@ const CreateOrder = ({ mode, orderId }) => {
           accepted.push(draft);
         }
 
-        const primaryDraft = accepted[0];
-        const pairGroupId = String(primaryDraft?.product_id || '');
-        const section = primaryDraft
-          ? productLineIsSaleOnly(primaryDraft)
+        const pairGroupId = String(primaryProduct.id || accepted[0]?.product_id || '');
+        const existingPrimaryIdx = next.findIndex(
+          (line) =>
+            line.line_kind !== 'standalone_accessory' && String(line.product_id) === pairGroupId
+        );
+        const sectionAnchor = existingPrimaryIdx >= 0 ? next[existingPrimaryIdx] : accepted[0];
+        const section = sectionAnchor
+          ? productLineIsSaleOnly(sectionAnchor)
             ? 'sale_product'
             : 'rent_product'
           : 'rent_product';
-        let displayOrder = nextLineDisplayOrder(next, section);
-
-        accepted.forEach((draft, offset) => {
-          next = [
-            ...next,
-            {
-              ...draft,
-              display_order: displayOrder,
-              pair_group_id: pairGroupId,
-              pair_offset: offset,
-            },
-          ];
+        let displayOrder =
+          existingPrimaryIdx >= 0
+            ? Number(next[existingPrimaryIdx].display_order ?? 0) + 10
+            : nextLineDisplayOrder(next, section);
+        const offsetStart = existingPrimaryIdx >= 0 ? 1 : 0;
+        const stamped = accepted.map((draft, offset) => {
+          const row = {
+            ...draft,
+            display_order: displayOrder,
+            pair_group_id: pairGroupId,
+            pair_offset: offsetStart + offset,
+          };
           displayOrder += 10;
+          return row;
         });
+        if (existingPrimaryIdx >= 0) {
+          next = next.map((line, idx) =>
+            idx === existingPrimaryIdx
+              ? { ...line, pair_group_id: pairGroupId, pair_offset: line.pair_offset ?? 0 }
+              : line
+          );
+          next = [
+            ...next.slice(0, existingPrimaryIdx + 1),
+            ...stamped,
+            ...next.slice(existingPrimaryIdx + 1),
+          ];
+        } else {
+          next = [...next, ...stamped];
+        }
         return next;
       });
       clearFieldError(setFieldErrors, 'lines');
@@ -4624,21 +4699,11 @@ const CreateOrder = ({ mode, orderId }) => {
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() =>
-                        navigate(
-                          `/customers/${customer.id}/edit?returnTo=${encodeURIComponent(
-                            isEditMode ? `/booking/${orderId}/edit` : '/booking/new'
-                          )}`
-                        )
-                      }
+                      onClick={openCustomerEdit}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          navigate(
-                            `/customers/${customer.id}/edit?returnTo=${encodeURIComponent(
-                              isEditMode ? `/booking/${orderId}/edit` : '/booking/new'
-                            )}`
-                          );
+                          openCustomerEdit();
                         }
                       }}
                       className={clsx(

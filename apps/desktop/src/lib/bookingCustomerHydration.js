@@ -98,6 +98,88 @@ export function hydrateBookingCustomerFields(customer, orderSnap = null) {
  * @param {object|null|undefined} customer
  * @param {object|null|undefined} orderSnap
  */
+/**
+ * Contact fields typed on Create/Edit Booking — sent to Edit Customer so empty
+ * master phones (quick-created by name) still appear.
+ * @param {object} fields
+ */
+export function buildBookingContactForCustomerEdit(fields) {
+  const phone1 = phoneInputDigits(fields?.contactNo1 || fields?.phone1);
+  const same = !!fields?.contactNo2SameAsPhone1;
+  const phone2 = same ? phone1 : phoneInputDigits(fields?.contactNo2 || fields?.phone2);
+  const source = normalizeWhatsappSource(fields?.whatsappSource || fields?.whatsapp_source);
+  let whatsapp = '';
+  if (source === 'phone1') whatsapp = phone1;
+  else if (source === 'phone2') whatsapp = phone2;
+  else whatsapp = phoneInputDigits(fields?.whatsappManual || fields?.whatsapp || '');
+  return {
+    phone1,
+    phone2,
+    phone2_name: String(fields?.contact2Name || fields?.phone2_name || '').trim().slice(0, 60),
+    address: String(fields?.address || '').trim(),
+    whatsapp,
+    whatsapp_source: source,
+  };
+}
+
+/**
+ * Prefill customer form fields from the booking that opened Edit Customer.
+ * Booking values win when they are complete so the numbers just typed are visible.
+ * @param {object} form
+ * @param {object|null|undefined} bookingContact
+ */
+export function applyBookingContactToCustomerForm(form, bookingContact) {
+  const base = form && typeof form === 'object' ? form : {};
+  if (!bookingContact || typeof bookingContact !== 'object') return base;
+  const phone1 = phoneInputDigits(bookingContact.phone1);
+  const phone2 = phoneInputDigits(bookingContact.phone2);
+  const address = String(bookingContact.address || '').trim();
+  const phone2_name = String(bookingContact.phone2_name || '').trim().slice(0, 60);
+  const whatsapp = phoneInputDigits(bookingContact.whatsapp);
+  return {
+    ...base,
+    phone1: phone1 || phoneInputDigits(base.phone1) || '',
+    phone2: phone2 || phoneInputDigits(base.phone2) || '',
+    phone2_name: phone2_name || String(base.phone2_name || '').trim(),
+    address: address || String(base.address || '').trim(),
+    whatsapp: whatsapp || phoneInputDigits(base.whatsapp) || '',
+  };
+}
+
+/**
+ * Persist only empty customer-master contact fields from this booking.
+ * Does not overwrite a phone already stored on the customer.
+ * @param {object|null|undefined} customer
+ * @param {object|null|undefined} bookingContact
+ */
+export function emptyCustomerPatchFromBookingContact(customer, bookingContact) {
+  if (!customer?.id || !bookingContact || typeof bookingContact !== 'object') return null;
+  const patch = { id: customer.id };
+  let changed = false;
+  const book1 = phoneInputDigits(bookingContact.phone1);
+  if (phoneInputDigits(customer.phone1).length !== 10 && book1.length === 10) {
+    patch.phone1 = book1;
+    changed = true;
+  }
+  const book2 = phoneInputDigits(bookingContact.phone2);
+  if (phoneInputDigits(customer.phone2).length !== 10 && book2.length === 10) {
+    patch.phone2 = book2;
+    const label = String(bookingContact.phone2_name || '').trim().slice(0, 60);
+    if (label) patch.phone2_name = label;
+    changed = true;
+  }
+  if (!String(customer.address || '').trim() && String(bookingContact.address || '').trim()) {
+    patch.address = String(bookingContact.address).trim();
+    changed = true;
+  }
+  const bookWa = phoneInputDigits(bookingContact.whatsapp);
+  if (phoneInputDigits(customer.whatsapp).length !== 10 && bookWa.length === 10) {
+    patch.whatsapp = bookWa;
+    changed = true;
+  }
+  return changed ? patch : null;
+}
+
 export function bookingCustomerContactSummary(customer, orderSnap = null) {
   const hydrated = hydrateBookingCustomerFields(customer, orderSnap);
   return {

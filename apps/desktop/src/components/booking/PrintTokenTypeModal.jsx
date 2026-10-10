@@ -3,6 +3,14 @@ import PropTypes from 'prop-types';
 import Button from '../ui/Button.jsx';
 import Modal from '../ui/Modal.jsx';
 
+function tokenChoiceVariant(printed) {
+  return printed ? 'primary' : 'ghost';
+}
+
+function tokenChoiceClassName(printed) {
+  return printed ? '' : 'bg-gray-200 text-gray-500 hover:bg-gray-300';
+}
+
 const PrintTokenTypeModal = ({
   isOpen,
   onClose,
@@ -19,6 +27,8 @@ const PrintTokenTypeModal = ({
   showBoth = false,
   showBill = false,
   requireExplicitClose = false,
+  productPrinted = false,
+  accessoryPrinted = false,
 }) => {
   const isDownload = mode === 'download';
   const title = isDownload ? 'Download tokens' : showBill ? 'Print documents' : 'Print token';
@@ -42,17 +52,32 @@ const PrintTokenTypeModal = ({
             Cancel
           </Button>
           {showProduct ? (
-            <Button variant="primary" onClick={onChooseProduct} loading={loading}>
+            <Button
+              variant={tokenChoiceVariant(productPrinted)}
+              className={tokenChoiceClassName(productPrinted)}
+              onClick={onChooseProduct}
+              loading={loading}
+            >
               Product-wise
             </Button>
           ) : null}
           {showProduct && onChooseAllProducts ? (
-            <Button variant="primary" onClick={onChooseAllProducts} loading={loading}>
+            <Button
+              variant={tokenChoiceVariant(productPrinted)}
+              className={tokenChoiceClassName(productPrinted)}
+              onClick={onChooseAllProducts}
+              loading={loading}
+            >
               All Products
             </Button>
           ) : null}
           {showAccessories ? (
-            <Button variant="primary" onClick={onChooseAccessories} loading={loading}>
+            <Button
+              variant={tokenChoiceVariant(accessoryPrinted)}
+              className={tokenChoiceClassName(accessoryPrinted)}
+              onClick={onChooseAccessories}
+              loading={loading}
+            >
               Accessories
             </Button>
           ) : null}
@@ -103,6 +128,8 @@ PrintTokenTypeModal.propTypes = {
   showBoth: PropTypes.bool,
   showBill: PropTypes.bool,
   requireExplicitClose: PropTypes.bool,
+  productPrinted: PropTypes.bool,
+  accessoryPrinted: PropTypes.bool,
 };
 
 export default PrintTokenTypeModal;

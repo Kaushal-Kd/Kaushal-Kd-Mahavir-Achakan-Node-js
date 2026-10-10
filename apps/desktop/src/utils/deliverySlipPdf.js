@@ -296,6 +296,7 @@ function measureFieldsHeight(doc, fields, innerWidth, layout) {
     }
 
     const maxFieldW = field.wrap ? maxW : innerWidth;
+    doc.setFont('helvetica', field.valueBold ? 'bold' : 'normal');
     const lines = field.wrap ? wrapPlain(doc, field.value || '—', maxFieldW).length || 1 : 1;
     h += lines * layout.lineHeightMm;
   }
@@ -366,7 +367,7 @@ function drawFields(doc, x, y, innerWidth, fields, layout) {
       continue;
     }
 
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('helvetica', field.valueBold ? 'bold' : 'normal');
     const display = field.value || '—';
 
     if (field.wrap) {
@@ -592,7 +593,8 @@ function tokenSlipSectionHtml(target, barcode, layout) {
       const value = field.richSegments
         ? accessorySegmentsHtml(field.richSegments)
         : escapeTokenHtml(field.value || '—');
-      return `<div class="row"><b>${escapeTokenHtml(field.label)}:</b><span>${value}</span></div>`;
+      const valueHtml = field.valueBold ? `<b>${value}</b>` : `<span>${value}</span>`;
+      return `<div class="row"><b>${escapeTokenHtml(field.label)}:</b>${valueHtml}</div>`;
     })
     .join('');
 

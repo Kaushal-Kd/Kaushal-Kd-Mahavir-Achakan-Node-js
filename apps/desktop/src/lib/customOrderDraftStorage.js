@@ -1,4 +1,8 @@
-import { formatCustomOrderProductsLabel, isCustomOrderItemFilled } from '@wrs/shared';
+import {
+  customOrderItemHasWorkshopData,
+  formatCustomOrderProductsLabel,
+  isCustomOrderItemFilled,
+} from '@wrs/shared';
 
 const LIST_KEY = 'wrs.custom_order_drafts_v1';
 const ACTIVE_KEY = 'wrs.custom_order_active_draft_id';
@@ -130,7 +134,9 @@ export function isSnapshotTriviallyEmpty(snapshot) {
   if (textFields.some((f) => String(values[f] ?? '').trim())) return false;
   if (values.given_to_tailor) return false;
   const items = Array.isArray(values.items) ? values.items : [];
-  if (items.some((item) => isCustomOrderItemFilled(item))) return false;
+  if (items.some((item) => isCustomOrderItemFilled(item) || customOrderItemHasWorkshopData(item))) {
+    return false;
+  }
 
   const measurements = values.measurements || {};
   if (Object.values(measurements).some((v) => String(v ?? '').trim())) return false;

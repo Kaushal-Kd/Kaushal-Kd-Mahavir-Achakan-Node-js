@@ -175,6 +175,10 @@ describe('token PDF page', () => {
       'Product token'
     );
     assert.match(html, /<b>Name:<\/b><span>Golden copper<\/span>/);
+    assert.match(html, /<b>Code:<\/b><b>P-2<\/b>/);
+    assert.match(html, /<b>Pickup:<\/b><b>/);
+    assert.match(html, /<b>Return:<\/b><b>/);
+    assert.match(html, /<b>Notes:<\/b><b>/);
     assert.doesNotMatch(html, /PRODUCT BARCODE/);
   });
 });

@@ -18,6 +18,7 @@ import {
   orderChecklistCombinedChargeBodySchema,
   orderChecklistCommandSchema,
   orderReassignSalesmanBodySchema,
+  orderMarkTokenPrintBodySchema,
 } from '@wrs/shared';
 
 import knex from '../../db/knex.js';
@@ -48,6 +49,7 @@ import {
   settleOrderDelivery,
   settleOrderReturn,
   applyChecklistCommand,
+  markOrderTokenPrinted,
 } from './service.js';
 import { verifyShopAdminPassword } from '../../utils/shopAdmin.js';
 
@@ -438,6 +440,18 @@ export default async function orderRoutes(fastify) {
       'UPDATE_SECURITY_STATUS',
       request.authUser
     );
+    return { ok: true, data };
+  });
+
+  fastify.post('/:id/token-print', async (request) => {
+    const body = validate(orderMarkTokenPrintBodySchema, request.body || {});
+    const data = await markOrderTokenPrinted(request.shopId, request.params.id, body.kind);
+    if (!data.already_printed) {
+      await request.audit('orders', 'TOKEN_PRINT', {
+        id: request.params.id,
+        new: { kind: body.kind },
+      });
+    }
     return { ok: true, data };
   });
 

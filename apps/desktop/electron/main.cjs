@@ -59,7 +59,13 @@ if (!gotLock) {
     // Auto-grant camera / microphone for barcode scanning so users aren't
     // prompted inside the Electron shell (we bundle our own UI for it).
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
-      if (permission === 'media' || permission === 'camera' || permission === 'microphone') {
+      if (
+        permission === 'media' ||
+        permission === 'camera' ||
+        permission === 'microphone' ||
+        permission === 'notifications' ||
+        permission === 'notification'
+      ) {
         cb(true);
         return;
       }
@@ -67,7 +73,13 @@ if (!gotLock) {
     });
     if (typeof session.defaultSession.setPermissionCheckHandler === 'function') {
       session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
-        return permission === 'media' || permission === 'camera' || permission === 'microphone';
+        return (
+          permission === 'media' ||
+          permission === 'camera' ||
+          permission === 'microphone' ||
+          permission === 'notifications' ||
+          permission === 'notification'
+        );
       });
     }
 

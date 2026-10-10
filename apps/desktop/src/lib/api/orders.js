@@ -24,6 +24,7 @@ export const ordersApi = {
   setSecurityStatus: (id, payload) =>
     api.post(`/orders/${id}/security-status`, payload).then(unwrap),
   cancel: (id, payload = {}) => api.post(`/orders/${id}/cancel`, payload).then(unwrap),
+  markTokenPrinted: (id, body) => api.post(`/orders/${id}/token-print`, body).then(unwrap),
   remove: async (id, body) => {
     try {
       const response = await api.delete(`/orders/${id}`, { data: body });

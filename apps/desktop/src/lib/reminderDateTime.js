@@ -54,6 +54,19 @@ export function reminderSortKey(row) {
   return `${date}T${time}`;
 }
 
+/**
+ * Epoch ms for the reminder's India wall-clock date + time (IST, UTC+05:30).
+ * @param {{ reminder_date?: string, reminder_time?: string|null }} row
+ * @returns {number|null}
+ */
+export function reminderDueAtMs(row) {
+  const key = reminderSortKey(row);
+  const match = key.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
+  if (!match) return null;
+  const ms = Date.parse(`${match[1]}T${match[2]}:00+05:30`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function reminderNowSortKey(referenceDate = new Date()) {
   const parts = getIndiaDateTimeParts(referenceDate);
   if (!parts) return '';

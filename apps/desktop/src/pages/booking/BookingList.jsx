@@ -55,7 +55,10 @@ import {
 import { useAdminDelete } from '../../hooks/useAdminDelete.js';
 import { authApi } from '../../lib/api/auth.js';
 import { getApiErrorMessage } from '../../lib/apiError.js';
-import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
+import {
+  invalidateOrderDomain,
+  invalidateOrderListQueries,
+} from '../../lib/queryInvalidation.js';
 import { bookingAlertRowClass } from '../../lib/damageReplacementAlert.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { ordersApi } from '../../lib/api/orders.js';
@@ -63,6 +66,10 @@ import {
   printBookingAccessoryTokens,
   printBookingProductTokens,
 } from '../../lib/bookingTokenPrint.js';
+import {
+  bookingTokenPrintIconClassName,
+  hasTokenPrintStamp,
+} from '../../lib/bookingTokenPrintStatus.js';
 import { getRowStageSelectOptions, stageFromOrderStatus } from '../../lib/orderListStage.js';
 import { bookingListMobileCard } from '../../lib/listMobileCards.jsx';
 import { useAuthStore } from '../../stores/authStore.js';
@@ -300,6 +307,7 @@ const BookingList = () => {
         await printBookingAccessoryTokens(order);
       }
       setTokenPrintTarget(null);
+      await invalidateOrderListQueries(queryClient);
     } catch (err) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not print token');
     } finally {
@@ -313,6 +321,7 @@ const BookingList = () => {
     try {
       await printBookingProductTokens(productTokenSelectionOrder, itemIds);
       setProductTokenSelectionOrder(null);
+      await invalidateOrderListQueries(queryClient);
     } catch (err) {
       toast.error(err?.message || 'Could not print selected product tokens');
     } finally {
@@ -632,7 +641,7 @@ const BookingList = () => {
                 size="sm"
                 icon={Tags}
                 iconOnly
-                className="rounded-none bg-brand-light/50 text-brand hover:bg-brand-light"
+                className={bookingTokenPrintIconClassName(r)}
                 title="Print token"
                 aria-label="Print token"
                 disabled={cancelled || busy || tokenBusy}
@@ -925,6 +934,8 @@ const BookingList = () => {
         onChooseAccessories={() => runTokenPrint('accessory')}
         loading={tokenPrintLoading}
         orderLabel={tokenPrintTarget?.order_number || tokenPrintTarget?.bill_no || ''}
+        productPrinted={hasTokenPrintStamp(tokenPrintTarget?.product_token_printed_at)}
+        accessoryPrinted={hasTokenPrintStamp(tokenPrintTarget?.accessory_token_printed_at)}
       />
       <ProductTokenSelectionModal
         isOpen={Boolean(productTokenSelectionOrder)}

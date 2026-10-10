@@ -179,8 +179,8 @@ export function buildAccessoryTokenSlipFields(target, fields) {
       { key: 'order', label: 'Order', value: pdfSafeText(target?.order_number || '') || '—' },
       { key: 'address', label: 'Address', value: address || '—', wrap: true },
       { key: 'customer', label: 'Customer', value: customerName || '—', wrap: true },
-      { key: 'pickup', label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—' },
-      { key: 'return', label: 'Return', value: formatSlipDate(target?.return_date) || '—' },
+      { key: 'pickup', label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—', valueBold: true },
+      { key: 'return', label: 'Return', value: formatSlipDate(target?.return_date) || '—', valueBold: true },
       {
         key: 'accessories',
         label: 'Acc',
@@ -256,11 +256,11 @@ export function buildProductTokenSlipFields(target, fields) {
     [
       { key: 'address', label: 'Address', value: address || '—', wrap: true },
       { key: 'order', label: 'Order', value: pdfSafeText(target?.order_number || '') || '—' },
-      { key: 'pickup', label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—' },
-      { key: 'return', label: 'Return', value: formatSlipDate(target?.return_date) || '—' },
-      { key: 'code', label: 'Code', value: productCode || '—' },
+      { key: 'pickup', label: 'Pickup', value: formatSlipDate(target?.pickup_date) || '—', valueBold: true },
+      { key: 'return', label: 'Return', value: formatSlipDate(target?.return_date) || '—', valueBold: true },
+      { key: 'code', label: 'Code', value: productCode || '—', valueBold: true },
       { key: 'name', label: 'Name', value: productName || '—', wrap: true },
-      { key: 'notes', label: 'Notes', value: bookingNotes || '—', wrap: true },
+      { key: 'notes', label: 'Notes', value: bookingNotes || '—', wrap: true, valueBold: true },
     ],
     fields,
     'product'

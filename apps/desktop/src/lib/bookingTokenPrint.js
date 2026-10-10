@@ -1,11 +1,19 @@
 import { toast } from '../stores/uiStore.js';
 import { getDefaultBillTemplate } from '../utils/printBill.js';
 
+import { ordersApi } from './api/orders.js';
 import {
   buildAccessoryTokenSlipTarget,
   buildProductTokenSlipTargets,
   enrichSlipOrderForTokens,
 } from './deliverySlipFormat.js';
+
+export {
+  bookingTokenPrintIconClassName,
+  hasTokenPrintStamp,
+  isBookingTokenFullyPrinted,
+  stampTokenPrintedLocally,
+} from './bookingTokenPrintStatus.js';
 
 function tokenPdfFilename(order, suffix) {
   const raw = String(order?.order_number || order?.bill_no || order?.id || 'booking').trim();
@@ -38,6 +46,15 @@ async function getTokenLayout() {
     bottomMarginMm: settings.token_margin_bottom_mm,
     tokenFields: settings.token_fields,
   };
+}
+
+async function markTokenPrinted(orderId, kind) {
+  if (!orderId) return;
+  try {
+    await ordersApi.markTokenPrinted(orderId, { kind });
+  } catch {
+    // Print already opened; list color may lag until the next refresh.
+  }
 }
 
 /**
@@ -76,11 +93,13 @@ export async function printBookingProductTokens(order, selectedItemIds = null) {
     : allProductTargets;
   if (!productTargets.length) {
     toast.warning('No product lines to print');
-    return;
+    return false;
   }
   const { printDeliverySlipPdf } = await import('../utils/deliverySlipPdf.js');
   await printDeliverySlipPdf(productTargets, 'Booking — Product tokens', await getTokenLayout());
+  await markTokenPrinted(order?.id, 'product');
   toast.success('Opening product tokens…');
+  return true;
 }
 
 /**
@@ -90,7 +109,7 @@ export async function printBookingAccessoryTokens(order) {
   const { accessoryTarget } = resolveTokenTargets(order);
   if (!accessoryTarget) {
     toast.warning('No pack-with-rent accessories to print');
-    return;
+    return false;
   }
   const { printAccessoryTokenSlipPdf } = await import('../utils/deliverySlipPdf.js');
   await printAccessoryTokenSlipPdf(
@@ -98,7 +117,9 @@ export async function printBookingAccessoryTokens(order) {
     'Booking — Accessory token',
     await getTokenLayout()
   );
+  await markTokenPrinted(order?.id, 'accessory');
   toast.success('Opening accessory token…');
+  return true;
 }
 
 /**

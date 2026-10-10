@@ -15,8 +15,12 @@ import {
   normalizeProductCode,
   toLocalISODate,
   computeCustomOrderTotals,
+  customOrderItemHasWorkshopData,
   customOrderItemsFromOrder,
+  isCustomOrderItemFilled,
+  normalizeCustomOrderItemWorkshop,
   primaryCustomOrderItemFields,
+  aggregateCustomOrderWorkshop,
   validateCustomOrderMeasurements,
   validateCustomOrderForCompletion,
   validateCustomOrderPaymentAccounts,
@@ -194,10 +198,22 @@ function buildListQb(shopId, query) {
   return qb;
 }
 
-async function assertMeasurementsValid(shopId, measurements) {
+async function assertItemsMeasurementsValid(shopId, body, items) {
   const defs = await listCustomOrderFieldDefinitions(shopId);
-  const v = validateCustomOrderMeasurements(defs, measurements);
-  if (!v.ok) throw badRequest(v.message);
+  const list = Array.isArray(items) && items.length ? items : [body];
+  const filled = list.filter((item) => isCustomOrderItemFilled(item));
+  const toCheck = filled.length ? filled : list.slice(0, 1);
+  for (let i = 0; i < toCheck.length; i++) {
+    const item = toCheck[i];
+    const measurements =
+      item?.measurements != null && typeof item.measurements === 'object'
+        ? item.measurements
+        : i === 0
+          ? body?.measurements || {}
+          : {};
+    const v = validateCustomOrderMeasurements(defs, measurements);
+    if (!v.ok) throw badRequest(v.message);
+  }
 }
 
 async function getGstDefaultRate(shopId) {
@@ -223,6 +239,18 @@ function mapCustomOrderItemRow(row) {
     linked_product_id: row.linked_product_id || null,
     generated_product_code: row.generated_product_code || null,
     display_order: Number(row.display_order || 0),
+    measurements: parseMeasurements(row.measurements),
+    given_to_tailor: !!row.given_to_tailor,
+    tailor_name: row.tailor_name || '',
+    tailor_date: mapSqlDateField(row.tailor_date),
+    trial_date: mapSqlDateField(row.trial_date),
+    trial_product:
+      row.trial_product != null && String(row.trial_product).trim()
+        ? String(row.trial_product).trim()
+        : '',
+    retrials: parseRetrials(row.retrials),
+    design_images: parseJsonArray(row.design_images),
+    trial_images: parseJsonArray(row.trial_images),
   };
 }
 
@@ -253,7 +281,10 @@ async function attachCustomOrderItems(shopId, orders) {
   );
   for (const order of list) {
     const saved = itemsByOrder.get(String(order.id));
-    order.items = saved && saved.length ? saved : customOrderItemsFromOrder(order);
+    order.items = customOrderItemsFromOrder({
+      ...order,
+      items: saved && saved.length ? saved : undefined,
+    });
   }
   return Array.isArray(orders) ? list : list[0];
 }
@@ -265,6 +296,20 @@ function isUuid(value) {
   return UUID_RE.test(String(value || '').trim());
 }
 
+function parentWorkshopFromBody(body, existing = null) {
+  return normalizeCustomOrderItemWorkshop({
+    measurements: body?.measurements ?? existing?.measurements,
+    given_to_tailor: body?.given_to_tailor ?? existing?.given_to_tailor,
+    tailor_name: body?.tailor_name ?? existing?.tailor_name,
+    tailor_date: body?.tailor_date ?? existing?.tailor_date,
+    trial_date: body?.trial_date ?? existing?.trial_date,
+    trial_product: body?.trial_product ?? existing?.trial_product,
+    retrials: body?.retrials ?? existing?.retrials,
+    design_images: body?.design_images ?? existing?.design_images,
+    trial_images: body?.trial_images ?? existing?.trial_images,
+  });
+}
+
 function itemsFromBody(body, existing = null) {
   if (Array.isArray(body?.items)) {
     const existingById = new Map(
@@ -272,35 +317,72 @@ function itemsFromBody(body, existing = null) {
         .filter((item) => isUuid(item?.id))
         .map((item) => [String(item.id), item])
     );
-    return body.items.map((item) => {
+    const parentWorkshop = parentWorkshopFromBody(body, existing);
+    return body.items.map((item, index) => {
       const prev = isUuid(item?.id) ? existingById.get(String(item.id)) : null;
-      return {
+      const merged = {
+        ...prev,
         ...item,
         linked_product_id: item.linked_product_id || prev?.linked_product_id || null,
         generated_product_code: item.generated_product_code || prev?.generated_product_code || null,
       };
+      if (customOrderItemHasWorkshopData(merged)) {
+        return { ...merged, ...normalizeCustomOrderItemWorkshop(merged) };
+      }
+      if (index === 0) {
+        return { ...merged, ...parentWorkshop };
+      }
+      if (prev && customOrderItemHasWorkshopData(prev)) {
+        return { ...merged, ...normalizeCustomOrderItemWorkshop(prev) };
+      }
+      return { ...merged, ...normalizeCustomOrderItemWorkshop(merged) };
     });
   }
-  if (existing?.items) return existing.items;
-  return customOrderItemsFromOrder({ ...existing, ...body });
+  const base = existing?.items?.length
+    ? existing.items
+    : customOrderItemsFromOrder({ ...existing, ...body });
+  const workshopPatch = {};
+  if (body?.measurements != null) workshopPatch.measurements = body.measurements;
+  if (body?.given_to_tailor !== undefined) workshopPatch.given_to_tailor = body.given_to_tailor;
+  if (body?.tailor_name !== undefined) workshopPatch.tailor_name = body.tailor_name;
+  if (body?.tailor_date !== undefined) workshopPatch.tailor_date = body.tailor_date;
+  if (body?.trial_date !== undefined) workshopPatch.trial_date = body.trial_date;
+  if (body?.trial_product !== undefined) workshopPatch.trial_product = body.trial_product;
+  if (body?.retrials != null) workshopPatch.retrials = body.retrials;
+  if (body?.design_images != null) workshopPatch.design_images = body.design_images;
+  if (body?.trial_images != null) workshopPatch.trial_images = body.trial_images;
+  if (!Object.keys(workshopPatch).length) return base;
+  return base.map((item, index) => (index === 0 ? { ...item, ...workshopPatch } : item));
 }
 
 async function replaceCustomOrderItems(trx, shopId, orderId, items) {
   await trx('custom_order_items').where({ shop_id: shopId, custom_order_id: orderId }).del();
   const list = Array.isArray(items) ? items : [];
-  const rows = list.map((item, index) => ({
-    id: isUuid(item.id) ? String(item.id).trim() : uuid(),
-    shop_id: shopId,
-    custom_order_id: orderId,
-    design_name: String(item.design_name || '').trim() || null,
-    category_id: item.category_id || null,
-    product_name: String(item.product_name || '').trim() || null,
-    color: String(item.color || '').trim() || null,
-    size: String(item.size || '').trim() || null,
-    linked_product_id: item.linked_product_id || null,
-    generated_product_code: item.generated_product_code || null,
-    display_order: Number(item.display_order ?? index) || 0,
-  }));
+  const rows = list.map((item, index) => {
+    const workshop = normalizeCustomOrderItemWorkshop(item);
+    return {
+      id: isUuid(item.id) ? String(item.id).trim() : uuid(),
+      shop_id: shopId,
+      custom_order_id: orderId,
+      design_name: String(item.design_name || '').trim() || null,
+      category_id: item.category_id || null,
+      product_name: String(item.product_name || '').trim() || null,
+      color: String(item.color || '').trim() || null,
+      size: String(item.size || '').trim() || null,
+      linked_product_id: item.linked_product_id || null,
+      generated_product_code: item.generated_product_code || null,
+      display_order: Number(item.display_order ?? index) || 0,
+      measurements: JSON.stringify(normalizeCustomOrderMeasurements(workshop.measurements)),
+      given_to_tailor: workshop.given_to_tailor,
+      tailor_name: workshop.given_to_tailor ? workshop.tailor_name || null : null,
+      tailor_date: workshop.given_to_tailor ? workshop.tailor_date || null : null,
+      trial_date: workshop.trial_date || null,
+      trial_product: workshop.trial_product || null,
+      retrials: JSON.stringify(normalizeCustomOrderRetrials(workshop.retrials)),
+      design_images: JSON.stringify(workshop.design_images || []),
+      trial_images: JSON.stringify(workshop.trial_images || []),
+    };
+  });
   if (rows.length) await trx('custom_order_items').insert(rows);
   return rows;
 }
@@ -314,6 +396,16 @@ function applyPrimaryItemSnapshot(patch, items) {
   patch.size = primary.size;
   patch.linked_product_id = primary.linked_product_id;
   patch.generated_product_code = primary.generated_product_code;
+  const workshop = aggregateCustomOrderWorkshop(items);
+  patch.given_to_tailor = workshop.given_to_tailor;
+  patch.tailor_name = workshop.given_to_tailor ? workshop.tailor_name || null : null;
+  patch.tailor_date = workshop.given_to_tailor ? workshop.tailor_date || null : null;
+  patch.trial_date = workshop.trial_date || null;
+  patch.trial_product = workshop.trial_product || null;
+  patch.retrials = JSON.stringify(normalizeCustomOrderRetrials(workshop.retrials));
+  patch.measurements = JSON.stringify(normalizeCustomOrderMeasurements(workshop.measurements));
+  patch.design_images = JSON.stringify(workshop.design_images || []);
+  patch.trial_images = JSON.stringify(workshop.trial_images || []);
   return patch;
 }
 
@@ -492,7 +584,8 @@ export async function getCustomOrder(shopId, id) {
 }
 
 export async function createCustomOrder(shopId, body, userId) {
-  await assertMeasurementsValid(shopId, body.measurements || {});
+  const items = itemsFromBody(body);
+  await assertItemsMeasurementsValid(shopId, body, items);
 
   if (body.status === 'completed') {
     const v = validateCustomOrderForCompletion(body);
@@ -501,8 +594,6 @@ export async function createCustomOrder(shopId, body, userId) {
 
   const paymentAccounts = validateCustomOrderPaymentAccounts(body);
   if (!paymentAccounts.ok) throw badRequest(paymentAccounts.message);
-
-  const items = itemsFromBody(body);
   const id = await knex.transaction(async (trx) => {
     const cfg = await loadDocumentTypeNumbering(trx, shopId, 'custom_order');
     const seq = await nextCustomOrderSequence(
@@ -541,11 +632,8 @@ export async function updateCustomOrder(shopId, id, body, userId) {
     throw badRequest('Cancelled orders cannot be edited');
   }
 
-  if (body.measurements != null) {
-    await assertMeasurementsValid(shopId, body.measurements);
-  }
-
   const items = itemsFromBody(body, existing);
+  await assertItemsMeasurementsValid(shopId, { ...existing, ...body }, items);
   const nextStatus = body.status ?? existing.status;
   const becomingCompleted = nextStatus === 'completed' && existing.status !== 'completed';
   if (becomingCompleted) {
@@ -657,8 +745,12 @@ export async function createProductFromCustomOrder(shopId, customOrderId, userId
 
   const code = await allocateProductCodeForCustomOrder(shopId, categoryId, size, overrides);
 
-  const designImages = parseJsonArray(order.design_images);
-  const trialImages = parseJsonArray(order.trial_images);
+  const designImages = parseJsonArray(item.design_images).length
+    ? parseJsonArray(item.design_images)
+    : parseJsonArray(order.design_images);
+  const trialImages = parseJsonArray(item.trial_images).length
+    ? parseJsonArray(item.trial_images)
+    : parseJsonArray(order.trial_images);
   const defaultPhotos = [...designImages, ...trialImages].filter(Boolean);
   const photos =
     overrides.photos != null ? parseJsonArray(overrides.photos) : defaultPhotos;

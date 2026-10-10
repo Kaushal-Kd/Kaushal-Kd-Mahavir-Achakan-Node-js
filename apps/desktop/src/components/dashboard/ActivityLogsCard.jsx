@@ -5,15 +5,19 @@ import {
   formatDateTime,
   hasPermission,
   MODULES,
+  todayIndiaISODate,
 } from '@wrs/shared';
 import clsx from 'clsx';
 import { CalendarCheck, ClipboardList, CreditCard, Undo2 } from 'lucide-react';
 import PropTypes from 'prop-types';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { dashboardApi } from '../../lib/api/dashboard.js';
+import { normalizeDateRange } from '../../lib/dateRangePicker.js';
 import { useAuthStore } from '../../stores/authStore.js';
 import Card from '../ui/Card.jsx';
+import DateRangePicker from '../ui/DateRangePicker.jsx';
 import Skeleton from '../ui/Skeleton.jsx';
 
 const KIND_META = {
@@ -100,10 +104,16 @@ export default function ActivityLogsCard() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const canViewAuditLogs = hasPermission(user, MODULES.AUDIT_LOGS, ACTIONS.VIEW);
+  const today = todayIndiaISODate();
+  const [range, setRange] = useState(() => ({ from: today, to: today }));
+  const applied = normalizeDateRange(range.from || today, range.to || today);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['dashboard', 'activity'],
-    queryFn: () => dashboardApi.activity({ limit: 25 }).then((r) => r.data),
+    queryKey: ['dashboard', 'activity', applied.from, applied.to],
+    queryFn: () =>
+      dashboardApi
+        .activity({ limit: 50, from: applied.from, to: applied.to })
+        .then((r) => r.data),
     refetchOnMount: 'always',
   });
 
@@ -123,17 +133,28 @@ export default function ActivityLogsCard() {
       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Activity Logs</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Recent bookings, payments, and updates</p>
+          <p className="text-xs text-gray-500 mt-0.5">Bookings, payments, and updates</p>
         </div>
-        {canViewAuditLogs ? (
-          <button
-            type="button"
-            onClick={() => navigate('/settings/system-logs')}
-            className="text-xs font-medium text-brand hover:underline"
-          >
-            View all logs
-          </button>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <DateRangePicker
+            id="activity-logs-date-range"
+            from={applied.from}
+            to={applied.to}
+            onChange={setRange}
+            className="w-[13.5rem]"
+            inputClassName="h-8 py-1 px-2 text-[11px] pr-8"
+            panelAlign="end"
+          />
+          {canViewAuditLogs ? (
+            <button
+              type="button"
+              onClick={() => navigate('/settings/system-logs')}
+              className="text-xs font-medium text-brand hover:underline"
+            >
+              View all logs
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {isLoading ? (
@@ -145,7 +166,9 @@ export default function ActivityLogsCard() {
       ) : isError ? (
         <div className="text-sm text-gray-500 py-6 text-center">Could not load activity logs.</div>
       ) : stream.length === 0 ? (
-        <div className="text-sm text-gray-500 py-6 text-center">No recent activity.</div>
+        <div className="text-sm text-gray-500 py-6 text-center">
+          {applied.from === applied.to ? 'No activity for this date.' : 'No activity in this date range.'}
+        </div>
       ) : (
         <div
           className={clsx(

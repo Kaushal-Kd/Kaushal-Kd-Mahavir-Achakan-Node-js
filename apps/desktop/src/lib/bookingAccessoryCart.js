@@ -766,6 +766,12 @@ export function linePairOffset(line) {
 }
 
 function comparePairGroupMembers(a, b) {
+  const group = String(a?.pair_group_id || b?.pair_group_id || '').trim();
+  if (group) {
+    const aMain = String(a?.product_id || '') === group;
+    const bMain = String(b?.product_id || '') === group;
+    if (aMain !== bMain) return aMain ? -1 : 1;
+  }
   const offsetDiff = linePairOffset(a) - linePairOffset(b);
   if (offsetDiff !== 0) return offsetDiff;
   const orderDiff = Number(a?.display_order ?? 0) - Number(b?.display_order ?? 0);

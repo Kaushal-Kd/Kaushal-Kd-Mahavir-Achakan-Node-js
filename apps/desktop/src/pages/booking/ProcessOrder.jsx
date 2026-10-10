@@ -64,6 +64,10 @@ import {
   printBookingProductTokens,
 } from '../../lib/bookingTokenPrint.js';
 import {
+  hasTokenPrintStamp,
+  stampTokenPrintedLocally,
+} from '../../lib/bookingTokenPrintStatus.js';
+import {
   clearTokenDownloadPrompt,
   readTokenDownloadPrompt,
 } from '../../lib/bookingTokenDownloadPrompt.js';
@@ -71,7 +75,10 @@ import { STAGES_WITH_CANCEL, stageFromOrderStatus } from '../../lib/orderListSta
 import { runStageTemplateWhatsApp } from '../../lib/whatsappOutbound.js';
 import { paymentAccountsApi } from '../../lib/api/paymentAccounts.js';
 import { securityAccountsApi } from '../../lib/api/securityAccounts.js';
-import { invalidateOrderDomain } from '../../lib/queryInvalidation.js';
+import {
+  invalidateOrderDomain,
+  invalidateOrderListQueries,
+} from '../../lib/queryInvalidation.js';
 import { useAuthStore } from '../../stores/authStore.js';
 import { toast } from '../../stores/uiStore.js';
 import { printBill } from '../../utils/printBill.js';
@@ -192,6 +199,17 @@ const ProcessOrder = () => {
     }
   };
 
+  const rememberTokenPrinted = (order, kind) => {
+    const stamped = stampTokenPrintedLocally(order, kind);
+    setTokenDownloadOrder((prev) => (prev ? stampTokenPrintedLocally(prev, kind) : prev));
+    if (stamped?.id) {
+      queryClient.setQueryData(['order', stamped.id], (old) =>
+        old ? stampTokenPrintedLocally(old, kind) : old
+      );
+    }
+    void invalidateOrderListQueries(queryClient);
+  };
+
   const runTokenPrint = async (kind) => {
     if (!tokenDownloadOrder) return;
     setTokenDownloadLoading(true);
@@ -204,8 +222,13 @@ const ProcessOrder = () => {
         clearTokenDownloadPrompt();
         return;
       }
-      if (kind === 'product-all') await printBookingProductTokens(order);
-      else await printBookingAccessoryTokens(order);
+      if (kind === 'product-all') {
+        const printed = await printBookingProductTokens(order);
+        if (printed) rememberTokenPrinted(order, 'product');
+      } else {
+        const printed = await printBookingAccessoryTokens(order);
+        if (printed) rememberTokenPrinted(order, 'accessory');
+      }
     } catch (err) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not print tokens');
     } finally {
@@ -217,7 +240,8 @@ const ProcessOrder = () => {
     if (!productTokenSelectionOrder) return;
     setTokenDownloadLoading(true);
     try {
-      await printBookingProductTokens(productTokenSelectionOrder, itemIds);
+      const printed = await printBookingProductTokens(productTokenSelectionOrder, itemIds);
+      if (printed) rememberTokenPrinted(productTokenSelectionOrder, 'product');
       setProductTokenSelectionOrder(null);
     } catch (err) {
       toast.error(err?.message || 'Could not print selected product tokens');
@@ -443,6 +467,8 @@ const ProcessOrder = () => {
       showProduct={tokenAvailability.hasProduct}
       showAccessories={tokenAvailability.hasAccessory}
       showBill
+      productPrinted={hasTokenPrintStamp(tokenOrderForSlips?.product_token_printed_at)}
+      accessoryPrinted={hasTokenPrintStamp(tokenOrderForSlips?.accessory_token_printed_at)}
     />
   );
 

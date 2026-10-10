@@ -6,6 +6,7 @@ import {
   mergePairSuggestions,
   pickProductsForPairLookup,
   relatedToSuggestionRow,
+  resolveBookingAddPrimary,
 } from './productPairSuggestions.js';
 
 describe('pickProductsForPairLookup', () => {
@@ -79,6 +80,21 @@ describe('mergePairSuggestions', () => {
       merged.map((p) => p.id),
       ['p1', 'p2']
     );
+  });
+
+  it('moves a mapped pair that ranked above the main product to sit under it', () => {
+    const ang = { id: 'p1', code: 'A-0634[34]', name: 'ANGRAKHU-634[34]' };
+    const pair = { id: 'p2', code: 'AA-0634[34]', name: 'ANGRAKHA ANARKALI AA-634[34]' };
+    const merged = mergePairSuggestions(
+      [pair, ang],
+      new Map([['p1', [{ id: 'p2', code: 'AA-0634[34]', suggested_as_pair: true }]]])
+    );
+    assert.deepEqual(
+      merged.map((p) => p.code),
+      ['A-0634[34]', 'AA-0634[34]']
+    );
+    assert.equal(merged[1].suggested_as_pair, true);
+    assert.equal(merged[1].pair_of_product_id, 'p1');
   });
 });
 
@@ -169,5 +185,29 @@ describe('loadPairSuggestionsForMatches', () => {
     assert.equal(merged[1].id, 'p2');
     assert.equal(merged[1].suggested_as_pair, true);
     assert.equal(merged[1].code, 'AA-0629[36]');
+  });
+});
+
+describe('resolveBookingAddPrimary', () => {
+  const ang = { id: 'p1', code: 'A-0634[34]', name: 'ANGRAKHU-634[34]' };
+  const pair = {
+    id: 'p2',
+    code: 'AA-0634[34]',
+    name: 'ANGRAKHA ANARKALI',
+    suggested_as_pair: true,
+    pair_of_product_id: 'p1',
+    pair_of_code: 'A-0634[34]',
+  };
+
+  it('keeps the selected main product', () => {
+    assert.equal(resolveBookingAddPrimary(ang, [ang, pair], 'A-0634[34]'), ang);
+  });
+
+  it('promotes the main product when a mapped pair is clicked', () => {
+    assert.equal(resolveBookingAddPrimary(pair, [ang, pair], 'A-0634').id, 'p1');
+  });
+
+  it('keeps the pair when its code was typed exactly', () => {
+    assert.equal(resolveBookingAddPrimary(pair, [ang, pair], 'AA-0634[34]'), pair);
   });
 });

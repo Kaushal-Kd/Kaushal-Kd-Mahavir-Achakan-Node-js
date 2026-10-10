@@ -70,4 +70,32 @@ describe('sortLinesForBookingTable pair order', () => {
       ['A-0629[36]', 'AA-0629[36]']
     );
   });
+
+  it('keeps the mapped inner product under the main product whose id is the pair group', () => {
+    const group = 'main-angrakhu';
+    const sorted = sortLinesForBookingTable([
+      {
+        line_id: 'inner',
+        product_id: 'aa',
+        code_snapshot: 'AA-0634[34]',
+        display_order: 10,
+        pair_group_id: group,
+        pair_offset: 0,
+        accessories: [],
+      },
+      {
+        line_id: 'main',
+        product_id: group,
+        code_snapshot: 'A-0634[34]',
+        display_order: 20,
+        pair_group_id: group,
+        pair_offset: 1,
+        accessories: [],
+      },
+    ]);
+    assert.deepEqual(
+      sorted.map((l) => l.code_snapshot),
+      ['A-0634[34]', 'AA-0634[34]']
+    );
+  });
 });

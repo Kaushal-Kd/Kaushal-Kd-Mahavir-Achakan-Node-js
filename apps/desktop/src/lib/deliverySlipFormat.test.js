@@ -43,7 +43,12 @@ test('product tokens show booking notes and exclude catalog remarks', () => {
   });
 
   assert.equal(fields.find((field) => field.label === 'Notes')?.value, 'Shorten sleeves');
+  assert.equal(fields.find((field) => field.label === 'Notes')?.valueBold, true);
   assert.equal(fields.find((field) => field.label === 'Name')?.value, 'Marun sherwani');
+  assert.equal(fields.find((field) => field.key === 'code')?.valueBold, true);
+  assert.equal(fields.find((field) => field.key === 'pickup')?.valueBold, true);
+  assert.equal(fields.find((field) => field.key === 'return')?.valueBold, true);
+  assert.equal(fields.find((field) => field.key === 'name')?.valueBold, undefined);
   assert.equal(
     fields.some((field) => field.label === 'Product remarks'),
     false

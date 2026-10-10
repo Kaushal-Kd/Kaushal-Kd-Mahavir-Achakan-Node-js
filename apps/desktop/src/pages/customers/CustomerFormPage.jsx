@@ -3,13 +3,17 @@ import { phoneInputDigits, validateFields } from '@wrs/shared';
 import clsx from 'clsx';
 import { ArrowLeft, ImagePlus, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import PreviewableUploadThumb from '../../components/ui/PreviewableUploadThumb.jsx';
 import { customersApi } from '../../lib/api/customers.js';
+import {
+  applyBookingContactToCustomerForm,
+  normalizeWhatsappSource,
+} from '../../lib/bookingCustomerHydration.js';
 import { uploadToGCS } from '../../services/gcsUpload.js';
 import {
   isImageCropCancelled,
@@ -65,9 +69,11 @@ const CustomerFormPage = () => {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const returnTo = searchParams.get('returnTo') || '';
+  const bookingContact = location.state?.bookingContact || null;
 
   const [values, setValues] = useState(empty);
   const [errors, setErrors] = useState({});
@@ -85,15 +91,16 @@ const CustomerFormPage = () => {
   });
 
   const initialValues = useMemo(() => {
-    if (isEdit && existing?.data) {
-      return {
-        ...empty,
-        ...existing.data,
-        photo_url: existing.data.photo_url || '',
-      };
-    }
-    return empty;
-  }, [isEdit, existing]);
+    const base =
+      isEdit && existing?.data
+        ? {
+            ...empty,
+            ...existing.data,
+            photo_url: existing.data.photo_url || '',
+          }
+        : empty;
+    return applyBookingContactToCustomerForm(base, bookingContact);
+  }, [isEdit, existing, bookingContact]);
 
   useEffect(() => {
     setValues(initialValues);
@@ -103,8 +110,12 @@ const CustomerFormPage = () => {
       phoneInputDigits(initialValues.phone1).length > 0 &&
         phoneInputDigits(initialValues.phone1) === phoneInputDigits(initialValues.phone2)
     );
-    setWhatsappSource(inferWhatsappSource(initialValues));
-  }, [initialValues]);
+    setWhatsappSource(
+      bookingContact?.whatsapp_source
+        ? normalizeWhatsappSource(bookingContact.whatsapp_source)
+        : inferWhatsappSource(initialValues)
+    );
+  }, [initialValues, bookingContact]);
 
   useEffect(() => {
     if (!phone2SameAsPhone1) return;

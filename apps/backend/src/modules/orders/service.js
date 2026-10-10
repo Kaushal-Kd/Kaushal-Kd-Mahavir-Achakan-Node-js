@@ -571,6 +571,10 @@ const LIST_ORDER_PRODUCT_QTY_SQL =
 const LIST_ORDER_ACCESSORY_QTY_SQL =
   '(COALESCE((SELECT SUM(qty) FROM order_accessories WHERE order_accessories.order_id = o.id), 0)) AS accessory_qty';
 
+/** Order list: pack-with-rent accessories are the ones that get accessory tokens. */
+const LIST_ORDER_HAS_PACK_ACCESSORY_TOKEN_SQL =
+  `(EXISTS (SELECT 1 FROM order_accessories oa_tok WHERE oa_tok.order_id = o.id AND oa_tok.given_status = 'pack_with_rent')) AS has_pack_accessory_token`;
+
 const ORDER_LIST_CUSTOMER_PHONE_SQL =
   "COALESCE(NULLIF(TRIM(o.contact_phone1), ''), c.phone1) as customer_phone";
 const ORDER_LIST_CUSTOMER_PHONE2_SQL =
@@ -701,6 +705,7 @@ export async function listOrders(shopId, query) {
       ),
       knex.raw(LIST_ORDER_PRODUCT_QTY_SQL),
       knex.raw(LIST_ORDER_ACCESSORY_QTY_SQL),
+      knex.raw(LIST_ORDER_HAS_PACK_ACCESSORY_TOKEN_SQL),
       knex.raw(
         `(SELECT MAX(oi.received_at) FROM order_items oi WHERE oi.order_id = o.id) AS items_received_at`
       )
@@ -735,6 +740,7 @@ export async function listOrders(shopId, query) {
       ),
       knex.raw(LIST_ORDER_PRODUCT_QTY_SQL),
       knex.raw(LIST_ORDER_ACCESSORY_QTY_SQL),
+      knex.raw(LIST_ORDER_HAS_PACK_ACCESSORY_TOKEN_SQL),
       knex.raw(
         `(SELECT MAX(oi.received_at) FROM order_items oi WHERE oi.order_id = o.id) AS items_received_at`
       )
@@ -1492,6 +1498,53 @@ async function attachOrderItemsLineAvailability(shopId, order, items, db = knex)
     i.return_date = order.return_date;
   }
   await attachItemLineAvailability(shopId, items, db);
+}
+
+const TOKEN_PRINT_COLUMNS = {
+  product: 'product_token_printed_at',
+  accessory: 'accessory_token_printed_at',
+};
+
+/**
+ * Stamp first successful token print for products or pack-with-rent accessories.
+ * @param {string} shopId
+ * @param {string} orderId
+ * @param {'product'|'accessory'} kind
+ */
+export async function markOrderTokenPrinted(shopId, orderId, kind) {
+  const column = TOKEN_PRINT_COLUMNS[kind];
+  if (!column) throw badRequest('Invalid token print kind');
+
+  const row = await knex('orders')
+    .where({ id: orderId, shop_id: shopId, is_deleted: false })
+    .select('id', 'product_token_printed_at', 'accessory_token_printed_at')
+    .first();
+  if (!row) throw notFound('Order not found');
+
+  if (row[column]) {
+    return {
+      product_token_printed_at: row.product_token_printed_at,
+      accessory_token_printed_at: row.accessory_token_printed_at,
+      already_printed: true,
+    };
+  }
+
+  const now = knex.fn.now();
+  await knex('orders').where({ id: orderId, shop_id: shopId }).update({
+    [column]: now,
+    updated_at: now,
+  });
+
+  const updated = await knex('orders')
+    .where({ id: orderId, shop_id: shopId })
+    .select('product_token_printed_at', 'accessory_token_printed_at')
+    .first();
+
+  return {
+    product_token_printed_at: updated?.product_token_printed_at ?? null,
+    accessory_token_printed_at: updated?.accessory_token_printed_at ?? null,
+    already_printed: false,
+  };
 }
 
 export async function getOrder(shopId, id) {

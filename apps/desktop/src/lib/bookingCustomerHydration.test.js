@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  applyBookingContactToCustomerForm,
   bookingCustomerContactSummary,
+  buildBookingContactForCustomerEdit,
+  emptyCustomerPatchFromBookingContact,
   hydrateBookingCustomerFields,
   inferWhatsappSource,
   normalizeWhatsappSource,
@@ -73,6 +76,45 @@ describe('hydrateBookingCustomerFields', () => {
     assert.equal(result.contactNo1, '9876543210');
     assert.equal(result.contactNo2, '9123456789');
     assert.equal(result.address, 'Customer addr');
+  });
+});
+
+describe('booking contact → Edit Customer', () => {
+  it('carries booking phones into the customer form when master is empty', () => {
+    const booking = buildBookingContactForCustomerEdit({
+      contactNo1: '8785456788',
+      contactNo2: '7657665650',
+      contact2Name: 'Father',
+      contactNo2SameAsPhone1: false,
+      address: 'Halvad',
+      whatsappSource: 'phone1',
+    });
+    assert.equal(booking.phone1, '8785456788');
+    assert.equal(booking.phone2, '7657665650');
+    const form = applyBookingContactToCustomerForm(
+      { name: 'sddds', phone1: '', phone2: '', address: '' },
+      booking
+    );
+    assert.equal(form.phone1, '8785456788');
+    assert.equal(form.phone2, '7657665650');
+    assert.equal(form.address, 'Halvad');
+  });
+
+  it('patches only empty customer-master phones', () => {
+    const booking = { phone1: '8785456788', phone2: '7657665650', address: 'Halvad' };
+    const patch = emptyCustomerPatchFromBookingContact(
+      { id: 'c1', name: 'sddds', phone1: '', phone2: '', address: '' },
+      booking
+    );
+    assert.equal(patch.phone1, '8785456788');
+    assert.equal(patch.phone2, '7657665650');
+    assert.equal(
+      emptyCustomerPatchFromBookingContact(
+        { id: 'c1', phone1: '9000000001', phone2: '', address: 'Keep' },
+        booking
+      ).phone1,
+      undefined
+    );
   });
 });
 

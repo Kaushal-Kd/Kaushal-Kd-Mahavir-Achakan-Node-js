@@ -16,4 +16,17 @@ describe('isSnapshotTriviallyEmpty', () => {
     });
     assert.equal(empty, false);
   });
+
+  it('keeps a draft that only has measurements on a second product', () => {
+    const empty = isSnapshotTriviallyEmpty({
+      values: {
+        customer_name: '',
+        items: [
+          { design_name: '', product_name: '' },
+          { measurements: { chest: '40' } },
+        ],
+      },
+    });
+    assert.equal(empty, false);
+  });
 });

@@ -8,8 +8,11 @@ import {
   formatDate,
   formatDateTime,
   hasPermission,
+  aggregateCustomOrderWorkshop,
   customOrderHasLinkedProduct,
   customOrderItemsFromOrder,
+  emptyCustomOrderItemWorkshop,
+  formatCustomOrderMeasurementsSummary,
   isCustomOrderItemFilled,
   nextUnlinkedCustomOrderItem,
   normalizeCustomOrderRetrials,
@@ -90,6 +93,7 @@ function newFormItem() {
     size: '',
     linked_product_id: null,
     generated_product_code: null,
+    ...emptyCustomOrderItemWorkshop(),
   };
 }
 
@@ -106,11 +110,24 @@ function formItemsFromOrder(order) {
     size: item.size || '',
     linked_product_id: item.linked_product_id || null,
     generated_product_code: item.generated_product_code || null,
+    measurements:
+      item.measurements && typeof item.measurements === 'object' ? item.measurements : {},
+    given_to_tailor: !!item.given_to_tailor,
+    tailor_name: item.tailor_name || '',
+    tailor_date: item.tailor_date || '',
+    trial_date: item.trial_date || '',
+    trial_product: item.trial_product || '',
+    retrials: Array.isArray(item.retrials)
+      ? item.retrials.map((r) => ({ date: r.date || '', notes: r.notes || '' }))
+      : [],
+    design_images: Array.isArray(item.design_images) ? item.design_images : [],
+    trial_images: Array.isArray(item.trial_images) ? item.trial_images : [],
   }));
 }
 
 function snapshotFirstItem(values, items) {
   const first = items[0] || newFormItem();
+  const workshop = aggregateCustomOrderWorkshop(items);
   return {
     ...values,
     items,
@@ -119,7 +136,28 @@ function snapshotFirstItem(values, items) {
     product_name: first.product_name || '',
     color: first.color || '',
     size: first.size || '',
+    measurements: workshop.measurements || {},
+    given_to_tailor: workshop.given_to_tailor,
+    tailor_name: workshop.tailor_name || '',
+    tailor_date: workshop.tailor_date || '',
+    trial_date: workshop.trial_date || '',
+    trial_product: workshop.trial_product || '',
+    retrials: workshop.retrials || [],
+    design_images: workshop.design_images || [],
+    trial_images: workshop.trial_images || [],
   };
+}
+
+function tailorSelectValueFor(item, tailors) {
+  const saved = String(item?.tailor_name || '').trim();
+  if (!saved) return '';
+  return tailors.some((t) => t.toLowerCase() === saved.toLowerCase()) ? saved : '';
+}
+
+function orphanTailorNameFor(item, tailors) {
+  const saved = String(item?.tailor_name || '').trim();
+  if (!saved) return '';
+  return tailors.some((t) => t.toLowerCase() === saved.toLowerCase()) ? '' : saved;
 }
 
 const emptyForm = () =>
@@ -276,6 +314,250 @@ const formGridClass =
 
 const compactInputClass = 'h-8 text-xs py-1 px-2';
 const compactSelectClass = 'h-8 text-xs py-1';
+const itemSectionTitleClass = 'text-xs font-semibold text-gray-800 mb-2';
+
+function CustomOrderProductWorkshop({
+  item,
+  index,
+  fieldDefs,
+  loadingFields,
+  errors,
+  readOnly,
+  tailors,
+  tailorsLoading,
+  onSetItem,
+  onSetMeasurement,
+  onSetRetrial,
+  onAddRetrial,
+  onRemoveRetrial,
+}) {
+  const tailorSelectValue = tailorSelectValueFor(item, tailors);
+  const orphanTailorName = orphanTailorNameFor(item, tailors);
+  const fieldErrors = errors || {};
+  const measurements = item.measurements || {};
+  const retrials = item.retrials || [];
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="rounded-md border border-gray-100 p-2.5">
+        <h3 className={itemSectionTitleClass}>
+          Measurements
+          {!loadingFields && fieldDefs.length > 0 ? (
+            <span className="ml-2 font-normal text-gray-500">({fieldDefs.length} fields)</span>
+          ) : null}
+        </h3>
+        {loadingFields ? (
+          <p className="text-xs text-gray-500">Loading fields…</p>
+        ) : fieldDefs.length === 0 ? (
+          <p className="text-xs text-gray-500">
+            No measurement fields configured. Add fields under Master → Custom order measurements.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-2 gap-y-2">
+            {fieldDefs.map((def) => {
+              const errKey = `items.${index}.measurements.${def.id}`;
+              const err = fieldErrors[errKey] || fieldErrors[`items.${index}.measurements._`];
+              return (
+                <div key={def.id}>
+                  <label className="label">
+                    {def.label}
+                    {def.unit ? ` (${def.unit})` : ''}
+                    {def.required ? <span className="text-red-500 ml-0.5">*</span> : null}
+                  </label>
+                  {def.field_type === 'number' ? (
+                    <NumberInput
+                      className={`input w-full text-sm ${compactInputClass}`}
+                      allowEmpty
+                      value={measurements[def.id] ?? ''}
+                      onChange={(e) => onSetMeasurement(index, def.id, e.target.value)}
+                      disabled={readOnly}
+                    />
+                  ) : (
+                    <input
+                      className={`input w-full text-sm ${compactInputClass}`}
+                      value={measurements[def.id] ?? ''}
+                      onChange={(e) => onSetMeasurement(index, def.id, e.target.value)}
+                      disabled={readOnly}
+                    />
+                  )}
+                  {err ? <p className="mt-1 text-xs text-red-600">{err}</p> : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-md border border-gray-100 p-2.5">
+        <h3 className={itemSectionTitleClass}>Tailor</h3>
+        <div className={formGridClass}>
+          <label className="col-span-2 sm:col-span-2 lg:col-span-3 flex items-center gap-1.5 pb-1 text-xs text-gray-700 whitespace-nowrap min-h-[2rem]">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-brand"
+              checked={!!item.given_to_tailor}
+              onChange={(e) => onSetItem(index, 'given_to_tailor', e.target.checked)}
+              disabled={readOnly}
+            />
+            Given to tailor
+          </label>
+          <div className="col-span-2 sm:col-span-2 lg:col-span-3">
+            {orphanTailorName ? (
+              <p className="mb-1 text-xs text-amber-700">
+                Saved tailor: {orphanTailorName} — add this name under Master → Tailors to select
+                it.
+              </p>
+            ) : null}
+            <Select
+              label="Tailor"
+              selectClassName={compactSelectClass}
+              value={tailorSelectValue}
+              onChange={(e) => onSetItem(index, 'tailor_name', e.target.value)}
+              options={[
+                { value: '', label: tailorsLoading ? 'Loading…' : 'Select tailor' },
+                ...tailors.map((t) => ({ value: t, label: t })),
+              ]}
+              disabled={readOnly || !item.given_to_tailor || tailorsLoading}
+              error={fieldErrors[`items.${index}.tailor_name`]}
+              hint={
+                !fieldErrors[`items.${index}.tailor_name`] &&
+                !tailorsLoading &&
+                tailors.length === 0 &&
+                item.given_to_tailor
+                  ? 'Add tailors under Master → Tailors.'
+                  : undefined
+              }
+            />
+          </div>
+          <Input
+            label="Tailor date"
+            type="date"
+            className="col-span-2 sm:col-span-1 lg:col-span-2"
+            inputClassName={compactInputClass}
+            value={item.tailor_date || ''}
+            onChange={(e) => onSetItem(index, 'tailor_date', e.target.value)}
+            disabled={readOnly || !item.given_to_tailor}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-md border border-gray-100 p-2.5">
+        <h3 className={itemSectionTitleClass}>Trial</h3>
+        <div className={formGridClass}>
+          <Input
+            label="Trial date"
+            type="date"
+            className="col-span-2 sm:col-span-2 lg:col-span-4"
+            inputClassName={compactInputClass}
+            value={item.trial_date || ''}
+            onChange={(e) => onSetItem(index, 'trial_date', e.target.value)}
+            disabled={readOnly}
+          />
+        </div>
+        <div className="mt-2 border-t border-gray-100 pt-2">
+          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1">
+            <span className="text-xs font-medium text-gray-700">Re-trials</span>
+            {!readOnly ? (
+              <Button type="button" variant="ghost" size="sm" icon={Plus} onClick={() => onAddRetrial(index)}>
+                Add re-trial
+              </Button>
+            ) : null}
+          </div>
+          {retrials.length === 0 ? (
+            <p className="text-xs text-gray-500">No re-trials added yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {retrials.map((row, retrialIndex) => (
+                <div key={retrialIndex} className={formGridClass}>
+                  <Input
+                    label="Date"
+                    type="date"
+                    className="col-span-2 sm:col-span-1 lg:col-span-2"
+                    inputClassName={compactInputClass}
+                    value={row.date}
+                    onChange={(e) => onSetRetrial(index, retrialIndex, 'date', e.target.value)}
+                    disabled={readOnly}
+                  />
+                  <Input
+                    label="Notes"
+                    className="col-span-2 sm:col-span-2 lg:col-span-9"
+                    inputClassName={compactInputClass}
+                    value={row.notes}
+                    onChange={(e) => onSetRetrial(index, retrialIndex, 'notes', e.target.value)}
+                    placeholder="Optional"
+                    disabled={readOnly}
+                  />
+                  {!readOnly ? (
+                    <div className="col-span-2 sm:col-span-4 lg:col-span-1 flex items-end justify-end pb-1">
+                      <button
+                        type="button"
+                        onClick={() => onRemoveRetrial(index, retrialIndex)}
+                        className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
+                        aria-label="Remove re-trial"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-md border border-gray-100 p-2.5">
+        <h3 className={itemSectionTitleClass}>Design & trial</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+          <div className="rounded-md border border-gray-200 bg-gray-50/40 p-2 min-w-0">
+            <MultiImageUploader
+              label="Design images"
+              folder="custom-orders/design"
+              value={item.design_images || []}
+              onChange={(urls) => onSetItem(index, 'design_images', urls)}
+              disabled={readOnly}
+            />
+          </div>
+          <div className="rounded-md border border-gray-200 bg-gray-50/40 p-2 min-w-0">
+            <MultiImageUploader
+              label="Customer trial images"
+              folder="custom-orders/trial"
+              value={item.trial_images || []}
+              onChange={(urls) => onSetItem(index, 'trial_images', urls)}
+              disabled={readOnly}
+            />
+          </div>
+          <div className="rounded-md border border-gray-200 bg-gray-50/40 p-2 min-w-0">
+            <Input
+              label="Trial product (code or name)"
+              value={item.trial_product || ''}
+              onChange={(e) => onSetItem(index, 'trial_product', e.target.value)}
+              placeholder="e.g. FA-0123 or product name"
+              disabled={readOnly}
+              inputClassName={compactInputClass}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+CustomOrderProductWorkshop.propTypes = {
+  item: PropTypes.object.isRequired,
+  index: PropTypes.number.isRequired,
+  fieldDefs: PropTypes.arrayOf(PropTypes.object).isRequired,
+  loadingFields: PropTypes.bool,
+  errors: PropTypes.object,
+  readOnly: PropTypes.bool,
+  tailors: PropTypes.arrayOf(PropTypes.string).isRequired,
+  tailorsLoading: PropTypes.bool,
+  onSetItem: PropTypes.func.isRequired,
+  onSetMeasurement: PropTypes.func.isRequired,
+  onSetRetrial: PropTypes.func.isRequired,
+  onAddRetrial: PropTypes.func.isRequired,
+  onRemoveRetrial: PropTypes.func.isRequired,
+};
 
 const CustomOrderFormPage = () => {
   const { id } = useParams();
@@ -366,19 +648,6 @@ const CustomOrderFormPage = () => {
   const colors = sortColorsAZ(colorsRes?.data?.items);
   const sizes = sizesRes?.data?.items || [];
   const tailors = tailorsRes?.data?.items || [];
-
-  const orphanTailorName = useMemo(() => {
-    const saved = values.tailor_name?.trim();
-    if (!saved) return '';
-    const inList = tailors.some((t) => t.toLowerCase() === saved.toLowerCase());
-    return inList ? '' : saved;
-  }, [values.tailor_name, tailors]);
-
-  const tailorSelectValue = useMemo(() => {
-    const saved = values.tailor_name?.trim();
-    if (!saved) return '';
-    return tailors.some((t) => t.toLowerCase() === saved.toLowerCase()) ? saved : '';
-  }, [values.tailor_name, tailors]);
 
   const effectiveContactNo2 = contactNo2SameAsPhone1
     ? values.customer_phone
@@ -509,33 +778,48 @@ const CustomOrderFormPage = () => {
     }
   };
 
-  const setMeasurement = (fieldKey, val) => {
-    setValues((v) => ({
-      ...v,
-      measurements: { ...v.measurements, [fieldKey]: val },
-    }));
-  };
-
-  const setRetrial = (index, key, val) => {
+  const setItemMeasurement = (index, fieldKey, val) => {
     setValues((v) => {
-      const next = [...(v.retrials || [])];
-      next[index] = { ...next[index], [key]: val };
-      return { ...v, retrials: next };
+      const items = [...(v.items || [])];
+      const item = items[index] || newFormItem();
+      items[index] = {
+        ...item,
+        measurements: { ...(item.measurements || {}), [fieldKey]: val },
+      };
+      return snapshotFirstItem(v, items);
     });
   };
 
-  const addRetrial = () => {
-    setValues((v) => ({
-      ...v,
-      retrials: [...(v.retrials || []), emptyRetrial()],
-    }));
+  const setItemRetrial = (itemIndex, retrialIndex, key, val) => {
+    setValues((v) => {
+      const items = [...(v.items || [])];
+      const item = items[itemIndex] || newFormItem();
+      const retrials = [...(item.retrials || [])];
+      retrials[retrialIndex] = { ...retrials[retrialIndex], [key]: val };
+      items[itemIndex] = { ...item, retrials };
+      return snapshotFirstItem(v, items);
+    });
   };
 
-  const removeRetrial = (index) => {
-    setValues((v) => ({
-      ...v,
-      retrials: (v.retrials || []).filter((_, i) => i !== index),
-    }));
+  const addItemRetrial = (itemIndex) => {
+    setValues((v) => {
+      const items = [...(v.items || [])];
+      const item = items[itemIndex] || newFormItem();
+      items[itemIndex] = { ...item, retrials: [...(item.retrials || []), emptyRetrial()] };
+      return snapshotFirstItem(v, items);
+    });
+  };
+
+  const removeItemRetrial = (itemIndex, retrialIndex) => {
+    setValues((v) => {
+      const items = [...(v.items || [])];
+      const item = items[itemIndex] || newFormItem();
+      items[itemIndex] = {
+        ...item,
+        retrials: (item.retrials || []).filter((_, i) => i !== retrialIndex),
+      };
+      return snapshotFirstItem(v, items);
+    });
   };
 
   const setDeliveryDate = (nextDelivery) => {
@@ -548,16 +832,10 @@ const CustomOrderFormPage = () => {
     });
   };
 
-  const measurementsSummary = useMemo(() => {
-    const lines = [];
-    for (const def of fieldDefs) {
-      const val = values.measurements?.[def.id];
-      const s = String(val ?? '').trim();
-      if (!s) continue;
-      lines.push(`${def.label}: ${s}${def.unit ? ` ${def.unit}` : ''}`);
-    }
-    return lines.join('; ');
-  }, [fieldDefs, values.measurements]);
+  const measurementsSummary = useMemo(
+    () => formatCustomOrderMeasurementsSummary(values, fieldDefs),
+    [fieldDefs, values]
+  );
 
   const getBlankCustomOrderSnapshot = useCallback(
     () => ({
@@ -752,10 +1030,6 @@ const CustomOrderFormPage = () => {
       customer_phone2: phoneInputDigits(effectiveContactNo2),
     };
     const fieldErrors = validateFields(check, RULES);
-    const m = validateCustomOrderMeasurements(fieldDefs, values.measurements || {});
-    if (!m.ok) {
-      fieldErrors['measurements.' + (m.field || '_')] = m.message;
-    }
     if (values.status === 'completed') {
       const cv = validateCustomOrderForCompletion({
         ...check,
@@ -773,14 +1047,18 @@ const CustomOrderFormPage = () => {
       if (!String(item.product_name || '').trim()) {
         fieldErrors[`items.${index}.product_name`] = 'Product name is required';
       }
+      const m = validateCustomOrderMeasurements(fieldDefs, item.measurements || {});
+      if (!m.ok) {
+        fieldErrors[`items.${index}.measurements.${m.field || '_'}`] = m.message;
+      }
+      if (item.given_to_tailor && !tailorSelectValueFor(item, tailors)) {
+        fieldErrors[`items.${index}.tailor_name`] =
+          tailors.length === 0 ? 'Add tailors under Master → Tailors' : 'Select a tailor';
+      }
     });
     if (requireFirst && !items.length) {
       fieldErrors['items.0.category_id'] = 'Category is required';
       fieldErrors['items.0.product_name'] = 'Product name is required';
-    }
-    if (values.given_to_tailor && !tailorSelectValue) {
-      fieldErrors.tailor_name =
-        tailors.length === 0 ? 'Add tailors under Master → Tailors' : 'Select a tailor';
     }
     if (
       values.delivery_date &&
@@ -813,8 +1091,18 @@ const CustomOrderFormPage = () => {
       color: item.color || null,
       size: item.size || null,
       display_order: index,
+      measurements: item.measurements || {},
+      given_to_tailor: !!item.given_to_tailor,
+      tailor_name: item.given_to_tailor ? item.tailor_name?.trim() || null : null,
+      tailor_date: item.given_to_tailor ? item.tailor_date || null : null,
+      trial_date: item.trial_date || null,
+      trial_product: item.trial_product?.trim() || null,
+      retrials: normalizeCustomOrderRetrials(item.retrials || []),
+      design_images: item.design_images || [],
+      trial_images: item.trial_images || [],
     }));
     const first = items[0] || {};
+    const workshop = aggregateCustomOrderWorkshop(items);
     return {
       status: values.status,
       customer_id: customer?.id || values.customer_id || null,
@@ -839,15 +1127,15 @@ const CustomOrderFormPage = () => {
       size: first.size || null,
       items,
       remarks: values.remarks?.trim() || null,
-      given_to_tailor: !!values.given_to_tailor,
-      tailor_name: values.given_to_tailor ? values.tailor_name?.trim() || null : null,
-      tailor_date: values.given_to_tailor ? values.tailor_date || null : null,
-      trial_date: values.trial_date || null,
-      trial_product: values.trial_product?.trim() || null,
-      retrials: normalizeCustomOrderRetrials(values.retrials || []),
-      measurements: values.measurements || {},
-      design_images: values.design_images || [],
-      trial_images: values.trial_images || [],
+      given_to_tailor: workshop.given_to_tailor,
+      tailor_name: workshop.given_to_tailor ? workshop.tailor_name || null : null,
+      tailor_date: workshop.given_to_tailor ? workshop.tailor_date || null : null,
+      trial_date: workshop.trial_date || null,
+      trial_product: workshop.trial_product || null,
+      retrials: normalizeCustomOrderRetrials(workshop.retrials || []),
+      measurements: workshop.measurements || {},
+      design_images: workshop.design_images || [],
+      trial_images: workshop.trial_images || [],
     };
   };
 
@@ -1527,209 +1815,23 @@ const CustomOrderFormPage = () => {
                     </div>
                   ) : null}
                 </div>
+                <CustomOrderProductWorkshop
+                  item={item}
+                  index={index}
+                  fieldDefs={fieldDefs}
+                  loadingFields={loadingFields}
+                  errors={errors}
+                  readOnly={readOnly}
+                  tailors={tailors}
+                  tailorsLoading={tailorsLoading}
+                  onSetItem={setItem}
+                  onSetMeasurement={setItemMeasurement}
+                  onSetRetrial={setItemRetrial}
+                  onAddRetrial={addItemRetrial}
+                  onRemoveRetrial={removeItemRetrial}
+                />
               </div>
             ))}
-          </div>
-        </section>
-
-        <section className="card p-3">
-          <h2 className={sectionTitleClass}>
-            Measurements
-            {!loadingFields && fieldDefs.length > 0 ? (
-              <span className="ml-2 font-normal text-gray-500">({fieldDefs.length} fields)</span>
-            ) : null}
-          </h2>
-          {loadingFields ? (
-            <p className="text-xs text-gray-500">Loading fields…</p>
-          ) : fieldDefs.length === 0 ? (
-            <p className="text-xs text-gray-500">
-              No measurement fields configured. Add fields under Master → Custom order measurements.
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-2 gap-y-2">
-              {fieldDefs.map((def) => {
-                const errKey = `measurements.${def.id}`;
-                const err = errors[errKey] || errors['measurements._'];
-                return (
-                  <div key={def.id}>
-                    <label className="label">
-                      {def.label}
-                      {def.unit ? ` (${def.unit})` : ''}
-                      {def.required ? <span className="text-red-500 ml-0.5">*</span> : null}
-                    </label>
-                    {def.field_type === 'number' ? (
-                      <NumberInput
-                        className={`input w-full text-sm ${compactInputClass}`}
-                        allowEmpty
-                        value={values.measurements?.[def.id] ?? ''}
-                        onChange={(e) => setMeasurement(def.id, e.target.value)}
-                        disabled={readOnly}
-                      />
-                    ) : (
-                      <input
-                        className={`input w-full text-sm ${compactInputClass}`}
-                        value={values.measurements?.[def.id] ?? ''}
-                        onChange={(e) => setMeasurement(def.id, e.target.value)}
-                        disabled={readOnly}
-                      />
-                    )}
-                    {err ? <p className="mt-1 text-xs text-red-600">{err}</p> : null}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="card p-3">
-          <h2 className={sectionTitleClass}>Tailor</h2>
-          <div className={formGridClass}>
-            <label className="col-span-2 sm:col-span-2 lg:col-span-3 flex items-center gap-1.5 pb-1 text-xs text-gray-700 whitespace-nowrap min-h-[2rem]">
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 accent-brand"
-                checked={values.given_to_tailor}
-                onChange={(e) => set('given_to_tailor', e.target.checked)}
-                disabled={readOnly}
-              />
-              Given to tailor
-            </label>
-            <div className="col-span-2 sm:col-span-2 lg:col-span-3">
-              {orphanTailorName ? (
-                <p className="mb-1 text-xs text-amber-700">
-                  Saved tailor: {orphanTailorName} — add this name under Master → Tailors to select
-                  it.
-                </p>
-              ) : null}
-              <Select
-                label="Tailor"
-                selectClassName={compactSelectClass}
-                value={tailorSelectValue}
-                onChange={(e) => set('tailor_name', e.target.value)}
-                options={[
-                  { value: '', label: tailorsLoading ? 'Loading…' : 'Select tailor' },
-                  ...tailors.map((t) => ({ value: t, label: t })),
-                ]}
-                disabled={readOnly || !values.given_to_tailor || tailorsLoading}
-                error={errors.tailor_name}
-                hint={
-                  !errors.tailor_name &&
-                  !tailorsLoading &&
-                  tailors.length === 0 &&
-                  values.given_to_tailor
-                    ? 'Add tailors under Master → Tailors.'
-                    : undefined
-                }
-              />
-            </div>
-            <Input
-              label="Tailor date"
-              type="date"
-              className="col-span-2 sm:col-span-1 lg:col-span-2"
-              inputClassName={compactInputClass}
-              value={values.tailor_date}
-              onChange={(e) => set('tailor_date', e.target.value)}
-              disabled={readOnly || !values.given_to_tailor}
-            />
-          </div>
-        </section>
-
-        <section className="card p-3">
-          <h2 className={sectionTitleClass}>Trial</h2>
-          <div className={formGridClass}>
-            <Input
-              label="Trial date"
-              type="date"
-              className="col-span-2 sm:col-span-2 lg:col-span-4"
-              inputClassName={compactInputClass}
-              value={values.trial_date}
-              onChange={(e) => set('trial_date', e.target.value)}
-              disabled={readOnly}
-            />
-          </div>
-          <div className="mt-2 border-t border-gray-100 pt-2">
-            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1">
-              <span className="text-xs font-medium text-gray-700">Re-trials</span>
-              {!readOnly ? (
-                <Button type="button" variant="ghost" size="sm" icon={Plus} onClick={addRetrial}>
-                  Add re-trial
-                </Button>
-              ) : null}
-            </div>
-            {(values.retrials || []).length === 0 ? (
-              <p className="text-xs text-gray-500">No re-trials added yet.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {(values.retrials || []).map((row, index) => (
-                  <div key={index} className={formGridClass}>
-                    <Input
-                      label="Date"
-                      type="date"
-                      className="col-span-2 sm:col-span-1 lg:col-span-2"
-                      inputClassName={compactInputClass}
-                      value={row.date}
-                      onChange={(e) => setRetrial(index, 'date', e.target.value)}
-                      disabled={readOnly}
-                    />
-                    <Input
-                      label="Notes"
-                      className="col-span-2 sm:col-span-2 lg:col-span-9"
-                      inputClassName={compactInputClass}
-                      value={row.notes}
-                      onChange={(e) => setRetrial(index, 'notes', e.target.value)}
-                      placeholder="Optional"
-                      disabled={readOnly}
-                    />
-                    {!readOnly ? (
-                      <div className="col-span-2 sm:col-span-4 lg:col-span-1 flex items-end justify-end pb-1">
-                        <button
-                          type="button"
-                          onClick={() => removeRetrial(index)}
-                          className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
-                          aria-label="Remove re-trial"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="card p-3">
-          <h2 className={sectionTitleClass}>Design & trial</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
-            <div className="rounded-md border border-gray-200 bg-gray-50/40 p-2 min-w-0">
-              <MultiImageUploader
-                label="Design images"
-                folder="custom-orders/design"
-                value={values.design_images}
-                onChange={(urls) => set('design_images', urls)}
-                disabled={readOnly}
-              />
-            </div>
-            <div className="rounded-md border border-gray-200 bg-gray-50/40 p-2 min-w-0">
-              <MultiImageUploader
-                label="Customer trial images"
-                folder="custom-orders/trial"
-                value={values.trial_images}
-                onChange={(urls) => set('trial_images', urls)}
-                disabled={readOnly}
-              />
-            </div>
-            <div className="rounded-md border border-gray-200 bg-gray-50/40 p-2 min-w-0">
-              <Input
-                label="Trial product (code or name)"
-                value={values.trial_product}
-                onChange={(e) => set('trial_product', e.target.value)}
-                placeholder="e.g. FA-0123 or product name"
-                disabled={readOnly}
-                inputClassName={compactInputClass}
-              />
-            </div>
           </div>
         </section>
 

@@ -1,6 +1,7 @@
 import {
   customOrderHasLinkedProduct,
   customOrderLinkedProductIds,
+  formatCustomOrderMeasurementsSummary,
   normalizeCustomOrderSqlDate,
   nowDatetimeLocal,
 } from '@wrs/shared';
@@ -22,16 +23,7 @@ export function bookingDateTimeForConvert() {
  * @returns {string}
  */
 export function buildMeasurementsSummary(order, fieldDefs = []) {
-  const measurements =
-    order?.measurements && typeof order.measurements === 'object' ? order.measurements : {};
-  const lines = [];
-  for (const def of fieldDefs) {
-    const val = measurements[def.id];
-    const s = String(val ?? '').trim();
-    if (!s) continue;
-    lines.push(`${def.label}: ${s}${def.unit ? ` ${def.unit}` : ''}`);
-  }
-  return lines.join('; ');
+  return formatCustomOrderMeasurementsSummary(order, fieldDefs);
 }
 
 /**

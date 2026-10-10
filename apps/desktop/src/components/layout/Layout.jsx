@@ -10,6 +10,7 @@ import { useIsMobileNav } from '../../hooks/useBreakpoint.js';
 import { useIdleLogout } from '../../hooks/useIdleLogout.js';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts.js';
 import { usePresenceHeartbeat } from '../../hooks/usePresenceHeartbeat.js';
+import { useReminderBrowserNotifications } from '../../hooks/useReminderBrowserNotifications.js';
 import { useUIStore } from '../../stores/uiStore.js';
 
 const ContentFallback = () => (
@@ -23,6 +24,7 @@ const Layout = () => {
   useKeyboardShortcuts();
   useIdleLogout();
   usePresenceHeartbeat();
+  useReminderBrowserNotifications();
 
   const location = useLocation();
   const isMobileNav = useIsMobileNav();

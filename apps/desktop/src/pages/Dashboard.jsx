@@ -29,6 +29,7 @@ import { useNavigate } from 'react-router-dom';
 import ActivityLogsCard from '../components/dashboard/ActivityLogsCard.jsx';
 import CustomOrderTrialRemindersCard from '../components/dashboard/CustomOrderTrialRemindersCard.jsx';
 import DashboardDraggableSection from '../components/dashboard/DashboardDraggableSection.jsx';
+import ReminderBrowserNotifyButton from '../components/dashboard/ReminderBrowserNotifyButton.jsx';
 import DeferredMount from '../components/ui/DeferredMount.jsx';
 import Card from '../components/ui/Card.jsx';
 import Button from '../components/ui/Button.jsx';
@@ -52,6 +53,7 @@ import {
 } from '../lib/dashboardSectionOrder.js';
 import { dashboardPresetSearchParams } from '../lib/dashboardDateRanges.js';
 import { useAppSettings } from '../hooks/useAppSettings.js';
+import { useBrowserNotificationPermission } from '../hooks/useReminderBrowserNotifications.js';
 import { useAuthStore } from '../stores/authStore.js';
 import { useShopStore } from '../stores/shopStore.js';
 import {
@@ -356,6 +358,7 @@ const RemindersCard = () => {
   const qc = useQueryClient();
   const shopId = useShopStore((s) => s.selectedShopId);
   const currentUser = useAuthStore((s) => s.user);
+  const reminderAlerts = useBrowserNotificationPermission();
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleRow, setRescheduleRow] = useState(null);
@@ -472,7 +475,14 @@ const RemindersCard = () => {
     <Card padded>
       <div className="flex items-center justify-between gap-2 mb-3">
         <h3 className="text-sm font-semibold text-gray-900">My Reminders</h3>
-        <span className="text-xs text-gray-500">{reminders.length} due now</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <ReminderBrowserNotifyButton
+            supported={reminderAlerts.supported}
+            permission={reminderAlerts.permission}
+            onEnable={reminderAlerts.requestPermission}
+          />
+          <span className="text-xs text-gray-500">{reminders.length} due now</span>
+        </div>
       </div>
       {isLoading ? (
         <div className="space-y-2">

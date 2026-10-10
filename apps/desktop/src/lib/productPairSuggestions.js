@@ -27,35 +27,117 @@ export function pickProductsForPairLookup(matches, search, options = {}) {
   return list.slice(0, 1);
 }
 
-/**
- * Insert pair rows immediately after the matched product they belong to.
- * Skips ids already present in `matches`.
- * @param {object[]} matches
- * @param {Map<string, object[]>|Record<string, object[]>} pairRowsByPrimaryId
- */
-export function mergePairSuggestions(matches, pairRowsByPrimaryId) {
-  const list = Array.isArray(matches) ? matches : [];
+function pairRowId(row) {
+  return String(row?.id || row?.related_product_id || '').trim();
+}
+
+function lookupPairsByPrimaryId(pairRowsByPrimaryId) {
   const lookup = pairRowsByPrimaryId instanceof Map ? pairRowsByPrimaryId : new Map();
   if (!(pairRowsByPrimaryId instanceof Map) && pairRowsByPrimaryId && typeof pairRowsByPrimaryId === 'object') {
     for (const [key, value] of Object.entries(pairRowsByPrimaryId)) {
       lookup.set(String(key), value);
     }
   }
+  return lookup;
+}
 
-  const seen = new Set(list.map((row) => String(row?.id || '')).filter(Boolean));
-  const out = [];
-  for (const match of list) {
-    out.push(match);
-    const matchId = String(match?.id || '');
-    const pairs = lookup.get(matchId) || [];
-    for (const pair of pairs) {
-      const id = String(pair?.id || pair?.related_product_id || '').trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(pair);
+function tagExistingAsPair(existing, pair, primary) {
+  const id = pairRowId(pair) || pairRowId(existing);
+  return {
+    ...(existing || {}),
+    ...pair,
+    ...(existing || {}),
+    id,
+    suggested_as_pair: true,
+    pair_of_product_id: primary?.id || pair?.pair_of_product_id || null,
+    pair_of_code: primary?.code || pair?.pair_of_code || '',
+  };
+}
+
+/**
+ * Insert pair rows immediately after the matched product they belong to.
+ * If a mapped pair also matched search on its own and ranked above the main
+ * product, move it under that main product instead of leaving it on top.
+ * @param {object[]} matches
+ * @param {Map<string, object[]>|Record<string, object[]>} pairRowsByPrimaryId
+ */
+export function mergePairSuggestions(matches, pairRowsByPrimaryId) {
+  const list = Array.isArray(matches) ? matches : [];
+  const lookup = lookupPairsByPrimaryId(pairRowsByPrimaryId);
+  const matchById = new Map();
+  for (const row of list) {
+    const id = pairRowId(row);
+    if (id && !matchById.has(id)) matchById.set(id, row);
+  }
+
+  const pairToPrimary = new Map();
+  for (const [primaryId, pairs] of lookup) {
+    if (!matchById.has(String(primaryId))) continue;
+    for (const pair of pairs || []) {
+      const id = pairRowId(pair);
+      if (!id || id === String(primaryId) || pairToPrimary.has(id)) continue;
+      if (matchById.has(id)) pairToPrimary.set(id, String(primaryId));
     }
   }
+  for (const row of list) {
+    const ownerId = String(row?.pair_of_product_id || '').trim();
+    const id = pairRowId(row);
+    if (row?.suggested_as_pair && ownerId && id && matchById.has(ownerId) && !pairToPrimary.has(id)) {
+      pairToPrimary.set(id, ownerId);
+    }
+  }
+
+  const seen = new Set();
+  const out = [];
+
+  const appendPairsOf = (primary) => {
+    const primaryId = pairRowId(primary);
+    for (const pair of lookup.get(primaryId) || []) {
+      const id = pairRowId(pair);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const existing = matchById.get(id);
+      out.push(existing ? tagExistingAsPair(existing, pair, primary) : pair);
+    }
+  };
+
+  const emitPrimary = (match) => {
+    const id = pairRowId(match);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(match);
+    appendPairsOf(match);
+  };
+
+  for (const match of list) {
+    const id = pairRowId(match);
+    const ownerId = pairToPrimary.get(id);
+    if (ownerId && ownerId !== id && matchById.has(ownerId)) continue;
+    emitPrimary(match);
+  }
+  for (const match of list) emitPrimary(match);
   return out;
+}
+
+/**
+ * When the user picks a mapped pair from search, add the main product first.
+ * @param {object} selected
+ * @param {object[]} [matches]
+ * @param {string} [typedQuery]
+ */
+export function resolveBookingAddPrimary(selected, matches, typedQuery) {
+  if (!selected?.suggested_as_pair) return selected;
+  const typed = String(typedQuery || '')
+    .trim()
+    .toLowerCase();
+  const pairCode = String(selected.code || '')
+    .trim()
+    .toLowerCase();
+  if (typed && typed === pairCode) return selected;
+  const mainId = String(selected.pair_of_product_id || '').trim();
+  if (!mainId) return selected;
+  const main = (Array.isArray(matches) ? matches : []).find((row) => String(row?.id) === mainId);
+  return main || selected;
 }
 
 /**

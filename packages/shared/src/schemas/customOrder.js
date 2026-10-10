@@ -95,6 +95,11 @@ export const reorderCustomOrderFieldDefinitionsSchema = z.object({
 
 const measurementsSchema = z.record(z.string(), z.union([z.string(), z.number()])).default({});
 
+const retrialEntrySchema = z.object({
+  date: optionalSqlDate,
+  notes: z.string().trim().max(500).optional().nullable(),
+});
+
 export const customOrderItemSchema = z.object({
   id: z.string().uuid().optional().nullable(),
   design_name: z.string().trim().max(200).optional().nullable(),
@@ -105,11 +110,15 @@ export const customOrderItemSchema = z.object({
   linked_product_id: z.string().uuid().optional().nullable(),
   generated_product_code: z.string().trim().max(80).optional().nullable(),
   display_order: z.coerce.number().int().nonnegative().optional(),
-});
-
-const retrialEntrySchema = z.object({
-  date: optionalSqlDate,
-  notes: z.string().trim().max(500).optional().nullable(),
+  measurements: measurementsSchema.optional(),
+  given_to_tailor: z.coerce.boolean().optional(),
+  tailor_name: z.string().trim().max(120).optional().nullable(),
+  tailor_date: optionalSqlDate,
+  trial_date: optionalSqlDate,
+  trial_product: z.string().trim().max(200).optional().nullable(),
+  retrials: z.array(retrialEntrySchema).max(50).optional(),
+  design_images: imagesArraySchema.optional(),
+  trial_images: imagesArraySchema.optional(),
 });
 
 const whatsappSourceSchema = z.enum(['phone1', 'phone2', 'other']).optional().nullable();

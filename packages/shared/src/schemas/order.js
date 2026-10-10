@@ -115,6 +115,13 @@ export const orderSchema = z.object({
     .default('booked'),
 
   canceled_at: z.string().datetime().optional().nullable(),
+  product_token_printed_at: z.string().optional().nullable(),
+  accessory_token_printed_at: z.string().optional().nullable(),
+});
+
+/** POST /orders/:id/token-print — stamp first successful product or accessory token print. */
+export const orderMarkTokenPrintBodySchema = z.object({
+  kind: z.enum(['product', 'accessory']),
 });
 
 /**

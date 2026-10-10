@@ -262,26 +262,38 @@ export default async function dashboardRoutes(fastify) {
   fastify.get('/activity', async (request) => {
     const shopId = request.shopId;
     const limit = Math.min(50, Math.max(5, Number(request.query.limit || 15)));
-    const logLimit = Math.min(25, limit);
+    const logLimit = Math.min(50, limit);
+    const { from, to } = resolveActivityDateRange(request.query || {});
 
     const [recentOrders, recentPayments, recentReturns, recentSystemLogs] = await Promise.all([
-        knex('orders')
-          .where({ shop_id: shopId, is_deleted: false })
+        applyTimestampDayRange(
+          knex('orders').where({ shop_id: shopId, is_deleted: false }),
+          'created_at',
+          from,
+          to
+        )
           .orderBy('created_at', 'desc')
           .limit(limit)
           .select('id', 'order_number', 'pickup_name', 'total_amount', 'status', 'created_at'),
-        knex('payments')
-          .where({ shop_id: shopId, is_deleted: false })
+        applyTimestampDayRange(
+          knex('payments').where({ shop_id: shopId, is_deleted: false }),
+          'created_at',
+          from,
+          to
+        )
           .orderBy('created_at', 'desc')
           .limit(limit)
           .select('id', 'order_id', 'amount', 'payment_type', 'category', 'created_at'),
-        knex('orders')
-          .where({ shop_id: shopId, is_deleted: false, status: 'returned' })
+        applyTimestampDayRange(
+          knex('orders').where({ shop_id: shopId, is_deleted: false, status: 'returned' }),
+          'updated_at',
+          from,
+          to
+        )
           .orderBy('updated_at', 'desc')
           .limit(limit)
           .select('id', 'order_number', 'pickup_name', 'updated_at'),
-        knex('system_logs')
-          .where({ shop_id: shopId })
+        applyTimestampDayRange(knex('system_logs').where({ shop_id: shopId }), 'created_at', from, to)
           .orderBy('created_at', 'desc')
           .limit(logLimit)
           .select(
@@ -366,6 +378,24 @@ function mapSystemLogActivity(row) {
 
 function num(v) {
   return Number(v || 0);
+}
+
+const ACTIVITY_ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function resolveActivityDateRange(query = {}) {
+  const today = todayIndiaISODate();
+  let from = ACTIVITY_ISO_DATE.test(String(query.from || '')) ? String(query.from).slice(0, 10) : today;
+  let to = ACTIVITY_ISO_DATE.test(String(query.to || '')) ? String(query.to).slice(0, 10) : today;
+  if (from > to) {
+    const swap = from;
+    from = to;
+    to = swap;
+  }
+  return { from, to };
+}
+
+function applyTimestampDayRange(qb, column, from, to) {
+  return qb.andWhere(column, '>=', `${from} 00:00:00`).andWhere(column, '<=', `${to} 23:59:59`);
 }
 
 function toISO(d) {
