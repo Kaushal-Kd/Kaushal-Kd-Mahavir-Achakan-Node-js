@@ -1,5 +1,6 @@
 import {
   customOrderHasLinkedProduct,
+  customOrderItemNotesForBooking,
   customOrderLinkedProductIds,
   formatCustomOrderMeasurementsSummary,
   normalizeCustomOrderSqlDate,
@@ -40,11 +41,54 @@ export function shouldOfferBookingAfterComplete(order, wasAlreadyCompleted) {
 }
 
 /**
+ * Remaining per-product notes queues from a convert-to-booking handoff.
+ * @param {object} [handoff]
+ * @returns {Map<string, string[]>}
+ */
+export function handoffItemNotesQueues(handoff) {
+  const queues = new Map();
+  for (const row of Array.isArray(handoff?.item_notes) ? handoff.item_notes : []) {
+    const id = String(row?.product_id || '').trim();
+    const notes = String(row?.notes || '').trim();
+    if (!id || !notes) continue;
+    if (!queues.has(id)) queues.set(id, []);
+    queues.get(id).push(notes);
+  }
+  return queues;
+}
+
+/**
+ * Take the next note for this booking line. Matches by product id so notes
+ * stay on the product they were measured for, even if cart order differs.
+ * @param {object} [handoff]
+ * @param {string} productId
+ * @param {number} index
+ * @param {Map<string, string[]>} queues
+ * @returns {string}
+ */
+export function takeHandoffItemNotes(handoff, productId, index, queues) {
+  const id = String(productId || '').trim();
+  if (id && queues?.has(id)) {
+    const list = queues.get(id);
+    if (list.length) return String(list.shift() || '').trim().slice(0, 500);
+  }
+  const itemNotes = Array.isArray(handoff?.item_notes) ? handoff.item_notes : [];
+  if (itemNotes.length) return '';
+  if (index === 0) {
+    return String(handoff?.tailor_notes || '').trim().slice(0, 500);
+  }
+  return '';
+}
+
+/**
  * @param {object} order Custom order row from API
  * @param {string} [measurementsSummary]
+ * @param {object[]} [fieldDefs]
  */
-export function buildCustomOrderBookingHandoff(order, measurementsSummary = '') {
-  const tailorNotes = [String(order.remarks || '').trim(), measurementsSummary]
+export function buildCustomOrderBookingHandoff(order, measurementsSummary = '', fieldDefs = []) {
+  const itemNotes = customOrderItemNotesForBooking(order, fieldDefs);
+  const fallbackNotes = itemNotes
+    .map((row) => row.notes)
     .filter(Boolean)
     .join('\n\n')
     .slice(0, 500);
@@ -68,7 +112,8 @@ export function buildCustomOrderBookingHandoff(order, measurementsSummary = '') 
     product_code: order.generated_product_code || '',
     product_name: order.product_name || order.design_name || '',
     remarks: order.remarks || '',
-    tailor_notes: tailorNotes,
+    tailor_notes: fallbackNotes,
+    item_notes: itemNotes,
     measurements_summary: measurementsSummary,
     financial: {
       price: Number(order.price || 0),

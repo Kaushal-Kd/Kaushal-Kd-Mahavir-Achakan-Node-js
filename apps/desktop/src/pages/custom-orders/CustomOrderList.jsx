@@ -305,7 +305,10 @@ const CustomOrderList = () => {
   const confirmBookingPrompt = () => {
     if (!bookingPromptOrder) return;
     const summary = buildMeasurementsSummary(bookingPromptOrder, fieldDefs);
-    startCustomOrderBookingHandoff(bookingPromptOrder, navigate, { measurementsSummary: summary });
+    startCustomOrderBookingHandoff(bookingPromptOrder, navigate, {
+      measurementsSummary: summary,
+      fieldDefs,
+    });
     setBookingPromptOrder(null);
   };
 

@@ -106,8 +106,8 @@ describe('bill template blank-paper controls', () => {
       shop,
     });
     assert.match(html, /class="item-note"/);
-    assert.match(html, /BYE 24&quot; RAKHAY/);
-    assert.match(html, /Pack extra pin/);
+    assert.match(html, /Notes:<\/span> BYE 24&quot; RAKHAY/);
+    assert.match(html, /Notes:<\/span> Pack extra pin/);
   });
 
   it('prints both distinct customer mobile numbers from this booking', () => {

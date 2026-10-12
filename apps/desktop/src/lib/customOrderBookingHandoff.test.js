@@ -6,6 +6,8 @@ import { nowDatetimeLocal, splitDatetimeLocal } from '@wrs/shared';
 import {
   bookingDateTimeForConvert,
   buildCustomOrderBookingHandoff,
+  handoffItemNotesQueues,
+  takeHandoffItemNotes,
 } from './customOrderBookingHandoffPayload.js';
 
 describe('convert-to-booking date', () => {
@@ -31,5 +33,35 @@ describe('convert-to-booking date', () => {
     assert.equal(handoff.booking_date, undefined);
     assert.equal(handoff.bookingDateTime, undefined);
     assert.equal(handoff.delivery_date, '2026-11-01');
+  });
+
+  it('stores measurement notes on each linked product, not only the first', () => {
+    const handoff = buildCustomOrderBookingHandoff(
+      {
+        id: 'co-2',
+        items: [
+          {
+            product_name: 'Jodhpuri',
+            linked_product_id: 'p-j',
+            measurements: { c1: '36' },
+          },
+          {
+            product_name: 'Achakan',
+            linked_product_id: 'p-a',
+            measurements: { c1: '34' },
+          },
+        ],
+      },
+      '',
+      [{ id: 'c1', label: 'CHEST' }]
+    );
+    assert.deepEqual(handoff.item_notes, [
+      { product_id: 'p-j', notes: 'CHEST: 36' },
+      { product_id: 'p-a', notes: 'CHEST: 34' },
+    ]);
+    const queues = handoffItemNotesQueues(handoff);
+    assert.equal(takeHandoffItemNotes(handoff, 'p-a', 0, queues), 'CHEST: 34');
+    assert.equal(takeHandoffItemNotes(handoff, 'p-j', 1, queues), 'CHEST: 36');
+    assert.equal(takeHandoffItemNotes(handoff, 'p-a', 2, queues), '');
   });
 });

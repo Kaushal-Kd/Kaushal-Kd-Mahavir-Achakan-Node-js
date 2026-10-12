@@ -7,7 +7,9 @@ import {
   bookingDateTimeForConvert,
   buildCustomOrderBookingHandoff,
   buildMeasurementsSummary,
+  handoffItemNotesQueues,
   shouldOfferBookingAfterComplete,
+  takeHandoffItemNotes,
 } from './customOrderBookingHandoffPayload.js';
 
 export {
@@ -15,7 +17,9 @@ export {
   bookingDateTimeForConvert,
   buildCustomOrderBookingHandoff,
   buildMeasurementsSummary,
+  handoffItemNotesQueues,
   shouldOfferBookingAfterComplete,
+  takeHandoffItemNotes,
 };
 
 /** @returns {boolean} */
@@ -33,10 +37,11 @@ export function isCustomOrderBookingHandoffActive() {
 export function startCustomOrderBookingHandoff(order, navigate, options = {}) {
   if (!customOrderHasLinkedProduct(order)) return false;
   if (order.linked_order_id) return false;
+  const fieldDefs = options.fieldDefs || [];
   const summary =
     options.measurementsSummary ??
-    buildMeasurementsSummary(order, options.fieldDefs || []);
-  writeCustomOrderBookingHandoff(buildCustomOrderBookingHandoff(order, summary));
+    buildMeasurementsSummary(order, fieldDefs);
+  writeCustomOrderBookingHandoff(buildCustomOrderBookingHandoff(order, summary, fieldDefs));
   navigate('/booking/new', { state: { fromCustomOrder: true } });
   return true;
 }

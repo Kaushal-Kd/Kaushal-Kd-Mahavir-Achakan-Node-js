@@ -4,7 +4,9 @@ import { describe, it } from 'node:test';
 import {
   aggregateCustomOrderWorkshop,
   customOrderItemHasWorkshopData,
+  customOrderItemNotesForBooking,
   customOrderItemsFromOrder,
+  formatCustomOrderItemMeasurements,
   formatCustomOrderMeasurementsSummary,
   formatCustomOrderProductsLabel,
   nextUnlinkedCustomOrderItem,
@@ -123,5 +125,32 @@ describe('custom order item workshop', () => {
       [{ id: 'c1', label: 'Chest', unit: 'in' }]
     );
     assert.equal(label, 'Sherwani — Chest: 40 in\nJacket — Chest: 38 in');
+  });
+
+  it('formats one product’s measurements without a name prefix', () => {
+    const text = formatCustomOrderItemMeasurements(
+      { product_name: 'Achakan', measurements: { c1: '34', h1: '47' } },
+      [
+        { id: 'c1', label: 'CHEST' },
+        { id: 'h1', label: 'height' },
+      ]
+    );
+    assert.equal(text, 'CHEST: 34; height: 47');
+  });
+
+  it('maps booking notes to each linked product', () => {
+    const notes = customOrderItemNotesForBooking(
+      {
+        items: [
+          { product_name: 'Jodhpuri', linked_product_id: 'p-j', measurements: { c1: '36' } },
+          { product_name: 'Achakan', linked_product_id: 'p-a', measurements: { c1: '34' } },
+        ],
+      },
+      [{ id: 'c1', label: 'CHEST' }]
+    );
+    assert.deepEqual(notes, [
+      { product_id: 'p-j', notes: 'CHEST: 36' },
+      { product_id: 'p-a', notes: 'CHEST: 34' },
+    ]);
   });
 });

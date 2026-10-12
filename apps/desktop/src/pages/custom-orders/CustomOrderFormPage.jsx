@@ -1180,7 +1180,10 @@ const CustomOrderFormPage = () => {
 
   const confirmBookingPrompt = () => {
     if (!bookingPromptOrder) return;
-    startCustomOrderBookingHandoff(bookingPromptOrder, navigate, { measurementsSummary });
+    startCustomOrderBookingHandoff(bookingPromptOrder, navigate, {
+      measurementsSummary,
+      fieldDefs,
+    });
     setBookingPromptOrder(null);
     setPendingEditAfterPrompt(null);
   };
@@ -1270,7 +1273,7 @@ const CustomOrderFormPage = () => {
       toast.info('This custom order is already linked to a booking');
       return;
     }
-    startCustomOrderBookingHandoff(order, navigate, { measurementsSummary });
+    startCustomOrderBookingHandoff(order, navigate, { measurementsSummary, fieldDefs });
   };
 
   const busy = createMut.isPending || updateMut.isPending;

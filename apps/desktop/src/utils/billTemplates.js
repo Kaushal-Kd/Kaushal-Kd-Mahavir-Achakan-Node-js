@@ -581,6 +581,7 @@ function pageStyles(tpl) {
         white-space: pre-wrap;
         word-break: break-word;
       }
+      .item-note-label { font-weight: 700; color: #374151; }
       table.items .item-acc td .item-note {
         font-size: calc(var(--bill-accessory-size) - 1px);
       }
@@ -1097,7 +1098,7 @@ function itemNoteHtml(line, { isAccessory, showNotes } = {}) {
   if (showNotes === false) return '';
   const note = billLineNote(line, { isAccessory });
   if (!note) return '';
-  return `<div class="item-note">${esc(note)}</div>`;
+  return `<div class="item-note"><span class="item-note-label">Notes:</span> ${esc(note)}</div>`;
 }
 
 function itemNameCell(line, { isAccessory, isSale, parentProduct, showNotes }) {

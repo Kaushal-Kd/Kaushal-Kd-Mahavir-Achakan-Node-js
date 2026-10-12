@@ -92,10 +92,12 @@ import { customOrdersApi } from '../../lib/api/customOrders.js';
 import {
   clearCustomOrderBookingHandoff,
   bookingDateTimeForConvert,
+  handoffItemNotesQueues,
   isCustomOrderBookingHandoffActive,
   linkHandoffCustomerToCustomOrder,
   readCustomOrderBookingHandoff,
   resolveHandoffCustomer,
+  takeHandoffItemNotes,
 } from '../../lib/customOrderBookingHandoff.js';
 import { securityAccountsApi } from '../../lib/api/securityAccounts.js';
 import { timeSlotsApi } from '../../lib/api/timeSlots.js';
@@ -4032,9 +4034,8 @@ const CreateOrder = ({ mode, orderId }) => {
       setApplyCreditAmount('');
     }
 
-    const tailorNotes = String(handoff.tailor_notes || handoff.remarks || '')
-      .trim()
-      .slice(0, 500);
+    setCustomerNotes(String(handoff.remarks || '').trim().slice(0, 2000));
+    const itemNotesQueues = handoffItemNotesQueues(handoff);
     const handoffLinePrice = toNonNegativeAmount(fin.price);
     const handoffLineDiscount = toNonNegativeAmount(fin.line_discount);
 
@@ -4102,7 +4103,7 @@ const CreateOrder = ({ mode, orderId }) => {
             repair_qty: 0,
             next_available_date: null,
             gap_days: 0,
-            tailor_notes: index === 0 ? tailorNotes : '',
+            tailor_notes: takeHandoffItemNotes(handoff, product.id, index, itemNotesQueues),
             tailor_note_image: '',
             sales_person_id: isSalesmanEligibleUser(currentUser) ? currentUser.id : null,
             sales_person_name: isSalesmanEligibleUser(currentUser)

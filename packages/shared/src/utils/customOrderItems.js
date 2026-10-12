@@ -288,6 +288,40 @@ export function customOrderLinkedProductIds(order) {
 }
 
 /**
+ * Measurement text for one custom-order product (no product-name prefix).
+ * @param {object} [item]
+ * @param {Array<{ id?: string, label?: string, unit?: string }>} [fieldDefs]
+ * @returns {string}
+ */
+export function formatCustomOrderItemMeasurements(item, fieldDefs = []) {
+  const measurements =
+    item?.measurements && typeof item.measurements === 'object' ? item.measurements : {};
+  const lines = [];
+  for (const def of fieldDefs) {
+    const val = measurements[def.id];
+    const s = String(val ?? '').trim();
+    if (!s) continue;
+    lines.push(`${def.label}: ${s}${def.unit ? ` ${def.unit}` : ''}`);
+  }
+  return lines.join('; ');
+}
+
+/**
+ * Per linked product, for convert-to-booking line notes.
+ * @param {object} [order]
+ * @param {Array<{ id?: string, label?: string, unit?: string }>} [fieldDefs]
+ * @returns {Array<{ product_id: string, notes: string }>}
+ */
+export function customOrderItemNotesForBooking(order, fieldDefs = []) {
+  return customOrderItemsFromOrder(order)
+    .map((item) => ({
+      product_id: item.linked_product_id ? String(item.linked_product_id) : '',
+      notes: formatCustomOrderItemMeasurements(item, fieldDefs).slice(0, 1000),
+    }))
+    .filter((row) => row.product_id && row.notes);
+}
+
+/**
  * @param {object} [order]
  * @param {Array<{ id?: string, label?: string, unit?: string }>} [fieldDefs]
  * @returns {string}
@@ -296,18 +330,10 @@ export function formatCustomOrderMeasurementsSummary(order, fieldDefs = []) {
   const items = customOrderItemsFromOrder(order);
   const parts = [];
   items.forEach((item, index) => {
-    const measurements =
-      item.measurements && typeof item.measurements === 'object' ? item.measurements : {};
-    const lines = [];
-    for (const def of fieldDefs) {
-      const val = measurements[def.id];
-      const s = String(val ?? '').trim();
-      if (!s) continue;
-      lines.push(`${def.label}: ${s}${def.unit ? ` ${def.unit}` : ''}`);
-    }
-    if (!lines.length) return;
+    const text = formatCustomOrderItemMeasurements(item, fieldDefs);
+    if (!text) return;
     const label = item.product_name || item.design_name || `Product ${index + 1}`;
-    parts.push(items.length > 1 ? `${label} — ${lines.join('; ')}` : lines.join('; '));
+    parts.push(items.length > 1 ? `${label} — ${text}` : text);
   });
   return parts.join('\n');
 }
