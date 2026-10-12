@@ -3,6 +3,7 @@ import { writeSystemLog } from './logger.js';
 import {
   buildBookingBillSnapshot,
   buildBookingProductSnapshot,
+  buildSaleBillSnapshot,
   buildSaleProductSnapshot,
   isStageOnlyBookingAction,
 } from './snapshots.js';
@@ -59,19 +60,27 @@ export async function logBookingById(db, shopId, orderId, action, authUser) {
 export async function logEntityRow(db, shopId, entityRow, module, action, authUser, extra = {}) {
   if (!entityRow?.id) return;
   let productData = extra.productData ?? null;
-  if (module === 'sale' && !productData) {
-    productData = buildSaleProductSnapshot(entityRow);
+  let billData = extra.billData ?? entityRow;
+  if (module === 'sale') {
+    if (!productData) productData = buildSaleProductSnapshot(entityRow);
+    if (!extra.billData) billData = buildSaleBillSnapshot(entityRow);
   }
   await writeSystemLog(db, {
     shopId,
     module,
     entityId: entityRow.id,
-    billNo: extra.billNo ?? entityRow.bill_no ?? entityRow.order_number ?? entityRow.voucher_no ?? null,
+    billNo:
+      extra.billNo ??
+      entityRow.sale_number ??
+      entityRow.order_number ??
+      entityRow.bill_no ??
+      entityRow.voucher_no ??
+      null,
     userId: authUser?.id || entityRow.created_by || entityRow.user_id || null,
     userName: extra.userName ?? authUser?.name ?? null,
     action,
     responsibleBy: authUser?.name || null,
-    billData: entityRow,
+    billData,
     productData,
   });
 }

@@ -15,6 +15,7 @@ function editCountLabel(count) {
 
 const BookingAuditBadge = ({
   orderId,
+  module = 'booking',
   enabled = false,
   compact = false,
   disablePopover = false,
@@ -26,7 +27,10 @@ const BookingAuditBadge = ({
   const [detailLoading, setDetailLoading] = useState(false);
 
   const fetchEnabled = enabled || (!disablePopover && hoverOpen);
-  const { summary, isLoading } = useBookingAuditLogs(orderId, { enabled: fetchEnabled && !!orderId });
+  const { summary, isLoading } = useBookingAuditLogs(orderId, {
+    enabled: fetchEnabled && !!orderId,
+    module,
+  });
 
   const { editCount, lastEditLog, lastBillChanges, lastProductChanges, lastEditWhen } = summary;
 
@@ -200,6 +204,7 @@ const BookingAuditBadge = ({
 
 BookingAuditBadge.propTypes = {
   orderId: PropTypes.string,
+  module: PropTypes.string,
   enabled: PropTypes.bool,
   compact: PropTypes.bool,
   disablePopover: PropTypes.bool,
@@ -208,6 +213,7 @@ BookingAuditBadge.propTypes = {
 
 BookingAuditBadge.defaultProps = {
   orderId: null,
+  module: 'booking',
   enabled: false,
   compact: false,
   disablePopover: false,

@@ -1,4 +1,9 @@
-import { formatBookingDateTime, formatInstantDateTime, formatPaymentDateTime } from '@wrs/shared';
+import {
+  formatBookingDateTime,
+  formatInstantDateTime,
+  formatPaymentDateTime,
+  formatWallClockDateTime,
+} from '@wrs/shared';
 
 /** @param {Date|string|number|null|undefined} value */
 export function formatTimestampDateTime(value) {
@@ -16,6 +21,17 @@ export function formatFinancialRecordDateTime(row, dateKey = 'entry_date') {
     if (text) return text;
   }
   return formatInstantDateTime(row?.date ?? row?.[dateKey]) || '—';
+}
+
+/** Sale list/export: use saved sale date+time when present, else created_at. */
+export function formatSaleRecordDateTime(row) {
+  const raw = String(row?.sale_date || '').trim();
+  const clock = raw.match(/[T ](\d{1,2}):(\d{2})/);
+  if (clock && !(Number(clock[1]) === 0 && clock[2] === '00')) {
+    const text = formatWallClockDateTime(raw);
+    if (text) return text;
+  }
+  return formatFinancialRecordDateTime(row, 'sale_date');
 }
 
 /** @param {Record<string, unknown>} row */

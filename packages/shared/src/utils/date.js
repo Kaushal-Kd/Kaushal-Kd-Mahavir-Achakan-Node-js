@@ -276,6 +276,36 @@ export function nowDatetimeLocal() {
 }
 
 /**
+ * Persist datetime-local / SQL datetime / date-only as MySQL DATETIME.
+ * @param {string|null|undefined} value
+ * @returns {string} `YYYY-MM-DD HH:mm:ss` or empty
+ */
+export function toSqlDateTime(value) {
+  const raw = String(value ?? '').trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return '';
+  const hh = String(Number(m[2] ?? 0)).padStart(2, '0');
+  const mm = m[3] ?? '00';
+  const ss = m[4] ?? '00';
+  return `${m[1]} ${hh}:${mm}:${ss}`;
+}
+
+/**
+ * Inclusive calendar-day bounds for DATETIME columns.
+ * @param {string|null|undefined} from
+ * @param {string|null|undefined} to
+ * @returns {{ from: string, to: string }}
+ */
+export function sqlInclusiveDateTimeRange(from, to) {
+  const start = String(from || '').slice(0, 10);
+  const end = String(to || '').slice(0, 10);
+  return {
+    from: /^\d{4}-\d{2}-\d{2}$/.test(start) ? `${start} 00:00:00` : '',
+    to: /^\d{4}-\d{2}-\d{2}$/.test(end) ? `${end} 23:59:59` : '',
+  };
+}
+
+/**
  * ISO date (YYYY-MM-DD) for <input type="date"> in India calendar.
  * @param {Date|string|number|null|undefined} value
  * @returns {string}

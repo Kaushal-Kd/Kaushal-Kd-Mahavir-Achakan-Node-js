@@ -1376,6 +1376,16 @@ const CheckAvailability = () => {
                 name: c.customer_name,
                 phone1: c.customer_phone,
               });
+              setCustomerQuery(c.customer_name || '');
+              const from = String(c.from || '').slice(0, 10);
+              const to = String(c.to || '').slice(0, 10);
+              if (from) setDeliveryDate(from);
+              if (to) setReturnDate(to);
+              if (c.delivery_time) setDeliveryTime(c.delivery_time);
+              if (c.return_time) setReturnTime(c.return_time);
+              setCode('');
+              setCheckResult(null);
+              setRelatedRows([]);
               switchTab('check');
             }}
             onAddAccessories={(line) => setAccessoryModalLine(line)}

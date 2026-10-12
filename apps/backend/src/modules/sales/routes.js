@@ -26,7 +26,7 @@ export default async function saleRoutes(fastify) {
     const row = await service.createSale(request.shopId, body, request.authUser?.id);
     await request.audit('sales', 'CREATE', { id: row.id, new: row });
     await logEntityRow(knex, request.shopId, row, 'sale', 'CREATE', request.authUser, {
-      billNo: row.bill_no,
+      billNo: row.sale_number,
     });
     return { ok: true, data: row };
   });
@@ -36,7 +36,7 @@ export default async function saleRoutes(fastify) {
     const row = await service.updateSale(request.shopId, request.params.id, body, request.authUser?.id);
     await request.audit('sales', 'UPDATE', { id: row.id, new: row });
     await logEntityRow(knex, request.shopId, row, 'sale', 'UPDATE', request.authUser, {
-      billNo: row.bill_no,
+      billNo: row.sale_number,
     });
     return { ok: true, data: row };
   });
@@ -51,7 +51,7 @@ export default async function saleRoutes(fastify) {
     );
     await request.audit('sales', 'PAYMENT', { id: row.id, new: row });
     await logEntityRow(knex, request.shopId, row, 'sale', 'PAYMENT', request.authUser, {
-      billNo: row.bill_no,
+      billNo: row.sale_number,
     });
     return { ok: true, data: row };
   });
@@ -60,7 +60,7 @@ export default async function saleRoutes(fastify) {
     const row = await service.cancelSale(request.shopId, request.params.id, request.authUser?.id);
     await request.audit('sales', 'CANCEL', { id: row.id });
     await logEntityRow(knex, request.shopId, row, 'sale', 'CANCEL', request.authUser, {
-      billNo: row.bill_no,
+      billNo: row.sale_number,
     });
     return { ok: true, data: row };
   });
@@ -69,7 +69,7 @@ export default async function saleRoutes(fastify) {
     const old = await service.deleteSale(request.shopId, request.params.id);
     await request.audit('sales', 'DELETE', { id: old.id, old });
     await logEntityRow(knex, request.shopId, old, 'sale', 'DELETE', request.authUser, {
-      billNo: old.bill_no,
+      billNo: old.sale_number,
     });
     return { ok: true };
   });

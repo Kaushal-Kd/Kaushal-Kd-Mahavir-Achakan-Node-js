@@ -11,7 +11,9 @@ import {
   parseInstant,
   parseWallClockDateTimeParts,
   serializeInstant,
+  sqlInclusiveDateTimeRange,
   toLocalISODate,
+  toSqlDateTime,
 } from './date.js';
 
 describe('parseInstant', () => {
@@ -134,5 +136,22 @@ describe('normalizeSqlDateToIso', () => {
 describe('toLocalISODate', () => {
   it('returns India calendar date for UTC instants near midnight', () => {
     assert.equal(toLocalISODate('2026-06-20T20:30:00.000Z'), '2026-06-21');
+  });
+});
+
+describe('toSqlDateTime', () => {
+  it('normalizes datetime-local, SQL datetime, and date-only', () => {
+    assert.equal(toSqlDateTime('2026-10-12T20:14'), '2026-10-12 20:14:00');
+    assert.equal(toSqlDateTime('2026-10-12 20:14:05'), '2026-10-12 20:14:05');
+    assert.equal(toSqlDateTime('2026-10-12'), '2026-10-12 00:00:00');
+  });
+});
+
+describe('sqlInclusiveDateTimeRange', () => {
+  it('covers the full last calendar day', () => {
+    assert.deepEqual(sqlInclusiveDateTimeRange('2026-10-01', '2026-10-12'), {
+      from: '2026-10-01 00:00:00',
+      to: '2026-10-12 23:59:59',
+    });
   });
 });

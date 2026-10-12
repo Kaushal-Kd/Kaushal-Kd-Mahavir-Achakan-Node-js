@@ -90,6 +90,26 @@ describe('bill template blank-paper controls', () => {
     assert.match(html, /class="acc-indent"/);
   });
 
+  it('prints product and accessory notes under the item name', () => {
+    const html = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        items: [
+          { ...SAMPLE_ORDER.items[0], tailor_notes: 'BYE 24" RAKHAY' },
+          SAMPLE_ORDER.items[1],
+        ],
+        accessories: [
+          { ...SAMPLE_ORDER.accessories[0], remarks: 'Pack extra pin' },
+          SAMPLE_ORDER.accessories[1],
+        ],
+      },
+      shop,
+    });
+    assert.match(html, /class="item-note"/);
+    assert.match(html, /BYE 24&quot; RAKHAY/);
+    assert.match(html, /Pack extra pin/);
+  });
+
   it('prints both distinct customer mobile numbers from this booking', () => {
     const html = renderBillHtml({
       order: {

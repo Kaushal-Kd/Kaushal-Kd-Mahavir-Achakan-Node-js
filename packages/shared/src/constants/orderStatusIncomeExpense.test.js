@@ -9,6 +9,8 @@ import {
 import {
   formatOrderPaymentBookingPart,
   formatOrderPaymentIncomeDetails,
+  formatPaymentLedgerDetails,
+  formatSalePaymentLedgerDetails,
   inferPaymentOrderStatusFromTimestamps,
   orderPaymentDisplayStatusForFilter,
   paymentOrderStatusForDisplay,
@@ -228,5 +230,36 @@ describe('formatOrderPaymentBookingPart', () => {
   it('returns bucket label', () => {
     assert.equal(formatOrderPaymentBookingPart('booked'), 'BOOKING - Booked');
     assert.equal(formatOrderPaymentBookingPart('delivered'), 'BOOKING - Delivered');
+  });
+});
+
+describe('formatSalePaymentLedgerDetails', () => {
+  it('labels sale income as SELL, not BOOKING', () => {
+    assert.equal(formatSalePaymentLedgerDetails('SK-0032', 'active', false), 'SK-0032 - PAYMENT (SELL)');
+    assert.equal(
+      formatSalePaymentLedgerDetails('SK-0032', 'cancelled', true),
+      'SK-0032 - REFUND (SELL - Cancelled)'
+    );
+  });
+});
+
+describe('formatPaymentLedgerDetails', () => {
+  it('uses SELL for sale rows and BOOKING for rental rows', () => {
+    assert.equal(
+      formatPaymentLedgerDetails({
+        saleId: 'sale-1',
+        saleNumber: 'SK-0032',
+        saleStatus: 'active',
+        orderStatus: 'booked',
+      }),
+      'SK-0032 - PAYMENT (SELL)'
+    );
+    assert.equal(
+      formatPaymentLedgerDetails({
+        orderNumber: 'K-0077',
+        orderStatus: 'booked',
+      }),
+      'K-0077 - PAYMENT (BOOKING - Booked)'
+    );
   });
 });

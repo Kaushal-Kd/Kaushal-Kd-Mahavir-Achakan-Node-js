@@ -1,5 +1,5 @@
 import { assertNoIssuedGstInvoice } from '../../lib/gstInvoiceLock.js';
-import { round2 } from '@wrs/shared';
+import { round2, sqlInclusiveDateTimeRange } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
@@ -80,7 +80,12 @@ export async function listGstBills(shopId, query) {
         })
         .where({ 'b.shop_id': shopId, 'b.bill_type': 'gst', 'b.is_deleted': false });
   const dateColumn = isSale ? 'b.sale_date' : 'b.booking_date';
-  base.whereBetween(dateColumn, [query.from, query.to]);
+  if (isSale) {
+    const range = sqlInclusiveDateTimeRange(query.from, query.to);
+    base.whereBetween(dateColumn, [range.from, range.to]);
+  } else {
+    base.whereBetween(dateColumn, [query.from, query.to]);
+  }
   if (query.status) base.andWhere('b.status', query.status);
   if (query.tax_mode === 'igst') {
     if (isSale) base.andWhere('b.igst_total', '>', 0);

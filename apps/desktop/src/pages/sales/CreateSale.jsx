@@ -1,11 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ACTIONS,
+  MODULES,
   accessoryRentableQty,
   formatAccessoryQtyExceededMessage,
   formatAccessorySpareMessage,
   formatCurrency,
+  getIndiaDateTimeParts,
+  hasPermission,
   isIndianPhone,
-  todayIndiaISODate,
+  nowDatetimeLocal,
+  parseWallClockDateTimeParts,
+  toDatetimeLocalValue,
+  toSqlDateTime,
 } from '@wrs/shared';
 import { Plus, Trash2, X } from 'lucide-react';
 import clsx from 'clsx';
@@ -13,6 +20,8 @@ import PropTypes from 'prop-types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import BookingAuditBadge from '../../components/booking/BookingAuditBadge.jsx';
+import BookingLogsModal from '../../components/booking/BookingLogsModal.jsx';
 import SelectAccessoriesModal from '../../components/catalog/SelectAccessoriesModal.jsx';
 import SelectProductsModal from '../../components/catalog/SelectProductsModal.jsx';
 import AccountSelectWithQr from '../../components/accounts/AccountSelectWithQr.jsx';
@@ -41,7 +50,24 @@ import { invalidateSalesDomain } from '../../lib/queryInvalidation.js';
 import { clearFieldError, fieldShellClass, rejectSubmit } from '../../lib/formValidation.js';
 import { toast } from '../../stores/uiStore.js';
 
-const todayStr = () => todayIndiaISODate();
+function saleDateTimeInputValue(sale) {
+  const raw = String(sale?.sale_date || '').trim();
+  const hasClock = /[T ]\d{1,2}:\d{2}/.test(raw);
+  const parts = parseWallClockDateTimeParts(raw);
+  const datePart = parts ? `${parts.year}-${parts.month}-${parts.day}` : raw.slice(0, 10);
+  if (parts && hasClock && !(parts.hour === '00' && parts.minute === '00')) {
+    return toDatetimeLocalValue(datePart, `${parts.hour}:${parts.minute}`) || nowDatetimeLocal();
+  }
+  const created = sale?.created_at ? getIndiaDateTimeParts(sale.created_at) : null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart) && created) {
+    return toDatetimeLocalValue(datePart, `${created.hour}:${created.minute}`) || nowDatetimeLocal();
+  }
+  if (parts) {
+    return toDatetimeLocalValue(datePart, `${parts.hour}:${parts.minute}`) || nowDatetimeLocal();
+  }
+  return nowDatetimeLocal();
+}
+
 let _localId = 0;
 const localId = () => `sl_${++_localId}_${Date.now()}`;
 
@@ -79,8 +105,10 @@ const CreateSale = ({ mode }) => {
   const selectedShopId = useShopStore((s) => s.selectedShopId);
   const { gst } = useAppSettings();
   const isEdit = mode === 'edit' && !!saleId;
+  const canViewLogs = hasPermission(currentUser, MODULES.AUDIT_LOGS, ACTIONS.VIEW);
+  const [auditLogsOpen, setAuditLogsOpen] = useState(false);
 
-  const [saleDate, setSaleDate] = useState(todayStr());
+  const [saleDate, setSaleDate] = useState(() => nowDatetimeLocal());
   const [billType, setBillType] = useState('kaccha');
   const [customerName, setCustomerName] = useState('');
   const [contactNo, setContactNo] = useState('');
@@ -190,7 +218,7 @@ const CreateSale = ({ mode }) => {
   useEffect(() => {
     if (!isEdit || !saleQuery.data?.data) return;
     const s = saleQuery.data.data;
-    setSaleDate(String(s.sale_date || '').slice(0, 10) || todayStr());
+    setSaleDate(saleDateTimeInputValue(s));
     setBillType(s.bill_type || (Number(s.tax_total || 0) > 0 ? 'gst' : 'kaccha'));
     setCustomerName(s.customer_name || '');
     setContactNo(s.contact_no || '');
@@ -558,6 +586,7 @@ const CreateSale = ({ mode }) => {
       if (!firstMessage) firstMessage = msg;
     };
 
+    if (!toSqlDateTime(saleDate)) add('saleDate', 'Date and time are required');
     if (!customerName.trim()) add('customerName', 'Customer name is required');
     const contactDigits = contactNo.replace(/\D/g, '');
     if (contactDigits && !isIndianPhone(contactDigits)) {
@@ -589,7 +618,7 @@ const CreateSale = ({ mode }) => {
     setSubmitting(true);
     try {
       const payload = {
-        sale_date: saleDate,
+        sale_date: toSqlDateTime(saleDate),
         bill_type: billType,
         customer_name: customerName.trim(),
         contact_no: contactDigits || null,
@@ -674,6 +703,16 @@ const CreateSale = ({ mode }) => {
           { label: isEdit ? 'Edit Sale' : 'Create Sale' },
         ]}
       />
+      {isEdit && canViewLogs && saleId ? (
+        <div className="mb-2">
+          <BookingAuditBadge
+            orderId={saleId}
+            module="sale"
+            enabled
+            onOpenFullLogs={() => setAuditLogsOpen(true)}
+          />
+        </div>
+      ) : null}
       {/* ── Customer Details ── */}
       <fieldset
         ref={customerFieldRef}
@@ -693,7 +732,8 @@ const CreateSale = ({ mode }) => {
             </label>
             <input
               id="sale-date"
-              type="date"
+              type="datetime-local"
+              step="60"
               className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-sm focus:border-brand focus:ring-1 focus:ring-brand/30 outline-none"
               value={saleDate}
               onChange={(e) => setSaleDate(e.target.value)}
@@ -1532,6 +1572,14 @@ const CreateSale = ({ mode }) => {
           </Button>
         </div>
       </fieldset>
+      <BookingLogsModal
+        isOpen={auditLogsOpen}
+        orderId={saleId}
+        billNo={saleNumber}
+        module="sale"
+        entityLabel="sale"
+        onClose={() => setAuditLogsOpen(false)}
+      />
     </div>
   );
 };

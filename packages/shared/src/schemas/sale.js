@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { toSqlDateTime } from '../utils/date.js';
 import { isIndianPhone } from '../utils/validators.js';
 
 const saleItemSchema = z.object({
@@ -23,7 +24,12 @@ const saleItemSchema = z.object({
 
 export const createSaleBodySchema = z.object({
   bill_type: z.enum(['gst', 'kaccha']).optional(),
-  sale_date: z.string().date(),
+  sale_date: z
+    .string()
+    .trim()
+    .min(1, 'Date is required')
+    .transform((v) => toSqlDateTime(v))
+    .refine((v) => Boolean(v), { message: 'Enter a valid date and time' }),
   customer_name: z.string().trim().min(1, 'Name is required').max(200),
   contact_no: z
     .string()

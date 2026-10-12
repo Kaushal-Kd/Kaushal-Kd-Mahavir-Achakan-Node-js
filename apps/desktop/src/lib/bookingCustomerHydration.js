@@ -50,6 +50,27 @@ export function restoreWhatsappFromDraftSnapshot(snap, customer = null) {
  * @param {object|null|undefined} customer
  * @param {object|null|undefined} orderSnap
  */
+/**
+ * Keep phones/address already typed on the booking when the customer master
+ * has those fields empty (quick-created by name, or "No phone" search hits).
+ * @param {ReturnType<typeof hydrateBookingCustomerFields>} hydrated
+ * @param {{ contactNo1?: string, contactNo2?: string, contact2Name?: string, address?: string }} [typed]
+ */
+export function coalesceBookingContacts(hydrated, typed = {}) {
+  const contactNo1 = hydrated.contactNo1 || phoneInputDigits(typed.contactNo1) || '';
+  const contactNo2 = hydrated.contactNo2 || phoneInputDigits(typed.contactNo2) || '';
+  const same = !!contactNo1 && !!contactNo2 && contactNo2 === contactNo1;
+  return {
+    ...hydrated,
+    contactNo1,
+    contactNo2,
+    contact2Name:
+      hydrated.contact2Name || String(typed.contact2Name || '').trim().slice(0, 60),
+    contactNo2SameAsPhone1: hydrated.contactNo2SameAsPhone1 || same,
+    address: hydrated.address || String(typed.address || '').trim(),
+  };
+}
+
 export function hydrateBookingCustomerFields(customer, orderSnap = null) {
   const c = customer || {};
   const orderCustomerId = orderSnap?.customer_id;

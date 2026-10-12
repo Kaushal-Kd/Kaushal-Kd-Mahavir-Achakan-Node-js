@@ -3,6 +3,7 @@ import {
   accessoryRentableQty,
   buildSaleNumber,
   formatAccessoryQtyExceededMessage,
+  sqlInclusiveDateTimeRange,
 } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
@@ -15,6 +16,18 @@ import { resolveSalesListSort } from './listSort.js';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function paymentDateFromSaleDate(saleDate) {
+  if (saleDate instanceof Date && !Number.isNaN(saleDate.getTime())) {
+    const y = saleDate.getUTCFullYear();
+    const m = String(saleDate.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(saleDate.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const raw = String(saleDate || '').trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
 }
 
 function saleItemsToSellAssertLines(items) {
@@ -156,7 +169,7 @@ async function syncSaleAdvancePayment(trx, shopId, saleId, data, userId) {
     payment_type: 'cash',
     category: 'advance',
     amount: advanceAmt,
-    payment_date: data.sale_date,
+    payment_date: paymentDateFromSaleDate(data.sale_date),
     transaction_id: null,
     notes: null,
     payment_account_id: advAcc,
@@ -236,23 +249,54 @@ export async function getSaleById(shopId, saleId) {
   return { ...sale, items, payments };
 }
 
+function isTruthyQueryFlag(value) {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+async function attachAuditSummaryToSales(shopId, rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return;
+
+  const saleIds = [...new Set(rows.map((row) => row.id).filter(Boolean))];
+  if (!saleIds.length) return;
+
+  const summaries = await knex('system_logs')
+    .where({ shop_id: shopId, module: 'sale' })
+    .whereIn('entity_id', saleIds)
+    .groupBy('entity_id')
+    .select('entity_id')
+    .max({ change_count: 'change_count' });
+
+  const countBySale = new Map(
+    summaries.map((row) => [String(row.entity_id), Math.max(0, Number(row.change_count || 0) - 1)])
+  );
+
+  for (const row of rows) {
+    row.audit_edit_count = countBySale.get(String(row.id)) || 0;
+  }
+}
+
 export async function listSales(shopId, query) {
   const qb = buildBaseQuery(shopId);
 
   if (query.status) qb.andWhere('s.status', query.status);
-  if (query.from) qb.andWhere('s.sale_date', '>=', query.from);
-  if (query.to) qb.andWhere('s.sale_date', '<=', query.to);
+  const saleDateRange = sqlInclusiveDateTimeRange(query.from, query.to);
+  if (saleDateRange.from) qb.andWhere('s.sale_date', '>=', saleDateRange.from);
+  if (saleDateRange.to) qb.andWhere('s.sale_date', '<=', saleDateRange.to);
   if (query.pending_only === 'true' || query.pending_only === true) {
     qb.andWhereRaw('s.total_amount > s.advance');
   }
 
   applySalesListSearch(qb, query.search);
 
-  return paginate(qb, {
+  const result = await paginate(qb, {
     page: query.page,
     per_page: query.per_page,
     sort: resolveSalesListSort(query),
   });
+  if (result.data?.length && isTruthyQueryFlag(query.with_audit_summary)) {
+    await attachAuditSummaryToSales(shopId, result.data);
+  }
+  return result;
 }
 
 export async function createSale(shopId, data, userId) {
@@ -465,7 +509,7 @@ export async function recordSalePayment(shopId, saleId, data, userId) {
       throw badRequest(`Total received cannot be more than bill amount (${bill})`);
     }
 
-    const paymentDate = data.payment_date || sale.sale_date;
+    const paymentDate = data.payment_date || paymentDateFromSaleDate(sale.sale_date);
     const nextPaid = round2(paid + amount);
     const category = nextPaid >= bill ? 'final' : 'partial';
 

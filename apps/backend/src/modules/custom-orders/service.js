@@ -27,6 +27,7 @@ import {
 } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
+import { ensureCustomOrderItemWorkshopColumns } from '../../db/customOrderItemWorkshop.js';
 import knex from '../../db/knex.js';
 import { loadDocumentTypeNumbering } from '../../lib/documentNumbering.js';
 import { badRequest, notFound } from '../../utils/errors.js';
@@ -584,6 +585,7 @@ export async function getCustomOrder(shopId, id) {
 }
 
 export async function createCustomOrder(shopId, body, userId) {
+  await ensureCustomOrderItemWorkshopColumns(knex);
   const items = itemsFromBody(body);
   await assertItemsMeasurementsValid(shopId, body, items);
 
@@ -627,6 +629,7 @@ export async function createCustomOrder(shopId, body, userId) {
 }
 
 export async function updateCustomOrder(shopId, id, body, userId) {
+  await ensureCustomOrderItemWorkshopColumns(knex);
   const existing = await getCustomOrder(shopId, id);
   if (existing.status === 'cancelled') {
     throw badRequest('Cancelled orders cannot be edited');

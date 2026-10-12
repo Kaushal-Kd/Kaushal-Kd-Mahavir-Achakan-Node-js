@@ -56,6 +56,11 @@ const FIELD_LABELS = {
   rate: 'Rate',
   amount: 'Amount',
   sale_number: 'Sale no.',
+  sale_date: 'Date',
+  contact_no: 'Contact no',
+  remark: 'Remark',
+  bill_type: 'Bill type',
+  advance: 'Advance',
   purchase_number: 'Purchase no.',
   vendor_name: 'Vendor',
   payable_amount: 'Payable',
@@ -140,6 +145,7 @@ function labelForPath(path) {
     return `${parts.slice(0, -1).join(' · ')} · ${labelForFieldKey(last)}`;
   }
   if (parts[0] === 'order') return `Order · ${labelForFieldKey(last)}`;
+  if (parts[0] === 'sale') return `Sale · ${labelForFieldKey(last)}`;
   if (parts[0] === 'customer') return `Customer · ${labelForFieldKey(last)}`;
   return parts.map((p, i) => (i === parts.length - 1 ? labelForFieldKey(p) : p)).join(' · ');
 }

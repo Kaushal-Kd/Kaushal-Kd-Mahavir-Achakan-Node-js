@@ -5,6 +5,7 @@ import {
   applyBookingContactToCustomerForm,
   bookingCustomerContactSummary,
   buildBookingContactForCustomerEdit,
+  coalesceBookingContacts,
   emptyCustomerPatchFromBookingContact,
   hydrateBookingCustomerFields,
   inferWhatsappSource,
@@ -66,6 +67,24 @@ describe('hydrateBookingCustomerFields', () => {
     assert.equal(bill24.contactNo1, '9000000024');
     assert.equal(bill25.address, 'Bill 25 addr');
     assert.equal(bill24.address, 'Bill 24 addr');
+  });
+
+  it('keeps typed booking phones when the customer master has none', () => {
+    const hydrated = hydrateBookingCustomerFields({
+      id: 'c1',
+      name: 'anarkali trial',
+      phone1: '',
+      phone2: '',
+      address: '',
+    });
+    const merged = coalesceBookingContacts(hydrated, {
+      contactNo1: '9876543210',
+      contactNo2: '9123456780',
+      address: 'Halvad',
+    });
+    assert.equal(merged.contactNo1, '9876543210');
+    assert.equal(merged.contactNo2, '9123456780');
+    assert.equal(merged.address, 'Halvad');
   });
 
   it('falls back to customer when order snapshot missing', () => {

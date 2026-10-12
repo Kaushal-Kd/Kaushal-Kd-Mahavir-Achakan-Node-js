@@ -106,6 +106,7 @@ import { queryKeys } from '../../lib/queryKeys.js';
 import { useWhatsAppOutbound } from '../../contexts/WhatsAppOutboundContext.jsx';
 import {
   buildBookingContactForCustomerEdit,
+  coalesceBookingContacts,
   emptyCustomerPatchFromBookingContact,
   hydrateBookingCustomerFields,
   restoreWhatsappFromDraftSnapshot,
@@ -2000,10 +2001,19 @@ const CreateOrder = ({ mode, orderId }) => {
 
   const pickCustomer = (c, orderSnap = null) => {
     const orderContext = orderSnap ?? (isEditMode ? editOrderQuery.data : null);
+    const typedContacts = {
+      contactNo1,
+      contactNo2,
+      contact2Name,
+      address,
+    };
     setCustomer(c);
     setEditingCustomerName(!String(c?.name || '').trim());
     setCustomerQuery(c?.name || '');
-    const hydrated = hydrateBookingCustomerFields(c, orderContext);
+    const hydrated = coalesceBookingContacts(
+      hydrateBookingCustomerFields(c, orderContext),
+      typedContacts
+    );
     setAddress(hydrated.address);
     setContactNo1(hydrated.contactNo1);
     setContact2Name(hydrated.contact2Name);
@@ -2025,7 +2035,10 @@ const CreateOrder = ({ mode, orderId }) => {
           if (!full) return;
           setCustomer(full);
           setCustomerQuery(full.name || '');
-          const next = hydrateBookingCustomerFields(full, orderContext);
+          const next = coalesceBookingContacts(
+            hydrateBookingCustomerFields(full, orderContext),
+            typedContacts
+          );
           setAddress(next.address);
           setContactNo1(next.contactNo1);
           setContact2Name(next.contact2Name);
@@ -4173,10 +4186,8 @@ const CreateOrder = ({ mode, orderId }) => {
       return;
     }
 
-    const resumeId = String(location.state?.resumeDraftId || '').trim();
+    const resumeId = String(location.state?.resumeDraftId || getActiveDraftId() || '').trim();
     if (!resumeId) {
-      persistActiveDraftStorageKey(null);
-      setBookingDateTime(nowDatetimeLocal());
       draftHydrateDoneRef.current = true;
       return;
     }

@@ -3,6 +3,14 @@ import test from 'node:test';
 
 import { diffSnapshots, filterNoOpLineChanges } from './snapshotDiff.js';
 
+test('diffSnapshots labels sale date changes', () => {
+  const prev = { sale: { sale_date: '2026-10-10 00:00:00' } };
+  const next = { sale: { sale_date: '2026-10-12 20:14:00' } };
+  const { changes, changeCount } = diffSnapshots(prev, next);
+  assert.equal(changeCount, 1);
+  assert.match(changes[0].label, /Sale · Date/i);
+});
+
 test('diffSnapshots reports scalar field change', () => {
   const prev = { order: { pickup_name: 'Ali' } };
   const next = { order: { pickup_name: 'Hassan' } };

@@ -5,6 +5,7 @@ import {
   gstFinancialYear,
   gstInvoiceIssueSchema,
   gstinSchema,
+  sqlInclusiveDateTimeRange,
 } from '@wrs/shared';
 
 import knex from '../../db/knex.js';
@@ -82,9 +83,10 @@ export async function listGstCandidates(shopId, actorId, query) {
   await requireShopAdministrator(knex, shopId, actorId);
   const type = query.source || 'booking';
   const isSale = type === 'sale';
+  const saleRange = sqlInclusiveDateTimeRange(query.from, query.to);
   const q = eligibleQuery(knex, shopId, type).whereBetween(
     isSale ? 'b.sale_date' : 'b.booking_date',
-    [query.from, query.to]
+    isSale ? [saleRange.from, saleRange.to] : [query.from, query.to]
   );
   if (!isSale)
     q.leftJoin('customers as c', function joinCustomer() {

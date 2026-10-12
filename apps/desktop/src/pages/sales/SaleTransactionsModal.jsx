@@ -13,7 +13,7 @@ function formatPaymentDate(value, fallback) {
 
 function formatPaymentDescription(saleNumber) {
   const billNo = String(saleNumber || '').trim();
-  return billNo ? `${billNo} - PAYMENT (SALE)` : 'PAYMENT (SALE)';
+  return billNo ? `${billNo} - PAYMENT (SELL)` : 'PAYMENT (SELL)';
 }
 
 const SaleTransactionsModal = ({ isOpen, saleId, onClose, onAddPayment }) => {

@@ -1691,8 +1691,8 @@ function applySaleHistoryStandaloneDateFilter(qb, showAll, from, to) {
   if (showAll) return;
   const fromDate = String(from || '').slice(0, 10);
   const toDate = String(to || '').slice(0, 10);
-  if (fromDate && isValidDate(fromDate)) qb.andWhere('s.sale_date', '>=', fromDate);
-  if (toDate && isValidDate(toDate)) qb.andWhere('s.sale_date', '<=', toDate);
+  if (fromDate && isValidDate(fromDate)) qb.andWhere('s.sale_date', '>=', `${fromDate} 00:00:00`);
+  if (toDate && isValidDate(toDate)) qb.andWhere('s.sale_date', '<=', `${toDate} 23:59:59`);
 }
 
 function applySaleHistoryBookingDateFilter(qb, showAll, from, to) {

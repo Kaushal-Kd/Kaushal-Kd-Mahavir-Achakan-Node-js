@@ -10,12 +10,13 @@ import { systemLogsApi } from '../lib/api/systemLogs.js';
  */
 export function useBookingAuditLogs(orderId, options = {}) {
   const enabled = Boolean(options.enabled && orderId);
+  const module = options.module || 'booking';
 
   const query = useQuery({
-    queryKey: ['system-logs', 'booking', 'audit-summary', orderId],
+    queryKey: ['system-logs', module, 'audit-summary', orderId],
     queryFn: () =>
       systemLogsApi.list({
-        module: 'booking',
+        module,
         entity_id: orderId,
         per_page: 100,
         page: 1,

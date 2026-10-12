@@ -1,5 +1,5 @@
 import {
-  formatOrderPaymentLedgerDetails,
+  formatPaymentLedgerDetails,
   normalizeSqlDateToIso,
   resolvePaymentOrderStatus,
 } from '@wrs/shared';
@@ -469,6 +469,7 @@ async function listPaymentLines(shopId, accountId, from, to) {
       sqlPaymentOrderStatusSelect(knex),
       sqlFollowUpOrderPaymentSelect(knex),
       's.sale_number',
+      's.status as sale_status',
       customerNameSql
     );
 
@@ -510,6 +511,7 @@ async function listPaymentLines(shopId, accountId, from, to) {
       sqlPaymentOrderStatusSelect(knex),
       sqlFollowUpOrderPaymentSelect(knex),
       's.sale_number',
+      's.status as sale_status',
       customerNameSql
     );
 
@@ -541,19 +543,21 @@ async function listPaymentLines(shopId, accountId, from, to) {
     const billNo =
       String(r.order_number || '').trim() || String(r.sale_number || '').trim() || refPay(r.id);
     const customerNm = String(r.ledger_customer_name || '').trim();
-    const billLabel = String(r.order_number || '').trim() || String(r.sale_number || '').trim();
     out.push(
       ledgerRow({
         side: 'dr',
         date: resolveLedgerDateTime(r.created_at, r.payment_date),
         ref_no: billNo,
         customer_name: customerNm,
-        details: formatOrderPaymentLedgerDetails(
-          billLabel,
-          paymentStatusForRow(r),
-          false,
-          r.notes
-        ),
+        details: formatPaymentLedgerDetails({
+          orderNumber: r.order_number,
+          orderStatus: paymentStatusForRow(r),
+          saleId: r.sale_id,
+          saleNumber: r.sale_number,
+          saleStatus: r.sale_status,
+          isRefund: false,
+          notes: r.notes,
+        }),
         amount: r.amount,
         source: 'payment',
         source_id: r.id,
@@ -566,19 +570,21 @@ async function listPaymentLines(shopId, accountId, from, to) {
     const billNo =
       String(r.order_number || '').trim() || String(r.sale_number || '').trim() || refPay(r.id);
     const customerNm = String(r.ledger_customer_name || '').trim();
-    const billLabel = String(r.order_number || '').trim() || String(r.sale_number || '').trim();
     out.push(
       ledgerRow({
         side: 'cr',
         date: resolveLedgerDateTime(r.created_at, r.payment_date),
         ref_no: billNo,
         customer_name: customerNm,
-        details: formatOrderPaymentLedgerDetails(
-          billLabel,
-          paymentStatusForRow(r),
-          true,
-          r.notes
-        ),
+        details: formatPaymentLedgerDetails({
+          orderNumber: r.order_number,
+          orderStatus: paymentStatusForRow(r),
+          saleId: r.sale_id,
+          saleNumber: r.sale_number,
+          saleStatus: r.sale_status,
+          isRefund: true,
+          notes: r.notes,
+        }),
         amount: r.amount,
         source: 'payment',
         source_id: r.id,

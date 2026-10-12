@@ -130,6 +130,30 @@ export function buildBookingProductSnapshot(order, options = {}) {
   return { items, accessories };
 }
 
+/** @param {object} sale */
+export function buildSaleBillSnapshot(sale) {
+  return {
+    sale: {
+      id: sale?.id,
+      sale_number: sale?.sale_number,
+      status: sale?.status,
+      sale_date: sale?.sale_date,
+      bill_type: sale?.bill_type,
+      customer_id: sale?.customer_id,
+      customer_name: sale?.customer_name,
+      contact_no: sale?.contact_no,
+      address: sale?.address,
+      sales_person_id: sale?.sales_person_id,
+      remark: sale?.remark,
+      subtotal: sale?.subtotal,
+      discount_amount: sale?.discount_amount,
+      tax_total: sale?.tax_total,
+      total_amount: sale?.total_amount,
+      advance: sale?.advance,
+    },
+  };
+}
+
 /** @param {object} sale — includes items if loaded */
 export function buildSaleProductSnapshot(sale) {
   return {

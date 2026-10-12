@@ -218,3 +218,57 @@ export function formatOrderPaymentLedgerDetails(orderNumber, orderStatus, isRefu
   if (orderNumber) return `${orderNumber} - PAYMENT (${bookingPart})`;
   return `PAYMENT (${bookingPart})`;
 }
+
+/**
+ * Sale cashbook / ledger kind: SELL, never BOOKING / Booked.
+ * @param {string|null|undefined} saleStatus
+ * @returns {string}
+ */
+export function formatSalePaymentKindPart(saleStatus) {
+  const status = String(saleStatus || '').trim().toLowerCase();
+  if (status && status !== 'active') {
+    const label = status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    return `SELL - ${label}`;
+  }
+  return 'SELL';
+}
+
+/**
+ * Format sale payment details for account ledger / daily cashbook.
+ * @param {string|null|undefined} saleNumber
+ * @param {string|null|undefined} saleStatus
+ * @param {boolean} isRefund
+ * @returns {string}
+ */
+export function formatSalePaymentLedgerDetails(saleNumber, saleStatus, isRefund) {
+  const kind = formatSalePaymentKindPart(saleStatus);
+  const action = isRefund ? 'REFUND' : 'PAYMENT';
+  if (saleNumber) return `${saleNumber} - ${action} (${kind})`;
+  return `${action} (${kind})`;
+}
+
+/**
+ * Booking vs sale payment details for cashbook / ledger rows.
+ * @param {{
+ *   orderNumber?: string|null,
+ *   orderStatus?: string|null,
+ *   saleId?: string|null,
+ *   saleNumber?: string|null,
+ *   saleStatus?: string|null,
+ *   isRefund?: boolean,
+ *   notes?: string|null,
+ * }} input
+ * @returns {string}
+ */
+export function formatPaymentLedgerDetails(input = {}) {
+  const saleNumber = String(input.saleNumber || '').trim();
+  if (input.saleId || saleNumber) {
+    return formatSalePaymentLedgerDetails(saleNumber, input.saleStatus, Boolean(input.isRefund));
+  }
+  return formatOrderPaymentLedgerDetails(
+    String(input.orderNumber || '').trim(),
+    input.orderStatus,
+    Boolean(input.isRefund),
+    input.notes
+  );
+}

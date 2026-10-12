@@ -1,4 +1,4 @@
-import { normalizeSqlDateToIso, round2 } from '@wrs/shared';
+import { normalizeSqlDateToIso, round2, sqlInclusiveDateTimeRange } from '@wrs/shared';
 
 import knex from '../../db/knex.js';
 
@@ -482,12 +482,13 @@ async function getBookingSalesmanReport(shopId, range, query) {
 }
 
 async function getSaleSalesmanReport(shopId, range, query) {
+  const saleRange = sqlInclusiveDateTimeRange(range.from, range.to);
   const perSale = knex('sale_items as si')
     .join('sales as s', 's.id', 'si.sale_id')
     .where('s.shop_id', shopId)
     .andWhere('si.shop_id', shopId)
     .whereNot('s.status', 'cancelled')
-    .whereBetween('s.sale_date', [range.from, range.to])
+    .whereBetween('s.sale_date', [saleRange.from, saleRange.to])
     .groupBy('s.id', 's.sales_person_id', 's.sale_date', 's.discount_amount', 's.total_amount')
     .select(
       's.id as sale_id',

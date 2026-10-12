@@ -77,6 +77,7 @@ export const DEFAULT_TEMPLATE = {
     show_tax: false,
     show_qty: true,
     show_accessories: true,
+    show_item_notes: true,
   },
   footer_config: {
     thank_you: 'Thank you for choosing us!',
@@ -571,6 +572,18 @@ function pageStyles(tpl) {
         white-space: nowrap;
       }
       .item-name { font-weight: 700; color: #111827; }
+      .item-note {
+        display: block;
+        font-weight: 500;
+        font-size: calc(var(--bill-product-size) - 1px);
+        color: #4b5563;
+        margin-top: 1px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      table.items .item-acc td .item-note {
+        font-size: calc(var(--bill-accessory-size) - 1px);
+      }
       table.items td:first-child { padding-left: 12px; }
       table.items td:last-child { padding-right: 12px; }
       table.items tbody tr:nth-child(even) td { background: #fafafa; }
@@ -1075,8 +1088,21 @@ export function prepareOrderForBill(order) {
   };
 }
 
-function itemNameCell(line, { isAccessory, isSale, parentProduct }) {
+function billLineNote(line, { isAccessory } = {}) {
+  const raw = isAccessory ? line?.remarks : line?.tailor_notes || line?.product_note;
+  return String(raw || '').trim();
+}
+
+function itemNoteHtml(line, { isAccessory, showNotes } = {}) {
+  if (showNotes === false) return '';
+  const note = billLineNote(line, { isAccessory });
+  if (!note) return '';
+  return `<div class="item-note">${esc(note)}</div>`;
+}
+
+function itemNameCell(line, { isAccessory, isSale, parentProduct, showNotes }) {
   const saleTag = isSale ? ' <span class="muted">(Sale)</span>' : '';
+  const noteHtml = itemNoteHtml(line, { isAccessory, showNotes });
   if (isAccessory) {
     const cat = String(line.category_name || '').trim();
     const catPart = cat ? `<b>${esc(cat)}</b> · ` : '';
@@ -1088,9 +1114,9 @@ function itemNameCell(line, { isAccessory, isSale, parentProduct }) {
     const accTag = givenLabel
       ? `<span class="muted">(acc. · ${esc(givenLabel)})</span>`
       : '<span class="muted">(acc.)</span>';
-    return `<span class="acc-indent"></span>${parentPart}${catPart}${esc(line.name_snapshot)} ${accTag}${saleTag}`;
+    return `<span class="acc-indent"></span>${parentPart}${catPart}${esc(line.name_snapshot)} ${accTag}${saleTag}${noteHtml}`;
   }
-  return `<span class="item-name">${esc(line.name_snapshot)}</span>${saleTag}`;
+  return `<span class="item-name">${esc(line.name_snapshot)}</span>${saleTag}${noteHtml}`;
 }
 
 function itemsBlock(tpl, order) {
@@ -1138,7 +1164,14 @@ function itemsBlock(tpl, order) {
 
   const pushLineRow = (line, { isAccessory, isSale, parentProduct }) => {
     const cells = [];
-    cells.push(`<td>${itemNameCell(line, { isAccessory, isSale, parentProduct })}</td>`);
+    cells.push(
+      `<td>${itemNameCell(line, {
+        isAccessory,
+        isSale,
+        parentProduct,
+        showNotes: cfg.show_item_notes !== false,
+      })}</td>`,
+    );
     if (cfg.show_code) {
       const code = esc(line.code_snapshot || '—');
       cells.push(`<td class="col-code"><span class="item-code">${code}</span></td>`);

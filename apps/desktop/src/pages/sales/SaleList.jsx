@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatCurrency, round2, todayIndiaISODate } from '@wrs/shared';
+import { ACTIONS, MODULES, formatCurrency, hasPermission, round2, todayIndiaISODate } from '@wrs/shared';
 import {
   Ban,
   Download,
@@ -15,6 +15,8 @@ import PropTypes from 'prop-types';
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import BookingLogsActionButton from '../../components/booking/BookingLogsActionButton.jsx';
+import BookingLogsModal from '../../components/booking/BookingLogsModal.jsx';
 import ListPdfToolbarButtons from '../../components/reports/ListPdfToolbarButtons.jsx';
 import SaleBillLink from '../../components/booking/SaleBillLink.jsx';
 import AdminDeleteModal from '../../components/ui/AdminDeleteModal.jsx';
@@ -29,9 +31,10 @@ import { useAdminDelete } from '../../hooks/useAdminDelete.js';
 import { useDataTableColumns } from '../../hooks/useDataTableColumns.js';
 import { useSelectedShopName } from '../../hooks/useSelectedShopName.js';
 import { salesApi } from '../../lib/api/sales.js';
-import { formatFinancialRecordDateTime } from '../../lib/listTimestampColumns.js';
+import { formatSaleRecordDateTime } from '../../lib/listTimestampColumns.js';
 import { invalidateSalesDomain } from '../../lib/queryInvalidation.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
+import { useAuthStore } from '../../stores/authStore.js';
 import { toast } from '../../stores/uiStore.js';
 import { downloadSale, printSale } from '../../utils/printBill.js';
 import SalePaymentModal from './SalePaymentModal.jsx';
@@ -52,6 +55,8 @@ const SaleList = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const selectedShopName = useSelectedShopName();
+  const user = useAuthStore((s) => s.user);
+  const canViewLogs = hasPermission(user, MODULES.AUDIT_LOGS, ACTIONS.VIEW);
   const {
     target: deleting,
     requestDelete,
@@ -76,13 +81,14 @@ const SaleList = () => {
   const [pendingOnly, setPendingOnly] = useState(false);
   const [paymentSaleId, setPaymentSaleId] = useState(null);
   const [transactionsSaleId, setTransactionsSaleId] = useState(null);
+  const [logsTarget, setLogsTarget] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [billActionLoading, setBillActionLoading] = useState(null);
   const [sortKey, setSortKey] = useState('high');
 
   const listQuery = useQuery({
-    queryKey: ['sales', { page, perPage, search, dateFrom, dateTo, pendingOnly, sortKey }],
+    queryKey: ['sales', { page, perPage, search, dateFrom, dateTo, pendingOnly, sortKey, canViewLogs }],
     queryFn: () =>
       salesApi.list({
         page,
@@ -92,6 +98,7 @@ const SaleList = () => {
         to: dateTo || undefined,
         pending_only: pendingOnly || undefined,
         sort_by: sortKey,
+        with_audit_summary: canViewLogs ? 1 : undefined,
       }),
     keepPreviousData: true,
   });
@@ -175,7 +182,7 @@ const SaleList = () => {
         header: 'Date & Time',
         columnPickerLabel: 'Date & Time',
         className: 'text-xs whitespace-nowrap tabular-nums',
-        render: (r) => formatFinancialRecordDateTime(r, 'sale_date'),
+        render: (r) => formatSaleRecordDateTime(r),
       },
       {
         key: 'customer_name',
@@ -346,6 +353,14 @@ const SaleList = () => {
                 aria-label="Transactions"
                 onClick={() => setTransactionsSaleId(r.id)}
               />
+              {canViewLogs ? (
+                <BookingLogsActionButton
+                  orderId={r.id}
+                  entityLabel="sale"
+                  editCount={Number(r.audit_edit_count || 0)}
+                  onOpenLogs={() => setLogsTarget({ id: r.id, sale_number: r.sale_number })}
+                />
+              ) : null}
               {r.status !== 'cancelled' ? (
                 <Button
                   type="button"
@@ -388,7 +403,7 @@ const SaleList = () => {
         },
       },
     ],
-    [billActionLoading, navigate, requestDelete]
+    [billActionLoading, canViewLogs, navigate, requestDelete]
   );
 
   const { visibleColumns, pickerProps } = useDataTableColumns('sales', allColumns, {
@@ -403,7 +418,7 @@ const SaleList = () => {
           key: c.key,
           header: c.columnPickerLabel || String(c.header || c.key),
           get: (r) => {
-            if (c.key === 'sale_date') return formatFinancialRecordDateTime(r, 'sale_date') || '';
+            if (c.key === 'sale_date') return formatSaleRecordDateTime(r) || '';
             if (c.key === 'sales_person_name') return r.sales_person_name || '';
             if (c.key === 'total_qty') return String(r.total_qty ?? '');
             if (c.key === 'pending_amount') {
@@ -545,6 +560,15 @@ const SaleList = () => {
           setPage(1);
           setPerPage(n);
         }}
+      />
+
+      <BookingLogsModal
+        isOpen={Boolean(logsTarget)}
+        orderId={logsTarget?.id}
+        billNo={logsTarget?.sale_number}
+        module="sale"
+        entityLabel="sale"
+        onClose={() => setLogsTarget(null)}
       />
 
       <SaleTransactionsModal

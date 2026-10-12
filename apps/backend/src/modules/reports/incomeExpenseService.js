@@ -1,11 +1,13 @@
 import {
   formatOrderPaymentExpenseDetails,
   formatOrderPaymentIncomeDetails,
+  formatSalePaymentLedgerDetails,
   isDamageChargePayment,
   isOrderRentPaymentTransactionType,
   normalizeSqlDateToIso,
   orderPaymentDisplayStatusForFilter,
   resolvePaymentOrderStatus,
+  sqlInclusiveDateTimeRange,
 } from '@wrs/shared';
 
 import knex from '../../db/knex.js';
@@ -90,7 +92,7 @@ function addFormattedIncomePaymentDetailsSearch(b, like) {
       COALESCE(s.sale_number, ''),
       CASE WHEN p.sale_id IS NOT NULL THEN CONCAT(
         CASE WHEN COALESCE(s.sale_number, '') <> '' THEN ' - ' ELSE '' END,
-        'PAYMENT (SALE - ', UPPER(COALESCE(s.status, 'ACTIVE')), ')'
+        'PAYMENT (SELL)'
       ) ELSE '' END
     ) LIKE ?`,
     [like]
@@ -122,7 +124,7 @@ function addFormattedExpensePaymentDetailsSearch(b, like) {
       COALESCE(s.sale_number, ''),
       CASE WHEN p.sale_id IS NOT NULL THEN CONCAT(
         CASE WHEN COALESCE(s.sale_number, '') <> '' THEN ' - ' ELSE '' END,
-        'REFUND (SALE - ', UPPER(COALESCE(s.status, 'ACTIVE')), ')'
+        'REFUND (SELL)'
       ) ELSE '' END
     ) LIKE ?`,
     [like]
@@ -291,7 +293,10 @@ function applyPaymentDateRange(qb, from, to, dateBasis) {
         this.whereNotNull('p.order_id').whereBetween('o.booking_date', [from, to]);
       })
         .orWhere(function saleBooking() {
-          this.whereNull('p.order_id').whereNotNull('p.sale_id').whereBetween('s.sale_date', [from, to]);
+          const saleRange = sqlInclusiveDateTimeRange(from, to);
+          this.whereNull('p.order_id')
+            .whereNotNull('p.sale_id')
+            .whereBetween('s.sale_date', [saleRange.from, saleRange.to]);
         })
         .orWhere(function purchaseBooking() {
           this.whereNotNull('p.purchase_id').whereBetween('pu.purchase_date', [from, to]);
@@ -415,9 +420,7 @@ function joinPaymentVoucherBills(qb) {
 }
 
 function formatSalePaymentDetails(saleNumber, saleStatus) {
-  const label = saleStatus ? String(saleStatus).toUpperCase() : 'ACTIVE';
-  if (saleNumber) return `${saleNumber} - PAYMENT (SALE - ${label})`;
-  return `PAYMENT (SALE - ${label})`;
+  return formatSalePaymentLedgerDetails(saleNumber, saleStatus, false);
 }
 
 function paymentStatusForRow(r) {
@@ -542,12 +545,14 @@ export function mapExpensePaymentRow(r) {
     name:
       customerName ||
       (isDamage ? 'DAMAGE / MISSING' : hasOrder ? 'CUSTOMER REFUND' : 'REFUND'),
-    details: r.sale_id ? `REFUND (SALE - ${String(r.sale_status || 'ACTIVE').toUpperCase()})` : formatOrderPaymentExpenseDetails(
-      '',
-      paymentStatusForRow(r),
-      r.payment_category || 'refund',
-      r.payment_notes
-    ),
+    details: r.sale_id
+      ? formatSalePaymentLedgerDetails('', r.sale_status, true)
+      : formatOrderPaymentExpenseDetails(
+          '',
+          paymentStatusForRow(r),
+          r.payment_category || 'refund',
+          r.payment_notes
+        ),
     payment_account: r.payment_account || '',
     amount: num(r.amount),
     expense_type: isDamage ? 'damage_missing' : 'booking',

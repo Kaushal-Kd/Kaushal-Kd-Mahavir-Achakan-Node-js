@@ -1,5 +1,5 @@
 import {
-  formatOrderPaymentLedgerDetails,
+  formatPaymentLedgerDetails,
   resolvePaymentOrderStatus,
   todayIndiaISODate,
 } from '@wrs/shared';
@@ -299,7 +299,9 @@ export async function getDailyCashbookAccountLines(shopId, query) {
     'p.payment_stage',
     sqlPaymentOrderStatusSelect(knex),
     sqlFollowUpOrderPaymentSelect(knex),
+    'p.sale_id',
     's.sale_number',
+    's.status as sale_status',
     customerNameSql
   );
 
@@ -343,7 +345,9 @@ export async function getDailyCashbookAccountLines(shopId, query) {
       'p.payment_stage',
       sqlPaymentOrderStatusSelect(knex),
       sqlFollowUpOrderPaymentSelect(knex),
+      'p.sale_id',
       's.sale_number',
+      's.status as sale_status',
       customerNameSql
     );
 
@@ -395,17 +399,19 @@ export async function getDailyCashbookAccountLines(shopId, query) {
   for (const r of incomePayments) {
     const billNo =
       String(r.order_number || '').trim() || String(r.sale_number || '').trim() || refPay(r.id);
-    const billLabel = String(r.order_number || '').trim() || String(r.sale_number || '').trim();
     incomeRaw.push(
       cashbookLine({
         ref_no: billNo,
         customer_name: String(r.ledger_customer_name || '').trim(),
-        details: formatOrderPaymentLedgerDetails(
-          billLabel,
-          paymentStatusForRow(r),
-          false,
-          r.notes
-        ),
+        details: formatPaymentLedgerDetails({
+          orderNumber: r.order_number,
+          orderStatus: paymentStatusForRow(r),
+          saleId: r.sale_id,
+          saleNumber: r.sale_number,
+          saleStatus: r.sale_status,
+          isRefund: false,
+          notes: r.notes,
+        }),
         amount: r.amount,
         source: 'payment',
         source_id: r.id,
@@ -433,17 +439,19 @@ export async function getDailyCashbookAccountLines(shopId, query) {
   for (const r of expenseRefunds) {
     const billNo =
       String(r.order_number || '').trim() || String(r.sale_number || '').trim() || refPay(r.id);
-    const billLabel = String(r.order_number || '').trim() || String(r.sale_number || '').trim();
     expenseRaw.push(
       cashbookLine({
         ref_no: billNo,
         customer_name: String(r.ledger_customer_name || '').trim(),
-        details: formatOrderPaymentLedgerDetails(
-          billLabel,
-          paymentStatusForRow(r),
-          true,
-          r.notes
-        ),
+        details: formatPaymentLedgerDetails({
+          orderNumber: r.order_number,
+          orderStatus: paymentStatusForRow(r),
+          saleId: r.sale_id,
+          saleNumber: r.sale_number,
+          saleStatus: r.sale_status,
+          isRefund: true,
+          notes: r.notes,
+        }),
         amount: r.amount,
         source: 'payment',
         source_id: r.id,

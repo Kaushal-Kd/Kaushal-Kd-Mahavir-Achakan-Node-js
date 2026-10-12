@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { buildBookingBillSnapshot, buildBookingProductSnapshot } from './snapshots.js';
+import {
+  buildBookingBillSnapshot,
+  buildBookingProductSnapshot,
+  buildSaleBillSnapshot,
+} from './snapshots.js';
 import { normalizeSnapshotForDiff } from './normalizeSnapshot.js';
 
 describe('buildBookingBillSnapshot', () => {
@@ -13,6 +17,22 @@ describe('buildBookingBillSnapshot', () => {
     assert.equal(snap.customer.phone1, '9876543210');
     assert.equal(snap.customer.phone, '9876543210');
     assert.equal(snap.customer.address, 'KUKDA 2');
+  });
+});
+
+describe('buildSaleBillSnapshot', () => {
+  it('stores sale bill fields for audit logs', () => {
+    const snap = buildSaleBillSnapshot({
+      id: 's1',
+      sale_number: 'SNM-0014',
+      customer_name: 'eee',
+      contact_no: '9876543210',
+      sale_date: '2026-10-10 14:00:00',
+      total_amount: 300,
+    });
+    assert.equal(snap.sale.sale_number, 'SNM-0014');
+    assert.equal(snap.sale.customer_name, 'eee');
+    assert.equal(snap.sale.total_amount, 300);
   });
 });
 
