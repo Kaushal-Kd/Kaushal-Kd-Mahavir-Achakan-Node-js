@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 const accountId = z.string().trim().min(1).max(80);
+const emptyToUndef = (value) => (value === '' || value === null ? undefined : value);
+const optionalUuid = z.preprocess(emptyToUndef, z.string().uuid().optional());
 
 export const securityChargeListQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
@@ -26,14 +28,14 @@ export const securityChargeOperationBodySchema = z
     kind: z.enum(['collect', 'retain', 'refund', 'release', 'settle']),
     amount: z.coerce.number().finite().positive().max(9999999999.99),
     payment_date: z.string().date(),
-    funding_operation_id: z.string().uuid().optional(),
+    funding_operation_id: optionalUuid,
     payment_account_id: accountId.optional(),
     security_account_id: accountId.optional(),
     income_account_id: accountId.optional(),
     remarks: z.string().trim().max(2000).optional(),
   })
   .superRefine((value, ctx) => {
-    if (['refund', 'release', 'settle'].includes(value.kind) && !value.funding_operation_id) {
+    if (['refund', 'release'].includes(value.kind) && !value.funding_operation_id) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['funding_operation_id'],
@@ -64,6 +66,13 @@ export const securityChargeOperationBodySchema = z
         message: 'Choose an income account',
       });
     }
+    if (value.kind === 'settle' && !value.payment_account_id && !value.funding_operation_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['payment_account_id'],
+        message: 'Choose a bank or cash account',
+      });
+    }
   });
 
 export const createSecurityChargeBodySchema = z.object({
@@ -75,8 +84,8 @@ export const createSecurityChargeBodySchema = z.object({
 
 export const settleSecurityChargeBodySchema = z
   .object({
-    idempotency_key: z.string().uuid().optional(),
-    funding_operation_id: z.string().uuid().optional(),
+    idempotency_key: optionalUuid,
+    funding_operation_id: optionalUuid,
     amount: z.coerce.number().finite().positive().optional(),
     payment_date: z.string().date().optional(),
     payment_account_id: accountId.optional(),

@@ -57,6 +57,23 @@ test('settlement needs explicit income target and funding lot', () => {
       .success,
     false
   );
+  assert.equal(
+    securityChargeOperationBodySchema.safeParse({
+      ...base,
+      kind: 'settle',
+      income_account_id: 'income',
+      payment_account_id: 'cash',
+    }).success,
+    true
+  );
+  const blankBank = securityChargeOperationBodySchema.safeParse({
+    ...base,
+    kind: 'settle',
+    income_account_id: 'income',
+    funding_operation_id: '',
+  });
+  assert.equal(blankBank.success, false);
+  assert.match(blankBank.error.issues[0].message, /bank or cash/i);
 });
 
 test('release is not a cash collection or refund', () => {

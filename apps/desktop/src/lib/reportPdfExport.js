@@ -57,16 +57,18 @@ export async function fetchAllReportRows(reportFn, baseParams = {}) {
  *   subtitle?: string,
  *   columns: Array<{ key: string, header?: string, get?: (row: object) => unknown }>,
  *   rows: object[],
+ *   summary?: Array<{ label?: string, value?: string|number }>,
+ *   footerTotals?: Record<string, string|number>,
  * }} opts
  */
 export async function runTablePdfExport(opts) {
-  const { filename, title, subtitle, columns, rows } = opts;
+  const { filename, title, subtitle, columns, rows, summary, footerTotals } = opts;
   if (!rows?.length) {
     toast.warning('No data to export');
     return;
   }
   const { downloadTablePdf } = await import('../utils/tablePdf.js');
-  downloadTablePdf(filename, columns, rows, { title, subtitle });
+  downloadTablePdf(filename, columns, rows, { title, subtitle, summary, footerTotals });
   toast.success('PDF downloaded');
 }
 
@@ -79,13 +81,13 @@ export async function runTablePdfExport(opts) {
  * }} opts
  */
 export async function runTablePdfPrint(opts) {
-  const { title, subtitle, columns, rows } = opts;
+  const { title, subtitle, columns, rows, summary, footerTotals } = opts;
   if (!rows?.length) {
     toast.warning('No data to print');
     return;
   }
   const { printTablePdf } = await import('../utils/tablePdf.js');
-  printTablePdf(columns, rows, { title, subtitle });
+  printTablePdf(columns, rows, { title, subtitle, summary, footerTotals });
 }
 
 /**

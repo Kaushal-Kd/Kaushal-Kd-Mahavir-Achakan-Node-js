@@ -1638,6 +1638,7 @@ export async function getOrder(shopId, id) {
     const snapPhone = String(order.contact_phone1 || '').trim();
     const snapPhone2 = String(order.pickup_number || '').trim();
     const snapAddr = String(order.contact_address || '').trim();
+    orderPayload.customer_name = customer.name || null;
     orderPayload.customer_phone = snapPhone || customer.phone1;
     orderPayload.customer_phone2 = snapPhone2 || customer.phone2;
     orderPayload.customer_phone2_name =

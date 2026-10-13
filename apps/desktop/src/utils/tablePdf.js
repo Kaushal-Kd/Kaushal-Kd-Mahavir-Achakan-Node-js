@@ -8,6 +8,8 @@ export { pdfSafeText };
 
 const BLACK = [0, 0, 0];
 const WHITE = [255, 255, 255];
+const PAGE_NUMBER_OFFSET_MM = 8;
+const TABLE_BOTTOM_MARGIN_MM = 16;
 
 /**
  * @param {Array<{ width?: number, richGet?: (row: object) => unknown }>} columns
@@ -150,11 +152,116 @@ function drawPdfHeader(doc, options, margin) {
 }
 
 /**
+ * Align last-page column totals to the visible table columns.
+ * @param {Array<{ key: string }>} columns
+ * @param {Record<string, string|number>|null|undefined} footerTotals
+ * @returns {string[]|null}
+ */
+export function buildPdfFooterRow(columns, footerTotals) {
+  if (!footerTotals || typeof footerTotals !== 'object') return null;
+  const list = columns || [];
+  const hasAny = list.some((c) => Object.prototype.hasOwnProperty.call(footerTotals, c.key));
+  if (!hasAny) return null;
+  let placedLabel = false;
+  return list.map((c) => {
+    if (Object.prototype.hasOwnProperty.call(footerTotals, c.key)) {
+      return pdfSafeText(footerTotals[c.key] ?? '');
+    }
+    if (!placedLabel) {
+      placedLabel = true;
+      return 'Total';
+    }
+    return '';
+  });
+}
+
+/**
+ * @param {import('jspdf').jsPDF} doc
+ */
+export function addPdfPageNumbers(doc) {
+  const pageCount = doc.getNumberOfPages();
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(...BLACK);
+  for (let i = 1; i <= pageCount; i += 1) {
+    doc.setPage(i);
+    doc.text(`Page ${i} of ${pageCount}`, pageW / 2, pageH - PAGE_NUMBER_OFFSET_MM, { align: 'center' });
+  }
+}
+
+/**
+ * Draw labeled grand totals after the table (adds a page if the last page is full).
+ * @param {import('jspdf').jsPDF} doc
+ * @param {Array<{ label?: string, value?: string|number }>|undefined} summaryLines
+ * @param {number} margin
+ */
+export function drawPdfSummary(doc, summaryLines, margin = 10) {
+  const lines = Array.isArray(summaryLines)
+    ? summaryLines.filter((line) => line && (line.label || line.value != null))
+    : [];
+  if (!lines.length) return;
+
+  const pageH = doc.internal.pageSize.getHeight();
+  const pageW = doc.internal.pageSize.getWidth();
+  const usableBottom = pageH - TABLE_BOTTOM_MARGIN_MM;
+  let y = (doc.lastAutoTable?.finalY ?? margin) + 8;
+  const blockHeight = 8 + lines.length * 6;
+  if (y + blockHeight > usableBottom) {
+    doc.addPage();
+    y = margin;
+  }
+
+  doc.setTextColor(...BLACK);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text('Totals', margin, y);
+  y += 6;
+
+  const valueX = pageW - margin;
+  for (const line of lines) {
+    const label = pdfSafeText(line.label || '');
+    const value = pdfSafeText(line.value ?? '');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(label, margin, y);
+    doc.setFont('helvetica', 'bold');
+    doc.text(value, valueX, y, { align: 'right' });
+    y += 6;
+  }
+}
+
+function finalizePdfDecorations(doc, options, margin) {
+  drawPdfSummary(doc, options?.summary, margin);
+  addPdfPageNumbers(doc);
+}
+
+function autoTableFootOptions(columns, options) {
+  const footerRow = Array.isArray(options.footerRow)
+    ? options.footerRow.map((cell) => pdfSafeText(cell ?? ''))
+    : buildPdfFooterRow(columns, options.footerTotals);
+  if (!footerRow) return {};
+  return {
+    foot: [footerRow],
+    showFoot: 'lastPage',
+    footStyles: {
+      fillColor: WHITE,
+      textColor: BLACK,
+      fontStyle: 'bold',
+      halign: 'left',
+      lineWidth: 0.2,
+      lineColor: BLACK,
+    },
+  };
+}
+
+/**
  * Draw a grid table onto an existing jsPDF document.
  * @param {import('jspdf').jsPDF} doc
  * @param {Array<{ key: string, header?: string, get?: (row: object) => unknown, richGet?: (row: object) => unknown, width?: number }>} columns
  * @param {object[]} rows
- * @param {{ startY?: number, margin?: number, rowPageBreak?: string }} [options]
+ * @param {{ startY?: number, margin?: number, rowPageBreak?: string, footerRow?: string[], footerTotals?: Record<string, string|number> }} [options]
  * @returns {number} Y position after the table
  */
 export function appendTableToPdfDoc(doc, columns, rows, options = {}) {
@@ -171,8 +278,9 @@ export function appendTableToPdfDoc(doc, columns, rows, options = {}) {
     head: [columns.map((c) => pdfSafeText(c.header || c.key))],
     body: buildTableBody(columns, list, richColIndexes),
     theme: 'grid',
-    margin: { left: margin, right: margin },
+    margin: { left: margin, right: margin, bottom: TABLE_BOTTOM_MARGIN_MM },
     ...(Object.keys(columnStyles).length ? { columnStyles } : {}),
+    ...autoTableFootOptions(columns, options),
     styles: {
       fontSize: 8,
       textColor: BLACK,
@@ -209,7 +317,7 @@ export function appendTableToPdfDoc(doc, columns, rows, options = {}) {
 /**
  * @param {Array<{ key: string, header?: string, get?: (row: object) => unknown, richGet?: (row: object) => unknown, width?: number }>} columns
  * @param {object[]} rows
- * @param {{ title?: string, subtitle?: string }} [options]
+ * @param {{ title?: string, subtitle?: string, summary?: Array<{ label?: string, value?: string|number }>, footerTotals?: Record<string, string|number>, footerRow?: string[] }} [options]
  * @returns {import('jspdf').jsPDF}
  */
 export function buildTablePdfDoc(columns, rows, options = {}) {
@@ -225,14 +333,17 @@ export function buildTablePdfDoc(columns, rows, options = {}) {
     startY,
     margin,
     rowPageBreak: options.rowPageBreak,
+    footerTotals: options.footerTotals,
+    footerRow: options.footerRow,
   });
+  finalizePdfDecorations(doc, options, margin);
   return doc;
 }
 
 /**
  * @param {Array<{ key: string, header?: string, get?: (row: object) => unknown, richGet?: (row: object) => unknown, width?: number }>} columns
  * @param {Array<{ label?: string|null, rows: object[] }>} groups
- * @param {{ title?: string, subtitle?: string }} [options]
+ * @param {{ title?: string, subtitle?: string, summary?: Array<{ label?: string, value?: string|number }> }} [options]
  * @returns {import('jspdf').jsPDF}
  */
 export function buildGroupedTablePdfDoc(columns, groups, options = {}) {
@@ -273,7 +384,7 @@ export function buildGroupedTablePdfDoc(columns, groups, options = {}) {
       head,
       body,
       theme: 'grid',
-      margin: { left: margin, right: margin },
+      margin: { left: margin, right: margin, bottom: TABLE_BOTTOM_MARGIN_MM },
       ...(Object.keys(columnStyles).length ? { columnStyles } : {}),
       styles: {
         fontSize: 8,
@@ -310,6 +421,7 @@ export function buildGroupedTablePdfDoc(columns, groups, options = {}) {
     startY = (doc.lastAutoTable?.finalY ?? startY) + 8;
   }
 
+  finalizePdfDecorations(doc, options, margin);
   return doc;
 }
 
@@ -376,7 +488,7 @@ export function printJsPdfDoc(doc, title = 'Report') {
  * @param {string} filename
  * @param {Array<{ key: string, header?: string, get?: (row: object) => unknown, richGet?: (row: object) => unknown, width?: number }>} columns
  * @param {object[]} rows
- * @param {{ title?: string, subtitle?: string }} [options]
+ * @param {{ title?: string, subtitle?: string, summary?: Array<{ label?: string, value?: string|number }>, footerTotals?: Record<string, string|number> }} [options]
  */
 export function downloadTablePdf(filename, columns, rows, options = {}) {
   const doc = buildTablePdfDoc(columns, rows, options);
@@ -387,7 +499,7 @@ export function downloadTablePdf(filename, columns, rows, options = {}) {
 /**
  * @param {Array<{ key: string, header?: string, get?: (row: object) => unknown, richGet?: (row: object) => unknown, width?: number }>} columns
  * @param {object[]} rows
- * @param {{ title?: string, subtitle?: string }} [options]
+ * @param {{ title?: string, subtitle?: string, summary?: Array<{ label?: string, value?: string|number }>, footerTotals?: Record<string, string|number> }} [options]
  */
 export function printTablePdf(columns, rows, options = {}) {
   const doc = buildTablePdfDoc(columns, rows, options);

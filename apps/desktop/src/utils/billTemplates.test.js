@@ -146,6 +146,24 @@ describe('bill template blank-paper controls', () => {
     assert.doesNotMatch(html, /9000000000/);
   });
 
+  it('prints customer name on Name, not contact name 2', () => {
+    const html = renderBillHtml({
+      order: {
+        ...SAMPLE_ORDER,
+        pickup_name: 'ZZZ',
+        customer_name: 'First Contact',
+        customer: { name: 'First Contact', phone2_name: 'ZZZ' },
+        contact_phone1: '8787878787',
+        pickup_number: '8788888887',
+      },
+      shop,
+    });
+    const nameSection = html.slice(html.indexOf('>Name:</span>'), html.indexOf('>Address:</span>'));
+    assert.match(nameSection, /First Contact/);
+    assert.doesNotMatch(nameSection, /ZZZ/);
+    assert.match(html, /8788888887 \(ZZZ\)/);
+  });
+
   it('prints the configured vertical offset in inches', () => {
     const html = renderBillHtml({
       order: SAMPLE_ORDER,

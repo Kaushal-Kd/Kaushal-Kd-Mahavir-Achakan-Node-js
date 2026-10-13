@@ -22,6 +22,7 @@ export function mapPendingBillRow(row) {
     id: row.id,
     order_number: row.order_number,
     bill_no: Number(row.bill_no ?? 0),
+    customer_name: String(row.customer_name || '').trim(),
     pickup_name: row.pickup_name,
     pickup_number: row.pickup_number,
     total_amount: round2(Number(row.total_amount ?? 0)),
@@ -64,7 +65,7 @@ export async function listPendingBills(shopId, query) {
     const like = `%${search}%`;
     base.andWhere((b) =>
       b.where('o.order_number', 'like', like)
-        .orWhere('o.pickup_name', 'like', like)
+        .orWhere('c.name', 'like', like)
         .orWhere('o.pickup_number', 'like', like)
         .orWhere('c.address', 'like', like)
         .orWhere('o.contact_address', 'like', like)
@@ -98,6 +99,7 @@ export async function listPendingBills(shopId, query) {
       'o.id',
       'o.order_number',
       'o.bill_no',
+      knex.raw("COALESCE(NULLIF(TRIM(c.name), ''), ?) as customer_name", ['']),
       'o.pickup_name',
       'o.pickup_number',
       'o.total_amount',

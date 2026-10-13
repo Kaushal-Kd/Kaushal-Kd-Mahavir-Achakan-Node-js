@@ -29,6 +29,45 @@ function billLabel(r) {
   return r.bill_no || r.order_number || '—';
 }
 
+function displayChargeRemarks(row) {
+  const text = String(row?.remarks || '').trim();
+  if (!text) return '';
+  if (!/^damage\s*\/\s*missing\b/i.test(text)) return text;
+  const rest = text.replace(/^damage\s*\/\s*missing\b/i, '').replace(/^[\s·\-–:]+/, '');
+  const kind =
+    row?.condition_kind === 'missing'
+      ? 'Missing'
+      : row?.condition_kind === 'damage'
+        ? 'Damage'
+        : '';
+  if (kind) return rest ? `${kind} · ${rest}` : kind;
+  return rest || text;
+}
+
+function isDamageChargeRow(row) {
+  if (row?.condition_kind === 'damage') return true;
+  if (row?.condition_kind === 'missing') return false;
+  const text = String(row?.remarks || '').trim();
+  return /^damage\b/i.test(text) && !/^damage\s*\/\s*missing\b/i.test(text);
+}
+
+function isMissingChargeRow(row) {
+  if (row?.condition_kind === 'missing') return true;
+  if (row?.condition_kind === 'damage') return false;
+  return /^missing\b/i.test(String(row?.remarks || '').trim());
+}
+
+function shouldShowManageFunds(row) {
+  if (!row?.ledger_verified) return true;
+  return !isDamageChargeRow(row);
+}
+
+function chargeActionLabel(row) {
+  if (!row?.ledger_verified) return 'Review legacy';
+  if (isMissingChargeRow(row)) return 'Settle as income';
+  return 'Manage funds';
+}
+
 function SummaryStrip({ summary }) {
   if (!summary) return null;
   const v = 'text-green-700 font-semibold tabular-nums';
@@ -156,7 +195,7 @@ const SecurityChargesList = () => {
         columnPickerLabel: 'Remarks',
         className: 'text-xs min-w-[16rem] max-w-[28rem] align-top',
         render: (r) => {
-          const text = String(r.remarks || '').trim();
+          const text = displayChargeRemarks(r);
           if (!text) return '—';
           return (
             <span
@@ -219,17 +258,18 @@ const SecurityChargesList = () => {
         key: 'actions',
         header: '',
         locked: true,
-        render: (row) => (
-          <Button
-            size="sm"
-            onClick={(event) => {
-              event.stopPropagation();
-              setSettleRow(row);
-            }}
-          >
-            {row.ledger_verified ? 'Manage funds' : 'Review legacy'}
-          </Button>
-        ),
+        render: (row) =>
+          shouldShowManageFunds(row) ? (
+            <Button
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                setSettleRow(row);
+              }}
+            >
+              {chargeActionLabel(row)}
+            </Button>
+          ) : null,
       },
     ],
     [statusTab]

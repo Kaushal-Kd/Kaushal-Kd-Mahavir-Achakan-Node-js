@@ -1,6 +1,6 @@
 import { formatCurrency, securityChargeOperationBodySchema, todayIndiaISODate } from '@wrs/shared';
 import PropTypes from 'prop-types';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
@@ -37,6 +37,7 @@ export default function SecurityChargeFundsModal({
   const [amount, setAmount] = useState('0');
   const [fundingId, setFundingId] = useState('');
   const [accountId, setAccountId] = useState('');
+  const [bankAccountId, setBankAccountId] = useState('');
   const [incomeId, setIncomeId] = useState('');
   const [remarks, setRemarks] = useState('');
   const [operationKey, setOperationKey] = useState(operationId);
@@ -46,10 +47,46 @@ export default function SecurityChargeFundsModal({
   const income = paymentAccounts.filter(
     (row) => String(row.account_group || '').toLowerCase() === 'income'
   );
+  const missingIncomeFlow = useMemo(() => {
+    const condition = String(data?.condition_kind || charge?.condition_kind || '').toLowerCase();
+    if (condition === 'missing') return true;
+    return /^missing\b/i.test(String(data?.remarks || charge?.remarks || '').trim());
+  }, [data?.condition_kind, data?.remarks, charge?.condition_kind, charge?.remarks]);
   const lots = (data?.funding_lots || []).filter(
     (lot) => Number(lot.available) > 0 && (kind !== 'release' || lot.kind === 'retain')
   );
-  const needsLot = ['refund', 'release', 'settle'].includes(kind);
+  const needsLot = !missingIncomeFlow && ['refund', 'release', 'settle'].includes(kind);
+  const onlyLotId = lots.length === 1 ? String(lots[0].id) : '';
+  const onlyLotAvailable = lots.length === 1 ? Number(lots[0].available) : 0;
+
+  useEffect(() => {
+    if (!needsLot || fundingId || !onlyLotId) return;
+    setFundingId(onlyLotId);
+    if (kind === 'settle' && onlyLotAvailable > 0) {
+      setAmount((prev) => (Number(prev) > 0 ? prev : String(onlyLotAvailable)));
+    }
+  }, [needsLot, fundingId, onlyLotId, onlyLotAvailable, kind]);
+
+  useEffect(() => {
+    if (!missingIncomeFlow) return;
+    setKind('settle');
+    const held = Number(data?.balances?.held || 0);
+    const uncollected = Number(data?.balances?.uncollected || 0);
+    const remaining = Math.max(
+      0,
+      Number(data?.balances?.assessed || charge?.amount || 0) - Number(data?.balances?.settled || 0)
+    );
+    const next = held + uncollected > 0 ? held + uncollected : remaining;
+    if (next > 0) setAmount((prev) => (Number(prev) > 0 ? prev : String(next)));
+  }, [missingIncomeFlow, data?.balances, charge?.amount]);
+
+  useEffect(() => {
+    if (cashBank.length === 1 && !bankAccountId) setBankAccountId(cashBank[0].id);
+  }, [cashBank, bankAccountId]);
+
+  useEffect(() => {
+    if (income.length === 1 && !incomeId) setIncomeId(income[0].id);
+  }, [income, incomeId]);
   const accountLabel = (lot) =>
     paymentAccounts.find((row) => row.id === lot.payment_account_id)?.name ||
     securityAccounts.find((row) => row.id === lot.security_account_id)?.name ||
@@ -70,14 +107,19 @@ export default function SecurityChargeFundsModal({
     const [family, selectedId] = accountId.split(':');
     const payload = {
       idempotency_key: operationKey,
-      kind,
+      kind: missingIncomeFlow ? 'settle' : kind,
       amount: Number(amount),
       payment_date: todayIndiaISODate(),
-      ...(needsLot ? { funding_operation_id: fundingId } : {}),
+      ...(needsLot && fundingId ? { funding_operation_id: fundingId } : {}),
       ...(['collect', 'refund'].includes(kind) && selectedId
         ? { [family === 'security' ? 'security_account_id' : 'payment_account_id']: selectedId }
         : {}),
-      ...(kind === 'settle' ? { income_account_id: incomeId } : {}),
+      ...(kind === 'settle' || missingIncomeFlow
+        ? {
+            income_account_id: incomeId,
+            ...(bankAccountId ? { payment_account_id: bankAccountId } : {}),
+          }
+        : {}),
       ...(remarks.trim() ? { remarks: remarks.trim() } : {}),
     };
     const parsed = securityChargeOperationBodySchema.safeParse(payload);
@@ -90,7 +132,9 @@ export default function SecurityChargeFundsModal({
       toast.success(
         result.queued
           ? 'Operation queued; balances change after server confirmation'
-          : 'Condition funds updated'
+          : missingIncomeFlow
+            ? 'Missing charge saved as income'
+            : 'Condition funds updated'
       );
       onClose();
     } catch (error) {
@@ -111,7 +155,7 @@ export default function SecurityChargeFundsModal({
     <Modal
       isOpen
       onClose={onClose}
-      title="Manage condition funds"
+      title={missingIncomeFlow ? 'Settle missing charge as income' : 'Manage condition funds'}
       size="lg"
       closeOnBackdrop={false}
       closeOnEscape={false}
@@ -124,15 +168,27 @@ export default function SecurityChargeFundsModal({
           <Button
             onClick={submit}
             loading={mutation.isPending}
-            disabled={!data?.ledger_verified || detail.isLoading}
+            disabled={
+              !data?.ledger_verified ||
+              detail.isLoading ||
+              (needsLot && !fundingId) ||
+              (missingIncomeFlow && (!incomeId || !bankAccountId))
+            }
           >
-            Confirm operation
+            {missingIncomeFlow ? 'Save as income' : 'Confirm operation'}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <p className="text-sm text-gray-600">{charge.remarks || 'Missing/damage charge'}</p>
+        <p className="text-sm text-gray-600">
+          {charge.remarks ||
+            (charge.condition_kind === 'missing'
+              ? 'Missing charge'
+              : charge.condition_kind === 'damage'
+                ? 'Damage charge'
+                : 'Condition charge')}
+        </p>
         {!online && (
           <p className="text-sm text-yellow-700">
             Offline: your explicit operation will be queued and validated before changing balances.
@@ -156,46 +212,33 @@ export default function SecurityChargeFundsModal({
             <span>Recognized: {formatCurrency(data.balances.settled)}</span>
           </div>
         )}
-        <Select
-          label="Operation"
-          value={kind}
-          onChange={(event) => resetOperation(event.target.value)}
-          options={KINDS}
-        />
-        <Input
-          label="Amount"
-          type="number"
-          min="0"
-          step="0.01"
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-        />
-        {needsLot && (
-          <Select
-            label="Original held funds"
-            value={fundingId}
-            onChange={(event) => setFundingId(event.target.value)}
-            options={[
-              { value: '', label: 'Select held funds' },
-              ...lots.map((lot) => ({
-                value: lot.id,
-                label: `${lot.kind === 'retain' ? 'Retained' : 'Collected'} · ${accountLabel(lot)} · ${formatCurrency(lot.available)}`,
-              })),
-            ]}
-          />
-        )}
-        {['collect', 'refund'].includes(kind) && (
-          <Select
-            label={kind === 'collect' ? 'Collection account' : 'Actual payout account'}
-            value={accountId}
-            onChange={(event) => setAccountId(event.target.value)}
-            options={[{ value: '', label: 'Select account' }, ...payoutOptions]}
-          />
-        )}
-        {kind === 'settle' && (
+        {missingIncomeFlow ? (
           <>
+            <p className="text-sm text-gray-700">
+              This missing-item amount is already held. Save it as income if you want it on the
+              Income list.
+            </p>
+            <Input
+              label="Amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+            <Select
+              label="Bank / cash account"
+              required
+              value={bankAccountId}
+              onChange={(event) => setBankAccountId(event.target.value)}
+              options={[
+                { value: '', label: 'Select bank or cash account' },
+                ...cashBank.map((row) => ({ value: row.id, label: row.name })),
+              ]}
+            />
             <Select
               label="Income account"
+              required
               value={incomeId}
               onChange={(event) => setIncomeId(event.target.value)}
               options={[
@@ -203,17 +246,84 @@ export default function SecurityChargeFundsModal({
                 ...income.map((row) => ({ value: row.id, label: row.name })),
               ]}
             />
-            <p className="text-sm text-yellow-700">
-              This recognizes existing held money as income. Already recognized income cannot be
-              refunded here.
-            </p>
           </>
-        )}
-        {kind === 'refund' && (
-          <p className="text-xs text-gray-600">
-            Refunding returns held money only. Resolve the item condition separately if its
-            assessed charge should be cleared.
-          </p>
+        ) : (
+          <>
+            <Select
+              label="Operation"
+              value={kind}
+              onChange={(event) => resetOperation(event.target.value)}
+              options={KINDS}
+            />
+            <Input
+              label="Amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+            {needsLot && (
+              <Select
+                label="Original held funds"
+                required
+                value={fundingId}
+                onChange={(event) => setFundingId(event.target.value)}
+                hint={
+                  lots.length
+                    ? undefined
+                    : 'No held funds are available to settle. Collect or retain money first.'
+                }
+                options={[
+                  { value: '', label: 'Select held funds' },
+                  ...lots.map((lot) => ({
+                    value: lot.id,
+                    label: `${lot.kind === 'retain' ? 'Retained' : 'Collected'} · ${accountLabel(lot)} · ${formatCurrency(lot.available)}`,
+                  })),
+                ]}
+              />
+            )}
+            {['collect', 'refund'].includes(kind) && (
+              <Select
+                label={kind === 'collect' ? 'Collection account' : 'Actual payout account'}
+                value={accountId}
+                onChange={(event) => setAccountId(event.target.value)}
+                options={[{ value: '', label: 'Select account' }, ...payoutOptions]}
+              />
+            )}
+            {kind === 'settle' && (
+              <>
+                <Select
+                  label="Bank / cash account"
+                  value={bankAccountId}
+                  onChange={(event) => setBankAccountId(event.target.value)}
+                  options={[
+                    { value: '', label: 'Select bank or cash account' },
+                    ...cashBank.map((row) => ({ value: row.id, label: row.name })),
+                  ]}
+                />
+                <Select
+                  label="Income account"
+                  value={incomeId}
+                  onChange={(event) => setIncomeId(event.target.value)}
+                  options={[
+                    { value: '', label: 'Select income account' },
+                    ...income.map((row) => ({ value: row.id, label: row.name })),
+                  ]}
+                />
+                <p className="text-sm text-yellow-700">
+                  This recognizes existing held money as income. Already recognized income cannot be
+                  refunded here.
+                </p>
+              </>
+            )}
+            {kind === 'refund' && (
+              <p className="text-xs text-gray-600">
+                Refunding returns held money only. Resolve the item condition separately if its
+                assessed charge should be cleared.
+              </p>
+            )}
+          </>
         )}
         <Input
           label="Remarks"

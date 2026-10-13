@@ -7,7 +7,7 @@ import {
   formatChecklistChargeRemarks,
   resolveChargeItemLabel,
 } from './chargeItemLabels.js';
-import { createOrUpdateConditionAssessmentWithTrx, enrichChargeLedgerRows, executeConditionChargeOperation } from './ledgerService.js';
+import { createOrUpdateConditionAssessmentWithTrx, enrichChargeLedgerRows, executeConditionChargeOperation, holdMissingChargeIfNeeded } from './ledgerService.js';
 import { retainedConditionAllocationSql } from './ledgerPredicates.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
@@ -216,14 +216,23 @@ export async function createSecurityCharge(shopId, authUserId, body) {
  */
 export async function syncChecklistSecurityCharge(
   trx,
-  { shopId, orderId, customerId, itemType, itemId, amount, conditionKind, userId }
+  { shopId, orderId, customerId, itemType, itemId, amount, conditionKind, userId, paymentAccountId }
 ) {
   const itemLabel = await resolveChargeItemLabel(trx, shopId, itemType, itemId);
   const remarks = formatChecklistChargeRemarks(null, itemType, itemLabel, conditionKind);
-  return createOrUpdateConditionAssessmentWithTrx(trx, {
+  const charge = await createOrUpdateConditionAssessmentWithTrx(trx, {
     shopId, userId, orderId, customerId, itemType, itemId, amount,
     conditionKind, remarks,
   });
+  if (conditionKind === 'missing' && Number(amount) > 0) {
+    return holdMissingChargeIfNeeded(trx, {
+      shopId,
+      userId,
+      charge,
+      paymentAccountId,
+    });
+  }
+  return charge;
 }
 
 /**
@@ -271,7 +280,7 @@ export async function syncCombinedChecklistSecurityCharge(
     }
   }
 
-  const remarkText = remarkTrim || 'Damage/missing · Combined charge';
+  const remarkText = remarkTrim || 'Combined charge';
   const id = uuid();
   await trx('security_charges').insert({
     id,

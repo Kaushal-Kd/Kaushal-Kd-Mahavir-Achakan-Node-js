@@ -1,4 +1,4 @@
-import { normalizeSqlDateToIso, round2 } from '@wrs/shared';
+import { normalizeSqlDateToIso, round2, todayIndiaISODate } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
@@ -246,6 +246,57 @@ async function availableDepositLots(db, shopId, orderId) {
     .filter((row) => row.available > 0);
 }
 
+async function resolveBankOrCashAccountId(db, shopId, preferredId) {
+  if (preferredId) {
+    const row = await db('payment_accounts')
+      .where({ shop_id: shopId, id: preferredId, is_active: true })
+      .first();
+    const group = String(row?.account_group || '')
+      .trim()
+      .toLowerCase();
+    if (row && ['bank accounts', 'cash accounts'].includes(group)) return row.id;
+  }
+  const cash = await db('payment_accounts')
+    .where({ shop_id: shopId, is_active: true })
+    .whereRaw("LOWER(TRIM(account_group)) = 'cash accounts'")
+    .orderBy('name')
+    .first('id');
+  if (cash?.id) return cash.id;
+  const bank = await db('payment_accounts')
+    .where({ shop_id: shopId, is_active: true })
+    .whereRaw("LOWER(TRIM(account_group)) = 'bank accounts'")
+    .orderBy('name')
+    .first('id');
+  return bank?.id || null;
+}
+
+/** Missing checklist charges with amount > 0 are held immediately. */
+export async function holdMissingChargeIfNeeded(db, options) {
+  const { shopId, userId, paymentAccountId, remarks } = options;
+  const charge = options.charge;
+  if (!charge?.id || String(charge.condition_kind || '').toLowerCase() !== 'missing') {
+    return charge;
+  }
+  const current = charge.balances
+    ? charge
+    : await summarizeConditionChargeWithTrx(db, shopId, charge.id);
+  const uncollected = Number(current.balances?.uncollected || 0);
+  if (uncollected <= 0 || Number(current.amount || 0) <= 0) return current;
+  const accountId = await resolveBankOrCashAccountId(db, shopId, paymentAccountId);
+  if (!accountId) return current;
+  const funded = await fundConditionChargeWithTrx(db, {
+    shopId,
+    userId,
+    chargeId: current.id,
+    collectAmount: uncollected,
+    paymentAccountId: accountId,
+    paymentDate: options.paymentDate || todayIndiaISODate(),
+    idempotencyKey: options.idempotencyKey || uuid(),
+    remarks: remarks || current.remarks,
+  });
+  return funded.charge;
+}
+
 export async function fundConditionChargeWithTrx(db, options) {
   const { shopId, userId, chargeId, paymentAccountId, paymentDate } = options;
   const commandId = options.idempotencyKey || uuid();
@@ -350,8 +401,32 @@ export async function applyConditionChargeOperationWithTrx(db, shopId, userId, c
     });
   }
   await assertConditionOperationDate(db, shopId, order.id, body.payment_date);
-  const current = await summarizeConditionChargeWithTrx(db, shopId, chargeId);
-  const lot = current.funding_lots.find((row) => row.id === body.funding_operation_id);
+  let current = await summarizeConditionChargeWithTrx(db, shopId, chargeId);
+  if (
+    body.kind === 'settle' &&
+    (String(charge.condition_kind || '').toLowerCase() === 'missing' ||
+      /^missing\b/i.test(String(charge.remarks || '')))
+  ) {
+    const gap = Number(current.balances?.uncollected || 0);
+    if (gap > 0) {
+      if (!body.payment_account_id) throw badRequest('Choose a bank or cash account');
+      await fundConditionChargeWithTrx(db, {
+        shopId,
+        userId,
+        chargeId,
+        collectAmount: gap,
+        paymentAccountId: body.payment_account_id,
+        paymentDate: body.payment_date,
+        idempotencyKey: body.idempotency_key,
+        remarks: body.remarks,
+      });
+      current = await summarizeConditionChargeWithTrx(db, shopId, chargeId);
+    }
+  }
+  const lot =
+    current.funding_lots.find(
+      (row) => row.id === body.funding_operation_id && Number(row.available) > 0
+    ) || current.funding_lots.find((row) => Number(row.available) > 0);
   if (!lot) throw badRequest('Select the original held funding lot');
   if (body.payment_date < normalizeSqlDateToIso(lot.payment_date))
     throw badRequest('Operation date cannot precede the original funding date');
@@ -409,8 +484,10 @@ export async function applyConditionChargeOperationWithTrx(db, shopId, userId, c
       userId,
       {
         income_account_id: body.income_account_id,
-        payment_account_id: lot.payment_account_id || null,
-        security_account_id: lot.security_account_id || null,
+        payment_account_id: body.payment_account_id || lot.payment_account_id || null,
+        security_account_id: body.payment_account_id
+          ? null
+          : lot.security_account_id || null,
         name: order.pickup_name || 'Condition deposit settlement',
         entry_date: body.payment_date,
         amount,

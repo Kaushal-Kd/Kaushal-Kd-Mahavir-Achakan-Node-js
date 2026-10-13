@@ -80,10 +80,10 @@ const PendingBills = () => {
         ),
       },
       {
-        key: 'pickup_name',
+        key: 'customer_name',
         header: 'Name',
         columnPickerLabel: 'Name',
-        render: (r) => r.pickup_name || '—',
+        render: (r) => r.customer_name || '—',
       },
       {
         key: 'pickup_number',
@@ -176,6 +176,7 @@ const PendingBills = () => {
             if (c.key === 'status') return returnStatusLabel(r.status);
             if (c.key === 'return_date') return r.return_date ? formatDate(r.return_date) : '';
             if (c.key === 'reference_name') return r.reference_name || 'N/A';
+            if (c.key === 'customer_name') return r.customer_name || '';
             return r[c.key] ?? '';
           },
         })),
@@ -193,12 +194,30 @@ const PendingBills = () => {
       if (to) subtitleParts.push(`To ${to}`);
       if (search.trim()) subtitleParts.push(`Search: ${search.trim()}`);
       subtitleParts.push(`${exportRows.length} record(s)`);
+      const sumField = (key) =>
+        exportRows.reduce((sum, row) => {
+          const n = Number(row?.[key]);
+          return sum + (Number.isFinite(n) ? n : 0);
+        }, 0);
+      const totalBill = sumField('total_amount');
+      const totalAdvance = sumField('advance_amount');
+      const totalPending = sumField('balance');
       await runTablePdfExport({
         filename: `pending_bills_${stamp}.pdf`,
         title: 'Pending Bills Amounts',
         subtitle: subtitleParts.join(' · '),
         columns: pdfColumns,
         rows: exportRows,
+        footerTotals: {
+          total_amount: formatCurrency(totalBill),
+          advance_amount: formatCurrency(totalAdvance),
+          balance: formatCurrency(totalPending),
+        },
+        summary: [
+          { label: 'Total Bill Amount', value: formatCurrency(totalBill) },
+          { label: 'Total Advance Amount', value: formatCurrency(totalAdvance) },
+          { label: 'Total Pending Amount', value: formatCurrency(totalPending) },
+        ],
       });
     });
   };

@@ -915,7 +915,11 @@ function headerBlock(tpl, shop, order) {
 }
 
 function orderCustomerName(order) {
-  return order.pickup_name || order.customer?.name || order.customer_name || '';
+  return (
+    String(order?.customer?.name || '').trim() ||
+    String(order?.customer_name || '').trim() ||
+    ''
+  );
 }
 
 function orderCustomerAddress(order) {
@@ -1446,7 +1450,7 @@ function manualBillBody({ tpl, billOrder, order, shopInfo, renderOptions }) {
   const scalarTokens = {
     shop_name: shopInfo.name,
     bill_number: order?.order_number || order?.bill_no || '',
-    customer_name: order?.pickup_name || order?.customer_name || '',
+    customer_name: orderCustomerName(order),
     pickup_date: order?.pickup_date ? formatDate(order.pickup_date) : '',
     return_date: order?.return_date ? formatDate(order.return_date) : '',
     total: formatBillAmount(
@@ -1527,6 +1531,8 @@ export const SAMPLE_ORDER = {
   pickup_date: toLocalISODate(addDays(new Date(), 2)),
   return_date: toLocalISODate(addDays(new Date(), 4)),
   pickup_name: 'Rahul Sharma',
+  customer_name: 'Rahul Sharma',
+  customer: { name: 'Rahul Sharma' },
   pickup_number: '9876543210',
   reference_name: 'Priya Sharma',
   items: [

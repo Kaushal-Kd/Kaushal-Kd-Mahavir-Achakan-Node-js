@@ -340,7 +340,7 @@ export async function printReceipt(order, payment) {
         </div>
         <div>
           <div class="muted">Customer</div>
-          <div><b>${esc(order.pickup_name || '')}</b></div>
+          <div><b>${esc(order.customer?.name || order.customer_name || '')}</b></div>
           <div class="muted">${esc(order.pickup_number || '')}</div>
         </div>
       </div>
