@@ -21,6 +21,9 @@ const TableColumnPicker = ({
   onReset,
   menuAlign = 'end',
   iconOnly = false,
+  icon: Icon = Columns3,
+  label = 'Columns',
+  title = 'Columns',
   className = '',
 }) => {
   const [open, setOpen] = useState(false);
@@ -109,11 +112,11 @@ const TableColumnPicker = ({
             className="fixed z-[200] w-[260px] max-h-80 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-pop py-2"
             style={{ top: pos.top, left: pos.left }}
             role="listbox"
-            aria-label="Choose visible columns"
+            aria-label={title || 'Choose visible columns'}
           >
             <div className="px-3 pb-1">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Columns
+                {label || 'Columns'}
               </div>
               {onReorder ? (
                 <p className="text-[10px] text-gray-500 mt-0.5">Drag to reorder · check to show</p>
@@ -190,10 +193,10 @@ const TableColumnPicker = ({
         type="button"
         variant="secondary"
         size="sm"
-        icon={Columns3}
+        icon={Icon}
         iconOnly={iconOnly}
-        title="Columns"
-        aria-label="Choose visible columns"
+        title={title}
+        aria-label={title || 'Choose visible columns'}
         onClick={() => {
           setOpen((o) => {
             const next = !o;
@@ -204,7 +207,7 @@ const TableColumnPicker = ({
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        {iconOnly ? null : 'Columns'}
+        {iconOnly ? null : label}
       </Button>
       {menu}
     </div>
@@ -222,6 +225,9 @@ TableColumnPicker.propTypes = {
   onReset: PropTypes.func.isRequired,
   menuAlign: PropTypes.oneOf(['start', 'end']),
   iconOnly: PropTypes.bool,
+  icon: PropTypes.elementType,
+  label: PropTypes.string,
+  title: PropTypes.string,
   className: PropTypes.string,
 };
 

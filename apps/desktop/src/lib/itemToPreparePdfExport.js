@@ -1,5 +1,4 @@
-import { formatBookingDateTime } from '@wrs/shared';
-
+import { buildCrmListPdfCoreColumns } from './crmListPdfExportColumns.js';
 import { formatItemStageCurrentStatus } from './itemToCollectPdfExport.js';
 
 const GIVEN_STATUS_LABELS = {
@@ -382,75 +381,57 @@ export function buildPrepareProductExportRows(bookings, lines) {
   });
 }
 
-/** Fixed columns for Prepare Item table PDF export. */
-export const ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS = [
-  {
-    key: 'order_number',
-    header: 'Bill no',
-    width: 16,
-    get: (r) => String(r.order_number ?? r.bill_no ?? '').trim(),
-  },
-  {
-    key: 'customer_name',
-    header: 'Customer name',
-    width: 21,
-    get: (r) => String(r.customer_name ?? r.pickup_name ?? '').trim(),
-  },
-  {
-    key: 'customer_address',
-    header: 'Address',
-    width: 20,
-    get: (r) => String(r.customer_address ?? '').trim(),
-  },
-  {
-    key: 'customer_phone',
-    header: 'Mobile / WhatsApp',
-    width: 28,
-    get: formatPreparePdfContact,
-    richGet: buildPreparePdfContactRichLines,
-  },
-  {
-    key: 'line_details',
-    header: 'Product & accessories',
-    width: 43,
-    get: formatPreparePdfLineDetails,
-  },
+/** Extra Prepare columns (hidden in PDF until turned on in PDF settings). */
+export const ITEM_TO_PREPARE_PDF_EXTRA_COLUMNS = [
   {
     key: 'design_details',
     header: 'Design Details',
+    columnPickerLabel: 'Design Details',
     width: 33,
     get: formatPreparePdfDesignDetails,
   },
   {
     key: 'product_note',
     header: 'Product Note',
+    columnPickerLabel: 'Product Note',
     width: 33,
     get: formatPreparePdfProductNote,
   },
   {
     key: 'product_status',
     header: 'Current status',
+    columnPickerLabel: 'Current status',
     width: 22,
     get: formatPreparePdfProductStatus,
   },
   {
     key: 'customer_notes',
     header: 'Customer note',
+    columnPickerLabel: 'Customer note',
     width: 23,
     get: (r) => String(r.customer_notes ?? '').trim(),
   },
-  {
-    key: 'delivery_datetime',
-    header: 'Delivery date',
-    width: 19,
-    get: (r) => formatBookingDateTime(r.pickup_date, r.delivery_time) || '',
-  },
-  {
-    key: 'return_datetime',
-    header: 'Return date',
-    width: 19,
-    get: (r) => formatBookingDateTime(r.return_date, r.return_time) || '',
-  },
+];
+
+export const ITEM_TO_PREPARE_PDF_DEFAULT_HIDDEN = ITEM_TO_PREPARE_PDF_EXTRA_COLUMNS.map(
+  (col) => col.key
+);
+
+/** Columns for Prepare Item table PDF export (settings picker + print). */
+export const ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS = [
+  ...buildCrmListPdfCoreColumns({
+    customer_phone: {
+      header: 'Mobile number',
+      columnPickerLabel: 'Mobile number',
+      get: formatPreparePdfContact,
+      richGet: buildPreparePdfContactRichLines,
+    },
+    line_details: {
+      get: formatPreparePdfLineDetails,
+      richGet: buildPreparePdfLineDetailsRichLines,
+    },
+  }),
+  ...ITEM_TO_PREPARE_PDF_EXTRA_COLUMNS,
 ];
 
 export const ITEM_TO_PREPARE_PRINT_COLUMNS = ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS;

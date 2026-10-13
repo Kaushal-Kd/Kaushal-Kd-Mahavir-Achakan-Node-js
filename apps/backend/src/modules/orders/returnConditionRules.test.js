@@ -44,14 +44,18 @@ test('stale quantity columns do not hold stock after condition flags are cleared
   assert.equal(accessoryWashableReturnQuantity(line), 3);
 });
 
-test('partial missing quantities allow the remaining units to be received', () => {
+test('any missing tag blocks Received, including partial quantity', () => {
   assert.equal(
     lineBlocksReceivedByMissingQuantity({ qty: 3, missing: true, missing_qty: 1 }),
-    false
+    true
   );
   assert.equal(
     lineBlocksReceivedByMissingQuantity({ qty: 3, missing: true, missing_qty: 3 }),
     true
+  );
+  assert.equal(
+    lineBlocksReceivedByMissingQuantity({ qty: 3, missing: false, missing_qty: 0 }),
+    false
   );
 });
 

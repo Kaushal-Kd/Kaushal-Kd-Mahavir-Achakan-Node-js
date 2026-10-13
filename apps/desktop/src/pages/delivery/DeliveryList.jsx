@@ -2,11 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ACTIONS,
   deliveryListDefaultStatusesCsv,
-  earliestNextBookingPickupIsoFromAlerts,
   formatCurrency,
   formatDate,
   formatOrderTime,
-  formatOrderTime12,
   MODULES,
   hasPermission,
   resolveOrderContactPhone1,
@@ -20,6 +18,7 @@ import {
   Printer,
   ScrollText,
   Search,
+  Settings,
   Truck,
   Wallet,
 } from 'lucide-react';
@@ -46,20 +45,19 @@ import {
   buildCustomerAddressColumn,
   buildPendingAmountColumn,
   buildProductQtyColumn,
-  resolveOrderPendingAmount,
 } from '../../lib/listOrderColumns.jsx';
 import {
   buildBookingDateTimeColumn,
   buildDeliveredReturnedColumns,
-  formatOrderBookingDateTime,
-  formatTimestampDateTime,
-  orderDeliveredAt,
-  orderReturnedAt,
 } from '../../lib/listTimestampColumns.js';
 import { ordersApi } from '../../lib/api/orders.js';
 import { getRowStageSelectOptions, isCompletedHandoverStage, stageFromOrderStatus } from '../../lib/orderListStage.js';
 import { buildOrdersListSortParam, ORDER_LIST_SORT_FIELDS } from '../../lib/listOrderSort.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
+import {
+  CRM_LIST_PDF_EXPORT_DEFAULT_HIDDEN,
+  DELIVERY_PDF_EXPORT_COLUMNS,
+} from '../../lib/crmListPdfExportColumns.js';
 import {
   expandOrdersToProductWiseRows,
   filterProductWiseRows,
@@ -91,12 +89,6 @@ const CHECKLIST_STAGE_OPTIONS = [
 ];
 const CHECKLIST_CANCEL_OPTION = { value: 'cancel', label: 'Cancel' };
 const CANCELLED_ROW_STAGE_OPTION = { value: 'cancelled', label: 'Cancelled' };
-
-function stageLabelForExport(status) {
-  const stage = stageFromOrderStatus(status);
-  if (stage === 'cancelled') return 'Cancelled';
-  return CHECKLIST_STAGE_OPTIONS.find((opt) => opt.value === stage)?.label || stage || '';
-}
 
 /** Subtle tint for delivered (and later) rows so pending handovers stay visually primary. */
 function completedHandoverRowClass(row) {
@@ -679,89 +671,46 @@ const DeliveryList = () => {
     defaultHidden: DELIVERY_LIST_DEFAULT_HIDDEN,
   });
 
-  const exportColumns = useMemo(
-    () =>
-      visibleColumns
-        .filter((c) => c.key !== 'actions')
-        .map((c) => ({
-          key: c.key,
-          header: c.columnPickerLabel || String(c.header || c.key),
-          get: (r) => {
-            if (c.key === 'order_number') return r.order_number || '';
-            if (c.key === 'nearest_next_booking') {
-              const iso = earliestNextBookingPickupIsoFromAlerts(r.next_booking_alerts);
-              return iso ? formatDate(iso) : '';
-            }
-            if (c.key === 'pickup_name') return r.customer_name || r.pickup_name || '';
-            if (c.key === 'reference_name') return r.reference_name || '';
-            if (c.key === 'pickup_number') return resolveOrderContactPhone1(r) || r.pickup_number || '';
-            if (c.key === 'customer_whatsapp') return r.customer_whatsapp || '';
-            if (c.key === 'customer_address') return r.contact_address || r.customer_address || '';
-            if (c.key === 'rent_total') {
-              const subtotal = Number(r.subtotal ?? 0);
-              const discount = Number(r.discount_total ?? 0);
-              return formatCurrency(Math.max(0, subtotal - discount), { showSymbol: false });
-            }
-            if (c.key === 'paid_amount') {
-              return formatCurrency(r.paid_amount, { showSymbol: false });
-            }
-            if (c.key === 'balance') {
-              return formatCurrency(resolveOrderPendingAmount(r), { showSymbol: false });
-            }
-            if (c.key === 'security') {
-              const expected = Number(r.deposit_amount || 0);
-              const isReturned = !!r.deposit_returned;
-              const isPaid = !!r.paid_security_amt || !!r.deposit_received;
-              if (expected <= 0) return 'No deposit';
-              return `${formatCurrency(expected, { showSymbol: false })} (${isReturned ? 'Returned' : isPaid ? 'Paid' : 'Unpaid'})`;
-            }
-            if (c.key === 'product_qty') {
-              const n = Number(r.product_qty ?? 0);
-              return Number.isFinite(n) ? n : 0;
-            }
-            if (c.key === 'accessory_qty') {
-              const n = Number(r.accessory_qty ?? 0);
-              return Number.isFinite(n) ? n : 0;
-            }
-            if (c.key === 'booking_datetime') return formatOrderBookingDateTime(r);
-            if (c.key === 'pickup_date') return r.pickup_date ? formatDate(r.pickup_date) : '';
-            if (c.key === 'return_date') return r.return_date ? formatDate(r.return_date) : '';
-            if (c.key === 'delivery_time') return formatOrderTime(r.delivery_time);
-            if (c.key === 'return_time') return formatOrderTime(r.return_time);
-            if (c.key === 'delivered_datetime') return formatTimestampDateTime(orderDeliveredAt(r));
-            if (c.key === 'returned_datetime') return formatTimestampDateTime(orderReturnedAt(r));
-            if (c.key === 'status') {
-              return stageLabelForExport(r.status);
-            }
-            if (c.key === 'product_image') return '';
-            if (c.key === 'product_code') return r.product_code || '';
-            if (c.key === 'product_name') return r.product_name || '';
-            if (c.key === 'product_type') {
-              return String(r.product_type || 'rent').toLowerCase() === 'sell' ? 'Sell' : 'Rent';
-            }
-            if (c.key === 'product_qty') return Number(r.product_qty || 0);
-            return r[c.key] ?? '';
-          },
-        })),
-    [visibleColumns]
-  );
+  const {
+    visibleColumns: pdfExportColumns,
+    pickerProps: pdfPickerProps,
+    hiddenKeys: pdfHiddenKeys,
+  } = useDataTableColumns('delivery-pdf-export', DELIVERY_PDF_EXPORT_COLUMNS, {
+    defaultHidden: CRM_LIST_PDF_EXPORT_DEFAULT_HIDDEN,
+  });
 
-  const buildListTablePdfMeta = () => {
+  const buildListTablePdfMeta = (rowCount) => {
     const statusLabel =
       statusSel === 'pending_delivery'
         ? 'Pending delivery'
         : DELIVERY_STATUS_OPTIONS.find((o) => o.value === statusSel)?.label || 'All statuses';
-    const pdfColumns = exportColumns;
     return {
-      pdfColumns,
+      pdfColumns: pdfExportColumns,
       pdfOptions: {
         title: 'Delivery / Handover',
         subtitle: `Pickup ${pickupFrom || '—'} to ${pickupTo || '—'} · ${statusLabel} · ${
-          productWise ? (productLineCount ?? sortedRows.length) : sortedRows.length
+          productWise ? (productLineCount ?? rowCount) : rowCount
         } row(s)${productWise ? ' · Product wise' : ''}`,
       },
       stamp: `${pickupFrom || 'all'}_${pickupTo || 'all'}`,
     };
+  };
+
+  const loadDeliveryPdfRows = async () => {
+    const wantsLines = !pdfHiddenKeys.includes('line_details');
+    if (!wantsLines) return sortedRows;
+    if (
+      sortedRows.every(
+        (row) => Array.isArray(row.items) || row._row_kind === 'product'
+      )
+    ) {
+      return sortedRows;
+    }
+    const resp = await ordersApi.list({ ...listParams, with_items: 1 });
+    const rows = Array.isArray(resp?.data) ? resp.data : [];
+    if (!productWise) return rows.length ? rows : sortedRows;
+    const expanded = filterProductWiseRows(expandOrdersToProductWiseRows(rows), search);
+    return expanded.length ? expanded : sortedRows;
   };
 
   const runTableListPdf = async (mode) => {
@@ -769,15 +718,20 @@ const DeliveryList = () => {
       toast.warning(mode === 'print' ? 'No rows to print' : 'No rows to export');
       return;
     }
+    if (!pdfExportColumns.length) {
+      toast.warning('Select at least one PDF column');
+      return;
+    }
     setExportBusy(true);
     try {
-      const { pdfColumns, pdfOptions, stamp } = buildListTablePdfMeta();
+      const rows = await loadDeliveryPdfRows();
+      const { pdfColumns, pdfOptions, stamp } = buildListTablePdfMeta(rows.length);
       if (mode === 'print') {
         const { printTablePdf } = await import('../../utils/tablePdf.js');
-        printTablePdf(pdfColumns, sortedRows, pdfOptions);
+        printTablePdf(pdfColumns, rows, pdfOptions);
       } else {
         const { downloadTablePdf } = await import('../../utils/tablePdf.js');
-        downloadTablePdf(`delivery_${stamp}.pdf`, pdfColumns, sortedRows, pdfOptions);
+        downloadTablePdf(`delivery_${stamp}.pdf`, pdfColumns, rows, pdfOptions);
         toast.success('PDF downloaded');
       }
     } catch (err) {
@@ -843,17 +797,7 @@ const DeliveryList = () => {
       return;
     }
 
-    setExportBusy(true);
-    try {
-      const { pdfColumns, pdfOptions, stamp } = buildListTablePdfMeta();
-      const { downloadTablePdf } = await import('../../utils/tablePdf.js');
-      downloadTablePdf(`delivery_${stamp}.pdf`, pdfColumns, sortedRows, pdfOptions);
-      toast.success('PDF downloaded');
-    } catch (err) {
-      toast.error(err?.message || 'Could not export PDF');
-    } finally {
-      setExportBusy(false);
-    }
+    await runTableListPdf('download');
   };
 
   return (
@@ -902,6 +846,16 @@ const DeliveryList = () => {
           disabled={isLoading || sortedRows.length === 0}
           onPrint={handlePrint}
           onExport={exportPdf}
+          trailing={
+            <TableColumnPicker
+              {...pdfPickerProps}
+              icon={Settings}
+              iconOnly
+              label="PDF columns"
+              title="PDF columns"
+              menuAlign="end"
+            />
+          }
         />
       </div>
 

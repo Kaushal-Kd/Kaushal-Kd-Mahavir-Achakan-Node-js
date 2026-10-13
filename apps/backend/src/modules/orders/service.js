@@ -57,6 +57,7 @@ import { lockOrderInventory } from './orderInventoryLock.js';
 import { assertDeliveryLineVersion } from './stageLineVersion.js';
 import { readChecklistStateToken, attachChecklistStateTokens } from './checklistState.js';
 import {
+  applyPendingDamageFirstSort,
   attachDamageReplacementSummaryToLines,
   attachDamageReplacementSummaryToOrders,
 } from '../order-replacements/attachSummary.js';
@@ -748,6 +749,8 @@ export async function listOrders(shopId, query) {
   }
 
   applyOrderListSearch(qb, query.search);
+
+  applyPendingDamageFirstSort(qb);
 
   const sortCompletedLast = String(query.sort_completed_last || '').trim();
   if (sortCompletedLast === 'delivery') {

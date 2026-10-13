@@ -69,6 +69,35 @@ describe('hydrateBookingCustomerFields', () => {
     assert.equal(bill24.address, 'Bill 24 addr');
   });
 
+  it('uses this booking’s WhatsApp snapshot instead of hiding the number', () => {
+    const result = hydrateBookingCustomerFields(
+      { id: 'c1', phone1: '9000000001', whatsapp: '9000000001' },
+      {
+        customer_id: 'c1',
+        contact_phone1: '4444444444',
+        pickup_number: '5555566555',
+        customer_whatsapp: '5555566555',
+        customer_whatsapp_source: 'phone2',
+      }
+    );
+    assert.equal(result.whatsappSource, 'phone2');
+    assert.equal(result.whatsappManual, '5555566555');
+  });
+
+  it('maps saved Other source onto the booking selector', () => {
+    const result = hydrateBookingCustomerFields(
+      { id: 'c1', phone1: '4444444444', whatsapp: '9999999999' },
+      {
+        customer_id: 'c1',
+        contact_phone1: '4444444444',
+        customer_whatsapp: '9999999999',
+        customer_whatsapp_source: 'other',
+      }
+    );
+    assert.equal(result.whatsappSource, 'manual');
+    assert.equal(result.whatsappManual, '9999999999');
+  });
+
   it('keeps typed booking phones when the customer master has none', () => {
     const hydrated = hydrateBookingCustomerFields({
       id: 'c1',

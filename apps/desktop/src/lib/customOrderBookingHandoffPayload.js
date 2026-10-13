@@ -7,6 +7,8 @@ import {
   nowDatetimeLocal,
 } from '@wrs/shared';
 
+import { normalizeWhatsappSource } from './bookingCustomerHydration.js';
+
 export const CUSTOM_ORDER_BOOKING_HANDOFF_KEY = 'wrs.customOrderBookingHandoff';
 
 /**
@@ -102,7 +104,7 @@ export function buildCustomOrderBookingHandoff(order, measurementsSummary = '', 
       phone2: order.customer_phone2 || '',
       phone2_name: order.customer_phone2_name || '',
       whatsapp: order.customer_whatsapp || '',
-      whatsapp_source: order.customer_whatsapp_source || 'phone1',
+      whatsapp_source: normalizeWhatsappSource(order.customer_whatsapp_source || 'phone1'),
       address: order.customer_address || '',
     },
     delivery_date: normalizeCustomOrderSqlDate(order.delivery_date) || null,

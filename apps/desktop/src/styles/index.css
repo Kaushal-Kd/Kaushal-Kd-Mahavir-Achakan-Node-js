@@ -163,7 +163,8 @@
     @apply align-middle text-center;
   }
   .order-checklist-table .table tbody td.checklist-condition-cell {
-    @apply align-middle text-center whitespace-normal;
+    @apply align-middle text-left whitespace-normal overflow-visible;
+    min-width: 14rem;
   }
   .order-checklist-table .table tbody tr.checklist-accessory-notes-row td {
     @apply border-t border-brand/15;

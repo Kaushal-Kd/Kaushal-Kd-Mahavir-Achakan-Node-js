@@ -111,6 +111,8 @@ import {
   coalesceBookingContacts,
   emptyCustomerPatchFromBookingContact,
   hydrateBookingCustomerFields,
+  isManualWhatsappSource,
+  normalizeWhatsappSource,
   restoreWhatsappFromDraftSnapshot,
 } from '../../lib/bookingCustomerHydration.js';
 import { printBill } from '../../utils/printBill.js';
@@ -365,8 +367,9 @@ const PREVIOUS_BOOKING_GAP_TOOLTIP = [
 function resolveWhatsappValue({ whatsappSource, whatsappManual, phone1, phone2 }) {
   const p1 = phoneInputDigits(phone1);
   const p2 = phoneInputDigits(phone2);
-  if (whatsappSource === 'phone1') return p1 || '';
-  if (whatsappSource === 'phone2') return p2.length === 10 ? p2 : '';
+  const source = normalizeWhatsappSource(whatsappSource);
+  if (source === 'phone1') return p1 || '';
+  if (source === 'phone2') return p2.length === 10 ? p2 : '';
   return phoneInputDigits(whatsappManual);
 }
 
@@ -3491,7 +3494,7 @@ const CreateOrder = ({ mode, orderId }) => {
       if (whatsappSource === 'phone2' && !isIndianPhone(effectiveContactNo2)) {
         add('whatsapp', 'Enter a valid Contact No.2 to use it as WhatsApp number');
       }
-      if (whatsappSource === 'manual' && !isIndianPhone(resolvedWhatsapp)) {
+      if (isManualWhatsappSource(whatsappSource) && !isIndianPhone(resolvedWhatsapp)) {
         add('whatsapp', 'Enter a valid 10-digit WhatsApp number');
       }
       if (!String(address || '').trim()) add('address', 'Enter address');
@@ -3978,7 +3981,7 @@ const CreateOrder = ({ mode, orderId }) => {
           String(c.phone2 || '').trim() === String(c.phone1 || '').trim()
       );
       setAddress(c.address || '');
-      setWhatsappSource(c.whatsapp_source || 'phone1');
+      setWhatsappSource(normalizeWhatsappSource(c.whatsapp_source || 'phone1'));
       setWhatsappManual(phoneInputDigits(c.whatsapp || ''));
       setCustomerOpen(false);
       clearFieldError(setFieldErrors, 'customer');
@@ -4904,9 +4907,9 @@ const CreateOrder = ({ mode, orderId }) => {
                 <select
                   id="booking-whatsapp-source"
                   className={fieldShellClass(err('whatsapp'), 'input w-full')}
-                  value={whatsappSource}
+                  value={normalizeWhatsappSource(whatsappSource)}
                   onChange={(e) => {
-                    setWhatsappSource(e.target.value);
+                    setWhatsappSource(normalizeWhatsappSource(e.target.value));
                     touch('whatsapp')();
                   }}
                 >
@@ -4915,10 +4918,10 @@ const CreateOrder = ({ mode, orderId }) => {
                   <option value="manual">Other</option>
                 </select>
               </div>
-              {whatsappSource === 'manual' ? (
-                <div className="md:col-span-2 min-w-0">
+              <div className="md:col-span-2 min-w-0">
+                {isManualWhatsappSource(whatsappSource) ? (
                   <Input
-                    label="WhatsApp Number (Other)"
+                    label="WhatsApp number"
                     value={whatsappManual}
                     error={err('whatsapp')}
                     onChange={(e) => {
@@ -4929,16 +4932,18 @@ const CreateOrder = ({ mode, orderId }) => {
                     inputMode="numeric"
                     maxLength={10}
                   />
-                </div>
-              ) : null}
-              {err('whatsapp') && whatsappSource !== 'manual' ? (
-                <p className="md:col-span-6 text-xs text-red-600">{err('whatsapp')}</p>
-              ) : null}
-              <div
-                className={
-                  whatsappSource === 'manual' ? 'md:col-span-2 min-w-0' : 'md:col-span-4 min-w-0'
-                }
-              >
+                ) : (
+                  <Input
+                    label="WhatsApp number"
+                    value={resolvedWhatsapp}
+                    error={err('whatsapp')}
+                    readOnly
+                    placeholder="—"
+                    inputClassName="font-mono bg-gray-50"
+                  />
+                )}
+              </div>
+              <div className="md:col-span-2 min-w-0">
                 <Input
                   label="Address"
                   required

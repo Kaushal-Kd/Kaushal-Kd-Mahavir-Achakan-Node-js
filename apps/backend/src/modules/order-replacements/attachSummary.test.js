@@ -4,8 +4,24 @@ import test from 'node:test';
 import {
   applyDamageReplacementSummary,
   applyDamageReplacementSummaryToLines,
+  applyPendingDamageFirstSort,
   groupDamageReplacementsByTargetOrder,
+  pendingDamageFirstOrderSql,
 } from './attachSummary.js';
+
+test('pending damage bookings sort ahead of the rest of the list', () => {
+  const sql = pendingDamageFirstOrderSql();
+  assert.match(sql, /rr_pin.status = 'pending'/);
+  assert.match(sql, /THEN 0 ELSE 1 END ASC/);
+  const calls = [];
+  applyPendingDamageFirstSort({
+    orderByRaw(fragment) {
+      calls.push(fragment);
+      return this;
+    },
+  });
+  assert.equal(calls[0], sql);
+});
 
 test('all later bookings for a damaged product are grouped as damage-affected', () => {
   const byOrder = groupDamageReplacementsByTargetOrder([

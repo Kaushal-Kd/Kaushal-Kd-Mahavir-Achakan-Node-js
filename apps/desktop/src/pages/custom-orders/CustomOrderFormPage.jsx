@@ -657,6 +657,13 @@ const CustomOrderFormPage = () => {
     ? values.customer_name
     : values.customer_phone2_name;
 
+  const resolvedWhatsapp = resolveWhatsappValue({
+    whatsappSource,
+    whatsappManual,
+    phone1: values.customer_phone,
+    phone2: effectiveContactNo2,
+  });
+
   useEffect(() => {
     if (!contactNo2SameAsPhone1) return;
     setValues((v) => ({
@@ -1605,7 +1612,16 @@ const CustomOrderFormPage = () => {
                     placeholder="10-digit WhatsApp"
                     maxLength={10}
                   />
-                ) : null}
+                ) : (
+                  <Input
+                    className="mt-1"
+                    value={resolvedWhatsapp}
+                    disabled
+                    readOnly
+                    inputClassName={`${compactInputClass} font-mono bg-gray-50`}
+                    placeholder="—"
+                  />
+                )}
               </div>
               <Input
                 label="Address"

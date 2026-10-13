@@ -1,3 +1,22 @@
+/** Pin pending damage-affected bookings above the rest of the list. */
+export function pendingDamageFirstOrderSql() {
+  return `CASE WHEN EXISTS (
+      SELECT 1 FROM order_item_replacement_requirements AS rr_pin
+      WHERE rr_pin.target_order_id = o.id
+        AND rr_pin.shop_id = o.shop_id
+        AND rr_pin.status = 'pending'
+    ) THEN 0 ELSE 1 END ASC`;
+}
+
+/**
+ * @param {import('knex').Knex.QueryBuilder} qb
+ * @returns {import('knex').Knex.QueryBuilder}
+ */
+export function applyPendingDamageFirstSort(qb) {
+  if (!qb?.orderByRaw) return qb;
+  return qb.orderByRaw(pendingDamageFirstOrderSql());
+}
+
 /**
  * @param {object[]} rows
  * @returns {Map<string, object[]>}

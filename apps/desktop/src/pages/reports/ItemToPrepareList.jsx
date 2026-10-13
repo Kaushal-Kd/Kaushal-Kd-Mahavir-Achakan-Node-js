@@ -7,11 +7,12 @@ import {
   ORDER_STATUS_LABELS,
 } from '@wrs/shared';
 import {
+  ITEM_TO_PREPARE_PDF_DEFAULT_HIDDEN,
   ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS,
   buildPrepareProductExportRows,
   getPrepareContactNumbers,
 } from '../../lib/itemToPreparePdfExport.js';
-import { ClipboardCheck, Search } from 'lucide-react';
+import { ClipboardCheck, Search, Settings } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import TableColumnPicker from '../../components/ui/TableColumnPicker.jsx';
@@ -133,6 +134,12 @@ const ItemToPrepareList = () => {
 
   const { options: salesmanFilterOptions, loading: salesmanOptionsLoading } =
     useItemStageSalesmanOptions();
+
+  const { visibleColumns: pdfExportColumns, pickerProps: pdfPickerProps } = useDataTableColumns(
+    'items-to-prepare-pdf-export',
+    ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS,
+    { defaultHidden: ITEM_TO_PREPARE_PDF_DEFAULT_HIDDEN }
+  );
 
   const listParams = useMemo(
     () => ({
@@ -325,9 +332,13 @@ const ItemToPrepareList = () => {
         toast.warning('No bookings to export');
         return;
       }
+      if (!pdfExportColumns.length) {
+        toast.warning('Select at least one PDF column');
+        return;
+      }
       const pdfPayload = {
         layout,
-        columns: ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS,
+        columns: pdfExportColumns,
         rows: exportRows,
         pdfOptions: {
           title: 'Prepare Item',
@@ -753,6 +764,16 @@ const ItemToPrepareList = () => {
               disabled={isLoading || isFetching || totalCount === 0}
               onPrint={handlePrint}
               onExport={openExportDialog}
+              trailing={
+                <TableColumnPicker
+                  {...pdfPickerProps}
+                  icon={Settings}
+                  iconOnly
+                  label="PDF columns"
+                  title="PDF columns"
+                  menuAlign="end"
+                />
+              }
             />
           </div>
         </div>

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  ITEM_TO_PREPARE_PDF_DEFAULT_HIDDEN,
   ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS,
   ITEM_TO_PREPARE_PRINT_COLUMNS,
   buildPrepareBookingExportRows,
@@ -12,6 +13,7 @@ import {
   formatPreparePdfProductStatus,
   formatPreparePdfContact,
 } from './itemToPreparePdfExport.js';
+import { applyTableColumns } from './tableColumnPreferences.js';
 
 const booking = {
   id: 'order-1',
@@ -93,11 +95,14 @@ test('Prepare PDF places each product design and booking note in separate border
   assert.equal(design.get(rows[0]), 'Gold buttons');
   assert.equal(note.get(rows[0]), 'Keep with cover');
   assert.ok(
-    ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.filter((column) => column.key !== 'customer_phone').every(
-      (column) => !column.richGet
-    )
+    ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.filter(
+      (column) => column.key !== 'customer_phone' && column.key !== 'line_details'
+    ).every((column) => !column.richGet)
   );
-  assert.ok(ITEM_TO_PREPARE_PRINT_COLUMNS.reduce((total, column) => total + column.width, 0) <= 277);
+  const defaultPdfCols = applyTableColumns(ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS, {
+    hiddenKeys: ITEM_TO_PREPARE_PDF_DEFAULT_HIDDEN,
+  });
+  assert.ok(defaultPdfCols.reduce((total, column) => total + column.width, 0) <= 277);
   const status = ITEM_TO_PREPARE_PDF_EXPORT_COLUMNS.find((column) => column.key === 'product_status');
   assert.equal(status?.header, 'Current status');
   assert.equal(status.get(rows[0]), 'AVAILABLE');

@@ -8,6 +8,11 @@ export function normalizeWhatsappSource(value) {
   return 'phone1';
 }
 
+/** @param {unknown} value */
+export function isManualWhatsappSource(value) {
+  return normalizeWhatsappSource(value) === 'manual';
+}
+
 /** @param {object|null|undefined} row */
 export function inferWhatsappSource(row) {
   const wa = phoneInputDigits(row?.whatsapp);
@@ -94,12 +99,23 @@ export function hydrateBookingCustomerFields(customer, orderSnap = null) {
   const address = orderAddr || customerAddr;
 
   const masterPhone1 = normalizePhone(c.phone1 || '');
-  let whatsappSource = inferWhatsappSource({
-    whatsapp: c.whatsapp,
-    phone1,
-    phone2: contactNo2,
-  });
-  if (whatsappSource === 'manual' && phone1 && phone1 !== masterPhone1) {
+  const snapWhatsapp = phoneInputDigits(o.customer_whatsapp || o.whatsapp || '');
+  const masterWhatsapp = phoneInputDigits(c.whatsapp || '');
+  const snapSourceRaw = o.customer_whatsapp_source || o.whatsapp_source;
+  let whatsappSource = snapSourceRaw
+    ? normalizeWhatsappSource(snapSourceRaw)
+    : inferWhatsappSource({
+        whatsapp: snapWhatsapp || masterWhatsapp,
+        phone1,
+        phone2: contactNo2,
+      });
+  if (
+    !snapSourceRaw &&
+    !snapWhatsapp &&
+    whatsappSource === 'manual' &&
+    phone1 &&
+    phone1 !== masterPhone1
+  ) {
     whatsappSource = 'phone1';
   }
 
@@ -110,7 +126,7 @@ export function hydrateBookingCustomerFields(customer, orderSnap = null) {
     contactNo2SameAsPhone1: sameAsPhone1,
     address,
     whatsappSource,
-    whatsappManual: phoneInputDigits(c.whatsapp || ''),
+    whatsappManual: snapWhatsapp || masterWhatsapp,
   };
 }
 

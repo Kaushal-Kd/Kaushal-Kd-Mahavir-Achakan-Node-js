@@ -320,19 +320,19 @@ export default function OrderChecklistPanel({
   return (
     <div className={`table-wrap overflow-x-auto ${DESKTOP_TABLE_WRAP_CLASS}`}>
       <table
-        className={`table table-fixed w-full ${dense ? 'min-w-[56rem] text-[11px]' : 'min-w-[60rem] text-xs'}`}
+        className={`table table-fixed w-full ${dense ? 'min-w-[62rem] text-[11px]' : 'min-w-[68rem] text-xs'}`}
       >
         <colgroup>
-          <col className={dense ? 'w-[22%]' : 'w-[24%]'} />
+          <col className={dense ? 'w-[20%]' : 'w-[20%]'} />
           <col className={dense ? 'w-[4%]' : 'w-[4%]'} />
           <col className={dense ? 'w-[8%]' : 'w-[8%]'} />
-          <col className={dense ? 'w-[7%]' : 'w-[7%]'} />
-          <col className={dense ? 'w-[9%]' : 'w-[9%]'} />
+          <col className={dense ? 'w-[6%]' : 'w-[6%]'} />
           <col className={dense ? 'w-[8%]' : 'w-[8%]'} />
-          <col className={dense ? 'w-[7%]' : 'w-[7%]'} />
-          <col className={dense ? 'w-[7%]' : 'w-[7%]'} />
-          <col className={dense ? 'w-[7%]' : 'w-[7%]'} />
-          <col className={dense ? 'w-[21%]' : 'w-[19%]'} />
+          <col className={dense ? 'w-[6%]' : 'w-[6%]'} />
+          <col className={dense ? 'w-[6%]' : 'w-[6%]'} />
+          <col className={dense ? 'w-[6%]' : 'w-[6%]'} />
+          <col className={dense ? 'w-[6%]' : 'w-[6%]'} />
+          <col className={dense ? 'w-[30%]' : 'w-[30%]'} />
         </colgroup>
         <thead>
           <tr>
@@ -615,7 +615,7 @@ function ChecklistRow({
                 {s.label}
               </span>
               <StageCheckbox
-                checked={s.checked}
+                checked={receivedBlocked ? false : s.checked}
                 disabled={stageCellDisabled}
                 dense={dense}
                 ariaLabel={`Mark ${s.label} for ${row.name_snapshot}`}
@@ -770,7 +770,7 @@ function ChecklistRow({
                 title={cellTitle}
               >
                 <StageCheckbox
-                  checked={stageChecked}
+                  checked={s.key === 'received' && blocksReceived ? false : stageChecked}
                   disabled={stageCellDisabled}
                   dense={dense}
                   ariaLabel={`Mark ${s.label} for ${row.name_snapshot}`}
@@ -801,7 +801,7 @@ function ChecklistRow({
           </td>
         );
       })}
-      <td className="checklist-condition-cell text-center align-middle whitespace-normal">
+      <td className="checklist-condition-cell align-middle">
         {conditionBlock ?? (
           <span className="text-gray-400 text-[11px]" aria-hidden>
             —
@@ -928,9 +928,12 @@ const ChecklistConditionBlock = ({
   const btnSize = dense ? 'w-5 h-5' : 'w-6 h-6';
   const textSize = dense ? 'text-[10px]' : 'text-[11px]';
   const inputH = dense ? 'h-6' : 'h-7';
+  const compact = layout === 'inline';
+  const showQty = itemType === 'accessory' && totalQty > 1 && (isDamaged || isMissing);
+  const showCharge = isDamaged || isMissing || currentCharge > 0;
 
   const flagButtons = (
-    <>
+    <div className="flex items-center gap-1 shrink-0">
       <button
         type="button"
         title="Mark damaged"
@@ -948,163 +951,109 @@ const ChecklistConditionBlock = ({
       >
         <AlertTriangle size={dense ? 11 : 13} />
       </button>
-      <div className="flex flex-col items-center gap-0.5 shrink-0">
-        <button
-          type="button"
-          title="Mark missing"
-          disabled={disabled}
-          onClick={() =>
-            onChange({
-              missing: !isMissing,
-              condition_qty: !isMissing ? (itemType === 'accessory' ? conditionQty : totalQty) : 0,
-            })
-          }
-          className={`px-1.5 ${inputH} rounded inline-flex items-center justify-center border ${textSize} ${
-            isMissing
-              ? 'bg-yellow-50 border-yellow-400 text-yellow-700'
-              : 'border-gray-300 text-gray-400'
-          } disabled:opacity-50`}
-        >
-          Missing
-        </button>
-        {receivedOff ? (
-          <span
-            className={`${textSize} text-yellow-700 leading-tight`}
-            title={receivedOffTitle || 'Received is disabled'}
-          >
-            Received off
-          </span>
-        ) : null}
-      </div>
-    </>
+      <button
+        type="button"
+        title="Mark missing"
+        disabled={disabled}
+        onClick={() =>
+          onChange({
+            missing: !isMissing,
+            condition_qty: !isMissing ? (itemType === 'accessory' ? conditionQty : totalQty) : 0,
+          })
+        }
+        className={`px-1.5 ${inputH} shrink-0 rounded inline-flex items-center justify-center border ${textSize} ${
+          isMissing
+            ? 'bg-yellow-50 border-yellow-400 text-yellow-700'
+            : 'border-gray-300 text-gray-400'
+        } disabled:opacity-50`}
+      >
+        Missing
+      </button>
+    </div>
   );
 
-  const affectedQuantityControl =
-    itemType === 'accessory' && totalQty > 1 && (isDamaged || isMissing) ? (
-      <label className={`inline-flex items-center gap-1 ${textSize} text-gray-600`}>
-        Affected qty
+  const affectedQuantityControl = showQty ? (
+    <label className={`inline-flex items-center gap-1 shrink-0 ${textSize} text-gray-600`}>
+      Qty
+      <NumberInput
+        min={1}
+        max={totalQty}
+        value={conditionQty}
+        onChange={(event) =>
+          onChange({
+            condition_qty: Math.min(
+              totalQty,
+              Math.max(1, Math.floor(Number(event.target.value) || 1))
+            ),
+          })
+        }
+        className={`w-11 shrink-0 amount-input-no-spinner ${inputH} border border-gray-300 rounded px-1 ${textSize} text-center tabular-nums`}
+        aria-label={`Affected quantity out of ${totalQty}`}
+      />
+      <span className="text-gray-400 shrink-0">/ {totalQty}</span>
+    </label>
+  ) : null;
+
+  const chargeControls = showCharge ? (
+    editingCharge ? (
+      <div className="flex flex-wrap items-center gap-1 min-w-0">
         <NumberInput
-          min={1}
-          max={totalQty}
-          value={conditionQty}
-          onChange={(event) =>
-            onChange({
-              condition_qty: Math.min(
-                totalQty,
-                Math.max(1, Math.floor(Number(event.target.value) || 1))
-              ),
-            })
+          min={0}
+          step="0.01"
+          allowEmpty
+          disabled={disabled}
+          value={chargeDraft}
+          onChange={(e) =>
+            setChargeDraft(String(parseNonNegativeNumber(e.target.value, { empty: '' })))
           }
-          className={`w-14 ${inputH} border border-gray-300 rounded px-1.5 ${textSize} text-center`}
-          aria-label={`Affected quantity out of ${totalQty}`}
+          className={`${compact ? 'w-[4.25rem] shrink-0' : 'min-w-0 flex-1'} amount-input-no-spinner ${inputH} border border-gray-300 rounded px-1.5 ${textSize} tabular-nums`}
+          title="Missing/damage charge amount"
+          placeholder="0"
         />
-        <span className="text-gray-400">/ {totalQty}</span>
-      </label>
-    ) : null;
-
-  if (layout === 'inline') {
-    return (
-      <div className="inline-flex flex-nowrap items-center gap-1 max-w-full">
-        {flagButtons}
-        {affectedQuantityControl}
-        {editingCharge ? (
-          <>
-            <NumberInput
-              min={0}
-              step="0.01"
-              allowEmpty
-              disabled={disabled}
-              value={chargeDraft}
-              onChange={(e) =>
-                setChargeDraft(String(parseNonNegativeNumber(e.target.value, { empty: '' })))
-              }
-              className={`w-[4.5rem] shrink-0 ${inputH} border border-gray-300 rounded px-1.5 ${textSize} tabular-nums`}
-              title="Missing/damage charge amount"
-              placeholder="0"
-            />
-            {hasChargeChanges ? (
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={saveCharge}
-                className={`shrink-0 ${inputH} px-2 rounded border border-brand text-brand ${textSize} hover:bg-brand-light/50 disabled:opacity-50`}
-              >
-                Save
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <span
-              className={`${textSize} text-gray-700 shrink-0 max-w-[10rem] truncate tabular-nums`}
-            >
-              {Number(row.damage_charge || 0) > 0 ? formatCurrency(row.damage_charge) : 'No charge'}
-            </span>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => setEditingCharge(true)}
-              className={`shrink-0 ${inputH} px-1.5 rounded border border-gray-300 text-gray-700 ${textSize} hover:bg-gray-50 disabled:opacity-50`}
-            >
-              Edit
-            </button>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2 w-full min-w-0">
-      <div className="flex flex-wrap items-center gap-2">{flagButtons}</div>
-      {affectedQuantityControl}
-      {editingCharge ? (
-        <div className="flex flex-col gap-2 w-full">
-          <div className="flex flex-wrap gap-1 items-center w-full">
-            <NumberInput
-              min={0}
-              step="0.01"
-              allowEmpty
-              disabled={disabled}
-              value={chargeDraft}
-              onChange={(e) =>
-                setChargeDraft(String(parseNonNegativeNumber(e.target.value, { empty: '' })))
-              }
-              className={`min-w-0 flex-1 ${inputH} border border-gray-300 rounded px-2 ${textSize}`}
-              title="Missing/damage charge amount"
-              placeholder="0"
-            />
-          </div>
-          {hasChargeChanges ? (
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={saveCharge}
-              className={`h-8 px-3 rounded border border-brand text-brand ${textSize} hover:bg-brand-light/50 disabled:opacity-50 self-start`}
-            >
-              Save charge
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2 w-full">
-          <div className={`${textSize} text-gray-700 min-w-0 flex-1 break-words`}>
-            {Number(row.damage_charge || 0) > 0 ? (
-              <span className="font-medium tabular-nums">{formatCurrency(row.damage_charge)}</span>
-            ) : (
-              'No charge'
-            )}
-          </div>
+        {hasChargeChanges ? (
           <button
             type="button"
             disabled={disabled}
-            onClick={() => setEditingCharge(true)}
-            className={`h-8 px-3 rounded border border-gray-300 text-gray-700 ${textSize} hover:bg-gray-50 disabled:opacity-50 shrink-0`}
+            onClick={saveCharge}
+            className={`shrink-0 ${compact ? inputH : 'h-8'} px-2 rounded border border-brand text-brand ${textSize} hover:bg-brand-light/50 disabled:opacity-50`}
           >
-            Edit
+            {compact ? 'Save' : 'Save charge'}
           </button>
-        </div>
-      )}
+        ) : null}
+      </div>
+    ) : (
+      <div className="flex flex-wrap items-center gap-1 min-w-0">
+        <span className={`${textSize} text-gray-700 min-w-0 truncate tabular-nums`}>
+          {currentCharge > 0 ? formatCurrency(row.damage_charge) : 'No charge'}
+        </span>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setEditingCharge(true)}
+          className={`shrink-0 ${compact ? inputH : 'h-8'} px-1.5 rounded border border-gray-300 text-gray-700 ${textSize} hover:bg-gray-50 disabled:opacity-50`}
+        >
+          Edit
+        </button>
+      </div>
+    )
+  ) : null;
+
+  return (
+    <div className={`flex flex-col min-w-0 w-full ${compact ? 'items-start gap-1' : 'gap-2'}`}>
+      <div className={`flex flex-wrap items-center ${compact ? 'gap-1' : 'gap-2'}`}>
+        {flagButtons}
+        {compact ? affectedQuantityControl : null}
+      </div>
+      {!compact ? affectedQuantityControl : null}
+      {receivedOff ? (
+        <span
+          className={`${textSize} text-yellow-700 leading-tight`}
+          title={receivedOffTitle || 'Received is disabled'}
+        >
+          Received off
+        </span>
+      ) : null}
+      {chargeControls}
     </div>
   );
 };
@@ -1207,20 +1156,4 @@ StageCheckbox.propTypes = {
   disabled: PropTypes.bool,
   dense: PropTypes.bool,
   ariaLabel: PropTypes.string,
-};
-
-ChecklistConditionBlock.propTypes = {
-  row: PropTypes.object.isRequired,
-  receivedOff: PropTypes.bool,
-  receivedOffTitle: PropTypes.string,
-  onChange: PropTypes.func.isRequired,
-  disabled: PropTypes.bool,
-  dense: PropTypes.bool,
-  layout: PropTypes.oneOf(['inline', 'stacked']),
-};
-
-ChecklistConditionBlock.defaultProps = {
-  receivedOff: false,
-  receivedOffTitle: undefined,
-  layout: 'stacked',
 };

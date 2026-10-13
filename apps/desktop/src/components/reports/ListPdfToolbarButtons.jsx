@@ -9,6 +9,7 @@ const ListPdfToolbarButtons = ({
   busy = false,
   disabled = false,
   className = '',
+  trailing = null,
 }) => (
   <div className={`flex shrink-0 items-center gap-2 ${className}`.trim()}>
     <Button
@@ -35,6 +36,7 @@ const ListPdfToolbarButtons = ({
     >
       Export PDF
     </Button>
+    {trailing}
   </div>
 );
 
@@ -44,6 +46,7 @@ ListPdfToolbarButtons.propTypes = {
   busy: PropTypes.bool,
   disabled: PropTypes.bool,
   className: PropTypes.string,
+  trailing: PropTypes.node,
 };
 
 export default ListPdfToolbarButtons;

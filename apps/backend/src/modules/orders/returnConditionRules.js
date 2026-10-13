@@ -44,9 +44,7 @@ export function accessoryWashableReturnQuantity(line) {
 }
 
 export function lineBlocksReceivedByMissingQuantity(line) {
-  if (!line?.missing) return false;
-  const total = Math.max(1, positiveWhole(line?.qty, 1));
-  return positiveWhole(line?.missing_qty, total) >= total;
+  return !!line?.missing;
 }
 
 export function hasBlockingProductCondition(items) {

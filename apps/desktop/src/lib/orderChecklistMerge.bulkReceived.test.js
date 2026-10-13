@@ -81,7 +81,25 @@ describe('applyBulkStageTrueToDraft received', () => {
     assert.equal(next[checklistRowKey('item', 'item-1')].received, false);
   });
 
-  it('receives the remaining units when only part of an accessory line is missing', () => {
+  it('loads Received as unticked when a missing line was previously marked received', () => {
+    const order = {
+      items: [],
+      accessories: [
+        {
+          id: 'acc-partial',
+          type: 'rent',
+          qty: 2,
+          missing: true,
+          missing_qty: 1,
+          stage_flags: { prepared: true, delivered: true, received: true },
+        },
+      ],
+    };
+    const draft = buildStageDraftMap(order);
+    assert.equal(draft[checklistRowKey('accessory', 'acc-partial')].received, false);
+  });
+
+  it('skips Received when any missing quantity is selected on an accessory line', () => {
     const order = {
       items: [],
       accessories: [
@@ -97,6 +115,6 @@ describe('applyBulkStageTrueToDraft received', () => {
     };
     const draft = buildStageDraftMap(order);
     const next = applyBulkStageTrueToDraft(draft, 'received', order);
-    assert.equal(next[checklistRowKey('accessory', 'acc-partial')].received, true);
+    assert.equal(next[checklistRowKey('accessory', 'acc-partial')].received, false);
   });
 });

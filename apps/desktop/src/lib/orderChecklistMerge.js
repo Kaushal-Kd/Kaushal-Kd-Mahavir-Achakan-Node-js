@@ -131,10 +131,14 @@ function applyGivenWithRentLocksToDraft(draftMap, order) {
 export function buildStageDraftMap(order) {
   const out = {};
   for (const it of order?.items || []) {
-    out[checklistRowKey('item', it.id)] = normalizeStageFlags(it, 'item');
+    const flags = normalizeStageFlags(it, 'item');
+    if (it.missing) flags.received = false;
+    out[checklistRowKey('item', it.id)] = flags;
   }
   for (const a of order?.accessories || []) {
-    out[checklistRowKey('accessory', a.id)] = resolveAccessoryChecklistStageFlags(a);
+    const flags = resolveAccessoryChecklistStageFlags(a);
+    if (a.missing) flags.received = false;
+    out[checklistRowKey('accessory', a.id)] = flags;
   }
   return out;
 }
@@ -166,7 +170,7 @@ export function effectiveLineCondition(order, conditionDraft, itemType, rowId) {
 /** True when Received must not be set (this line is Missing). Damaged lines may still be received. */
 export function lineBlocksReceived(order, conditionDraft, itemType, rowId) {
   const condition = effectiveLineCondition(order, conditionDraft, itemType, rowId);
-  return condition.missing && condition.conditionQty >= condition.totalQty;
+  return condition.missing;
 }
 
 /** @returns {'self'|null} */
@@ -226,13 +230,9 @@ export function clearReceivedInStageDraft(stageDraft, keys) {
   return next;
 }
 
-/** Keys to clear received when a line is marked missing (that line only). */
-export function stageKeysToClearOnConditionIssue(order, itemType, rowId, patch) {
+/** Keys to clear received when a line is marked missing (that line only, any missing qty). */
+export function stageKeysToClearOnConditionIssue(_order, itemType, rowId, patch) {
   if (patch.missing !== true) return [];
-  const row = findOrderLine(order, itemType, rowId);
-  const totalQty = Math.max(1, Number(row?.qty || 1));
-  const missingQty = Math.max(1, Number(patch.condition_qty || totalQty));
-  if (itemType === 'accessory' && missingQty < totalQty) return [];
   return [checklistRowKey(itemType, rowId)];
 }
 
