@@ -35,6 +35,8 @@ export const creditNoteListQuerySchema = z.object({
 
 export const settleCreditNoteBodySchema = z.object({
   settle_remarks: z.string().trim().max(2000).optional().nullable(),
+  settlement_type: z.enum(['income', 'refund']).optional().default('income'),
+  refund_account_id: z.string().trim().max(80).optional().nullable(),
 });
 
 export const cancelOrderBodySchema = z

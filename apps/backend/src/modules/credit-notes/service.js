@@ -3,6 +3,7 @@ import { round2 } from '@wrs/shared';
 import knex from '../../db/knex.js';
 import { badRequest, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
+import { createIncomeEntry } from '../income-entries/service.js';
 
 import { getCustomerOpenCreditBalance, getOpenCreditBalanceByPhones } from './helpers.js';
 
@@ -81,7 +82,7 @@ export async function getCreditBalanceByPhones(shopId, query) {
   return knex.transaction(async (trx) => getOpenCreditBalanceByPhones(trx, shopId, phones));
 }
 
-export async function settleCreditNote(shopId, id, body) {
+export async function settleCreditNote(shopId, id, body, authUserId = null) {
   const row = await knex('credit_notes').where({ id, shop_id: shopId }).first();
   if (!row) throw notFound('Credit note not found');
   if (row.settled_at) {
@@ -89,9 +90,12 @@ export async function settleCreditNote(shopId, id, body) {
   }
 
   const remarks = body.settle_remarks != null ? String(body.settle_remarks).trim() : '';
+  const settlementType = body.settlement_type || 'income'; // 'income' or 'refund'
   const applied = round2(Number(row.amount_applied || 0));
   const issued = round2(Number(row.amount));
   const remaining = round2(Math.max(0, issued - applied));
+
+  // Update credit note as settled
   await knex('credit_notes')
     .where({ id })
     .update({
@@ -100,6 +104,49 @@ export async function settleCreditNote(shopId, id, body) {
       settle_remarks: remarks === '' ? null : remarks,
       updated_at: knex.fn.now(),
     });
+
+  // Handle settlement based on type
+  if (remaining > 0) {
+    try {
+      if (settlementType === 'refund' && body.refund_account_id) {
+        // Create refund payment entry
+        const { v4: uuidv4 } = await import('uuid');
+        await knex('payments').insert({
+          id: uuidv4(),
+          shop_id: shopId,
+          payment_account_id: body.refund_account_id,
+          customer_id: row.customer_id || null,
+          amount: remaining,
+          payment_method: 'refund',
+          reference_number: `CN-REFUND-${row.note_number || id.slice(0, 8)}`,
+          notes: remarks || `Refund for credit note ${row.note_number}`,
+          created_by: authUserId || null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+      } else {
+        // Create income entry for settled amount (default behavior)
+        const defaultIncomeAccount = await knex('income_accounts')
+          .where({ shop_id: shopId })
+          .whereRaw("LOWER(name) LIKE LOWER('%credit%')")
+          .first('id');
+
+        if (defaultIncomeAccount) {
+          await createIncomeEntry(shopId, authUserId, {
+            income_account_id: defaultIncomeAccount.id,
+            payment_account_id: body.payment_account_id || null,
+            name: `Credit Note Settlement - ${row.note_number || 'CN'}`,
+            entry_date: new Date().toISOString().split('T')[0],
+            amount: remaining,
+            details: remarks || `Settled credit note ${row.note_number}`,
+          });
+        }
+      }
+    } catch (err) {
+      // Log but don't fail - settlement should succeed even if entry creation fails
+      console.error('Error creating settlement entry for credit note:', err?.message);
+    }
+  }
 
   return buildCreditNotesListQuery(shopId).where('cn.id', id).first();
 }
