@@ -428,7 +428,7 @@ async function listIncomeExpenseLines(shopId, accountId, from, to) {
 
 async function listPaymentLines(shopId, accountId, from, to) {
   const customerNameSql = knex.raw(
-    "COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(pc.name), ''), NULLIF(TRIM(o.pickup_name), ''), NULLIF(TRIM(o.reference_name), ''), NULLIF(TRIM(s.customer_name), ''), '') as ledger_customer_name"
+    "COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(pc.name), ''), NULLIF(TRIM(SUBSTRING_INDEX(TRIM(o.pickup_name), ' — ', 1)), ''), NULLIF(TRIM(SUBSTRING_INDEX(TRIM(o.reference_name), ' — ', 1)), ''), NULLIF(TRIM(s.customer_name), ''), '') as ledger_customer_name"
   );
 
   const drQ = excludePurchasePayments(
