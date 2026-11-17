@@ -43,6 +43,19 @@ export const paymentSchema = z.object({
 
 export const createPaymentSchema = paymentSchema.omit({ id: true });
 
+/** Shop-admin correction of a recorded bill payment (order / category stay fixed). */
+export const updatePaymentSchema = paymentSchema
+  .pick({
+    amount: true,
+    payment_type: true,
+    payment_date: true,
+    transaction_id: true,
+    notes: true,
+    payment_account_id: true,
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
+
 const paymentListBoolean = z.preprocess((value) => {
   if (value === true || value === 1 || value === '1' || value === 'true') return true;
   if (value === false || value === 0 || value === '0' || value === 'false') return false;

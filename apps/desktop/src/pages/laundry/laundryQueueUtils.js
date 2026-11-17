@@ -105,7 +105,12 @@ export function groupLaundryAccessoriesByCategory(rows) {
   const groups = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
     const label = String(row.categoryLabel || 'Uncategorized').trim() || 'Uncategorized';
-    const key = String(row.categoryId || `label:${label.toLowerCase()}`);
+    // Rows added manually via "Add category" (no accessoryId) stay separate lines so the
+    // same category can be entered twice with its own qty / rate (e.g. free pant at 0).
+    const key =
+      !row.accessoryId && row.rowId
+        ? `row:${row.rowId}`
+        : String(row.categoryId || `label:${label.toLowerCase()}`);
     if (!groups.has(key)) {
       groups.set(key, {
         key,

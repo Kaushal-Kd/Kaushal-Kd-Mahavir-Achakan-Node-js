@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatCurrency, formatPaymentDateTime, isDamageChargePayment, PAYMENT_TYPE, round2, todayIndiaISODate, ACTIONS, MODULES, hasPermission } from '@wrs/shared';
+import { formatCurrency, formatPaymentDateTime, isDamageChargePayment, PAYMENT_TYPE, round2, todayIndiaISODate } from '@wrs/shared';
 import { Plus, Printer, Trash2, Pencil } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useEffect, useMemo, useState } from 'react';
@@ -44,12 +44,16 @@ const isSecurityPayment = (p) =>
 
 const isBillPayment = (p) => !p.is_deleted && !isSecurityPayment(p);
 
+const EDITABLE_PAYMENT_CATEGORIES = ['advance', 'partial', 'final', 'refund'];
+
 const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
   const queryClient = useQueryClient();
   const selectedShopName = useSelectedShopName();
   const currentUser = useAuthStore((s) => s.user);
-  const canEditPayments = hasPermission(currentUser, MODULES.bookings, ACTIONS.create);
+  const isShopAdmin = ['super_admin', 'shop_admin'].includes(currentUser?.role);
+  const canEditPayments = isShopAdmin;
   const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
   const {
     target: deleteTarget,
     requestDelete,
@@ -154,6 +158,16 @@ const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Failed to record payment'),
   });
 
+  const updateMut = useMutation({
+    mutationFn: ({ id, payload }) => paymentsApi.update(id, payload),
+    onSuccess: async () => {
+      toast.success('Payment updated');
+      setEditTarget(null);
+      await invalidateOrderDomain(queryClient, { orderId: order.id });
+    },
+    onError: (e) => toast.error(e.response?.data?.error?.message || 'Failed to update payment'),
+  });
+
   const renderRowActions = (p) => (
     <div className="flex items-center justify-end gap-1">
       <Button
@@ -164,6 +178,18 @@ const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
         onClick={() => printReceipt(order, p)}
         aria-label="Print receipt"
       />
+      {isShopAdmin && EDITABLE_PAYMENT_CATEGORIES.includes(p.category) ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={Pencil}
+          iconOnly
+          onClick={() => setEditTarget(p)}
+          aria-label="Edit payment"
+          title="Edit payment"
+          disabled={disabled}
+        />
+      ) : null}
       <Button
         variant="ghost"
         size="sm"
@@ -362,6 +388,30 @@ const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
         />
       ) : null}
 
+      <AddPaymentModal
+        isOpen={Boolean(editTarget)}
+        onClose={() => setEditTarget(null)}
+        order={order}
+        outstanding={outstanding}
+        paymentAccounts={paymentAccounts}
+        securityAccounts={securityAccounts}
+        payment={editTarget}
+        onSubmit={(payload) =>
+          updateMut.mutate({
+            id: editTarget.id,
+            payload: {
+              amount: payload.amount,
+              payment_type: payload.payment_type,
+              payment_date: payload.payment_date,
+              transaction_id: payload.transaction_id,
+              notes: payload.notes,
+              payment_account_id: payload.payment_account_id,
+            },
+          })
+        }
+        loading={updateMut.isPending}
+      />
+
       <AdminDeleteModal
         isOpen={Boolean(deleteTarget)}
         onClose={closeDelete}
@@ -409,7 +459,9 @@ const AddPaymentModal = ({
   securityAccounts,
   onSubmit,
   loading,
+  payment,
 }) => {
+  const isEdit = Boolean(payment);
   const [form, setForm] = useState({
     amount: 0,
     payment_type: 'cash',
@@ -423,6 +475,19 @@ const AddPaymentModal = ({
 
   useEffect(() => {
     if (!isOpen) return;
+    if (payment) {
+      setForm({
+        amount: Number(payment.amount || 0),
+        payment_type: payment.payment_type || 'cash',
+        category: payment.category || 'partial',
+        payment_date: String(payment.payment_date || '').slice(0, 10) || today(),
+        transaction_id: payment.transaction_id || '',
+        notes: payment.notes || '',
+        payment_account_id: payment.payment_account_id || '',
+        security_account_id: payment.security_account_id || '',
+      });
+      return;
+    }
     setForm({
       amount: outstanding > 0 ? outstanding : 0,
       payment_type: 'cash',
@@ -433,7 +498,7 @@ const AddPaymentModal = ({
       payment_account_id: '',
       security_account_id: order.security_account_id || '',
     });
-  }, [isOpen, order, outstanding]);
+  }, [isOpen, order, outstanding, payment]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -483,7 +548,7 @@ const AddPaymentModal = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Record payment for ${order.order_number}`}
+      title={`${isEdit ? 'Edit payment' : 'Record payment'} for ${order.order_number}`}
       size="md"
       footer={
         <>
@@ -491,7 +556,7 @@ const AddPaymentModal = ({
             Cancel
           </Button>
           <Button onClick={submit} loading={loading}>
-            Save & print receipt
+            {isEdit ? 'Save changes' : 'Save & print receipt'}
           </Button>
         </>
       }
@@ -511,6 +576,7 @@ const AddPaymentModal = ({
           value={form.category}
           onChange={(e) => set('category', e.target.value)}
           options={CATEGORY_OPTIONS}
+          disabled={isEdit}
         />
         {showPaymentLedger ? (
           <Select
@@ -573,7 +639,15 @@ const AddPaymentModal = ({
           placeholder="Optional"
         />
         <div className="col-span-2 text-xs text-gray-500">
-          Outstanding balance: <b>{formatCurrency(outstanding)}</b>. Amounts can exceed this only for deposits.
+          {isEdit
+            ? 'Changing the amount recalculates the booking paid amount and balance.'
+            : null}
+          {!isEdit ? (
+            <>
+              Outstanding balance: <b>{formatCurrency(outstanding)}</b>. Amounts can exceed this
+              only for deposits.
+            </>
+          ) : null}
         </div>
       </form>
     </Modal>
@@ -589,10 +663,12 @@ AddPaymentModal.propTypes = {
   securityAccounts: PropTypes.array,
   onSubmit: PropTypes.func.isRequired,
   loading: PropTypes.bool,
+  payment: PropTypes.object,
 };
 
 AddPaymentModal.defaultProps = {
   loading: false,
+  payment: null,
   paymentAccounts: [],
   securityAccounts: [],
 };

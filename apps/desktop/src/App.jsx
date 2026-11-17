@@ -65,6 +65,7 @@ const CreateLaundryJob = lazyRetry(() => import('./pages/laundry/CreateLaundryJo
 const ViewLaundryJobPage = lazyRetry(() => import('./pages/laundry/ViewLaundryJobPage.jsx'));
 const SaleList = lazyRetry(() => import('./pages/sales/SaleList.jsx'));
 const CreateSale = lazyRetry(() => import('./pages/sales/CreateSale.jsx'));
+const ViewSale = lazyRetry(() => import('./pages/sales/ViewSale.jsx'));
 const PurchaseList = lazyRetry(() => import('./pages/purchases/PurchaseList.jsx'));
 const CreatePurchase = lazyRetry(() => import('./pages/purchases/CreatePurchase.jsx'));
 const CheckAvailability = lazyRetry(() => import('./pages/availability/CheckAvailability.jsx'));
@@ -365,6 +366,7 @@ const App = () => {
                 <Route path="/sales" element={<SaleList />} />
                 <Route path="/sales/new" element={<CreateSale />} />
                 <Route path="/sales/:id/edit" element={<CreateSale mode="edit" />} />
+                <Route path="/sales/:id" element={<ViewSale />} />
                 <Route path="/purchases" element={<PurchaseList />} />
                 <Route path="/purchases/new" element={<CreatePurchase />} />
                 <Route path="/purchases/:id/edit" element={<CreatePurchase mode="edit" />} />

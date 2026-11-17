@@ -97,6 +97,7 @@ function billRowLabel(bill, billKind) {
 function billKindLabel(kind) {
   if (kind === 'purchase') return 'Purchase';
   if (kind === 'washing') return 'Washing';
+  if (kind === 'none') return 'On account';
   return '—';
 }
 
@@ -507,14 +508,6 @@ const PaymentVoucherList = () => {
 
     const amt = Number(form.amount);
     if (Number.isNaN(amt) || amt <= 0) add('amount', 'Enter a valid amount');
-    if (!form.bill_ids.length) {
-      add(
-        'bill_ids',
-        form.bill_kind === 'washing'
-          ? 'Select at least one washing bill'
-          : 'Select at least one purchase bill'
-      );
-    }
     if (
       editingId &&
       editingBillQuery.isLoading &&
@@ -544,8 +537,12 @@ const PaymentVoucherList = () => {
       debit_account_id: String(form.debit_account_id || '').trim(),
       entry_date: form.entry_date,
       amount: amt,
-      bill_kind: form.bill_kind,
-      ...(form.bill_ids.length > 1 ? { bill_ids: form.bill_ids } : { bill_id: form.bill_ids[0] }),
+      // No bill picked → on-account / advance payment; still posts to the vendor ledger.
+      ...(form.bill_ids.length === 0
+        ? { bill_kind: 'none' }
+        : form.bill_ids.length > 1
+          ? { bill_kind: form.bill_kind, bill_ids: form.bill_ids }
+          : { bill_kind: form.bill_kind, bill_id: form.bill_ids[0] }),
       ...(remarksTrim ? { remarks: remarksTrim } : {}),
     };
 
@@ -1019,9 +1016,7 @@ const PaymentVoucherList = () => {
 
             <div className="min-w-0">
               <div className="flex items-center justify-between gap-2 mb-1">
-                <label className="label mb-0">
-                  Bill {form.debit_account_id ? <span className="text-red-600">*</span> : null}
-                </label>
+                <span className="label mb-0">Bill (optional)</span>
               </div>
               <div className="flex flex-nowrap items-center gap-4 min-w-0 mb-1">
                 <label className="inline-flex shrink-0 items-center gap-1 cursor-pointer whitespace-nowrap">
@@ -1067,7 +1062,8 @@ const PaymentVoucherList = () => {
                 <p className="text-[11px] text-gray-500 py-2">
                   {form.bill_kind === 'washing'
                     ? 'No pending washing bills for selected vendor.'
-                    : 'No pending purchase bills for selected vendor.'}
+                    : 'No pending purchase bills for selected vendor.'}{' '}
+                  Will be saved as an on-account (advance) payment.
                 </p>
               ) : (
                 <div
@@ -1077,7 +1073,9 @@ const PaymentVoucherList = () => {
                   )}
                 >
                   {form.bill_ids.length === 0 ? (
-                    <p className="text-[11px] text-gray-500">No bills selected</p>
+                    <p className="text-[11px] text-gray-500">
+                      No bills selected — will be saved as an on-account (advance) payment.
+                    </p>
                   ) : (
                     <div className="space-y-1">
                       <p className="text-xs text-gray-800">

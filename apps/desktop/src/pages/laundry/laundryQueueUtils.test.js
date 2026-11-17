@@ -10,10 +10,26 @@ import {
   washingQueueItemKind,
 } from './laundryQueueUtils.js';
 
+test('manually added rows of the same category stay separate lines', () => {
+  const groups = groupLaundryAccessoriesByCategory([
+    { rowId: 'a', categoryId: 'pent', categoryLabel: 'Pent', qty: 10, rate: 0 },
+    { rowId: 'b', categoryId: 'pent', categoryLabel: 'Pent', qty: 2, rate: 30 },
+  ]);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(
+    groups.map((g) => [g.qty, g.lineTotal]),
+    [
+      [10, 0],
+      [2, 60],
+    ]
+  );
+});
+
 test('groups washing accessories by category and keeps item detail', () => {
   const groups = groupLaundryAccessoriesByCategory([
     {
       rowId: '1',
+      accessoryId: 'acc-1',
       categoryId: 'jewellery',
       categoryLabel: 'Jewellery',
       name: 'Necklace',
@@ -23,6 +39,7 @@ test('groups washing accessories by category and keeps item detail', () => {
     },
     {
       rowId: '2',
+      accessoryId: 'acc-2',
       categoryId: 'jewellery',
       categoryLabel: 'Jewellery',
       name: 'Earrings',

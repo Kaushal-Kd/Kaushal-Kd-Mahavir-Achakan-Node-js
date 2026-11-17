@@ -133,7 +133,7 @@ const ProductRentalHistoryModal = ({
                   canEditSale
                     ? (saleId) => {
                         onClose();
-                        navigate(`/sales/${saleId}/edit`);
+                        navigate(`/sales/${saleId}`);
                       }
                     : null
                 }

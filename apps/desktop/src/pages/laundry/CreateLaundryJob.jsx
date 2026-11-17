@@ -746,8 +746,9 @@ const CreateLaundryJob = () => {
           })),
           accessoryRows: accessoryRows.map((row) => ({
             categoryId: row.categoryId,
+            accessoryId: row.accessoryId || null,
             categoryLabel: row.categoryLabel,
-            name: row.categoryLabel,
+            name: row.name || row.categoryLabel,
             qty: Number(row.qty || 1),
             rate: Number(row.rate || 0),
           })),
@@ -871,7 +872,7 @@ const CreateLaundryJob = () => {
         }
       />
 
-      <div className="space-y-2 pb-20">
+      <div className="space-y-2 pb-36">
         <section className="card p-2">
           <h3 className="text-xs font-semibold text-gray-900 mb-2 uppercase">Basic Information</h3>
           <div className="grid grid-cols-1 gap-2 text-xs">
@@ -1428,6 +1429,20 @@ const CreateLaundryJob = () => {
               }}
               placeholder="Code/barcode/name"
             />
+          </div>
+          <div className="col-span-2 md:col-span-1 flex items-center justify-end gap-1">
+            <Button size="sm" icon={Save} loading={saveBusy} onClick={() => saveJob('save')}>
+              Save
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={Printer}
+              loading={saveBusy}
+              onClick={() => saveJob('print')}
+            >
+              Save & Print
+            </Button>
           </div>
         </div>
       </div>

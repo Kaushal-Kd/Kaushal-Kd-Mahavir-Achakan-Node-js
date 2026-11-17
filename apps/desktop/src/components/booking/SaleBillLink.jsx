@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 const DEFAULT_CLASS = 'font-mono text-xs text-brand hover:underline';
 
 /**
- * Clickable sale bill number → edit sale.
+ * Clickable sale bill number → read-only sale view.
  */
 export default function SaleBillLink({
   saleId,
@@ -21,7 +21,7 @@ export default function SaleBillLink({
   const display = label || '—';
   return (
     <Link
-      to={`/sales/${id}/edit`}
+      to={`/sales/${id}`}
       className={clsx(DEFAULT_CLASS, className)}
       onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
     >

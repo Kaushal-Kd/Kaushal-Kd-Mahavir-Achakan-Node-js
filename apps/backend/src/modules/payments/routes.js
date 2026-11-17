@@ -1,12 +1,13 @@
 import {
   createPaymentSchema,
+  updatePaymentSchema,
   securityDueQuerySchema,
   securityTransactionsQuerySchema,
 } from '@wrs/shared';
 import { v4 as uuid } from 'uuid';
 
 import knex from '../../db/knex.js';
-import { badRequest, notFound } from '../../utils/errors.js';
+import { badRequest, forbidden, notFound } from '../../utils/errors.js';
 import { paginate } from '../../utils/pagination.js';
 import { validate } from '../../utils/validate.js';
 
@@ -110,6 +111,58 @@ export default async function paymentRoutes(fastify) {
     const row = await knex('payments').where({ id }).first();
     await request.audit('payments', 'CREATE', { id, new: row });
     return { ok: true, data: row };
+  });
+
+  // Security deposit / refund rows feed held-funds checks, so only bill payments are editable.
+  const EDITABLE_PAYMENT_CATEGORIES = new Set(['advance', 'partial', 'final', 'refund']);
+
+  fastify.put('/:id', async (request) => {
+    if (!['super_admin', 'shop_admin'].includes(request.authUser?.role)) {
+      throw forbidden('Only Shop Admin can edit payments');
+    }
+    const body = validate(updatePaymentSchema, request.body || {});
+    const row = await knex('payments')
+      .where({ id: request.params.id, shop_id: request.shopId, is_deleted: false })
+      .first();
+    if (!row) throw notFound('Payment not found');
+    if (!EDITABLE_PAYMENT_CATEGORIES.has(row.category)) {
+      throw badRequest('Only bill payments can be edited; delete and re-add security entries');
+    }
+    await knex.transaction(
+      async (trx) => {
+        if (row.order_id)
+          await trx('orders')
+            .where({ id: row.order_id, shop_id: request.shopId })
+            .forUpdate()
+            .first('id');
+        const operation = await trx('security_charge_operations')
+          .where({ shop_id: request.shopId })
+          .where((q) => q.where('payment_id', row.id).orWhere('source_deposit_payment_id', row.id))
+          .first('id');
+        if (operation)
+          throw badRequest('This payment is linked to condition funds and cannot be edited');
+        await assertLedgerRefs(trx, request.shopId, body);
+        const patch = {};
+        for (const key of [
+          'amount',
+          'payment_type',
+          'payment_date',
+          'transaction_id',
+          'notes',
+          'payment_account_id',
+        ]) {
+          if (body[key] !== undefined) patch[key] = body[key] === '' ? null : body[key];
+        }
+        await trx('payments')
+          .where({ id: row.id })
+          .update({ ...patch, updated_at: trx.fn.now() });
+        if (row.order_id) await recomputeOrderPayment(trx, request.shopId, row.order_id);
+      },
+      { isolationLevel: 'read committed' }
+    );
+    const updated = await knex('payments').where({ id: row.id }).first();
+    await request.audit('payments', 'UPDATE', { id: row.id, old: row, new: updated });
+    return { ok: true, data: updated };
   });
 
   fastify.delete('/:id', { preHandler: fastify.requireShopAdminPassword }, async (request) => {

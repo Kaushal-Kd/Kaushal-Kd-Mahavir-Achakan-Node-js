@@ -7,5 +7,6 @@ export const paymentsApi = {
     api.get('/payments/security-transactions', { params }).then(unwrap),
   securityDue: (params) => api.get('/payments/security-due', { params }).then(unwrap),
   create: (payload) => api.post('/payments', payload).then(unwrap),
+  update: (id, payload) => api.put(`/payments/${id}`, payload).then(unwrap),
   remove: (id, body) => deleteWithAdminPassword('/payments', id, body),
 };

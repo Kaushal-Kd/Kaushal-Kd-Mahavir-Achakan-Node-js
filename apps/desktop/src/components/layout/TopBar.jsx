@@ -27,7 +27,7 @@ const SEARCH_HIT_LIMIT = 8;
 
 const KIND_META = {
   booking: { typeLabel: 'Booking', path: (row) => `/booking/${row.id}` },
-  sale: { typeLabel: 'Sale', path: (row) => `/sales/${row.id}/edit` },
+  sale: { typeLabel: 'Sale', path: (row) => `/sales/${row.id}` },
   accessory: { typeLabel: 'Accessory', path: (row) => `/master/accessory/${row.id}/edit` },
 };
 
@@ -192,7 +192,7 @@ const TopBar = () => {
         return;
       }
       if (resolved.kind === 'sale') {
-        navigate(`/sales/${resolved.id}/edit`);
+        navigate(`/sales/${resolved.id}`);
         return;
       }
       if (resolved.kind === 'missing') {
