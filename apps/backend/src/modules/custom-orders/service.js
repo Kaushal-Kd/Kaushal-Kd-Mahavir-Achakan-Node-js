@@ -39,6 +39,7 @@ const SEARCH_FIELDS = [
   'co.order_number',
   'co.customer_name',
   'co.customer_phone',
+  'co.customer_address',
   'co.design_name',
   'co.product_name',
   'co.generated_product_code',

@@ -7,15 +7,21 @@ export const useShopStore = create(
       shops: [],
       selectedShopId: null,
 
-      setShops(shops) {
+      /**
+       * @param {object[]} shops
+       * @param {string|null} [preferredShopId] server-side last selected shop; used when the
+       *   local selection is gone (e.g. after logout) so the user lands back on that shop.
+       */
+      setShops(shops, preferredShopId = null) {
         const list = shops || [];
+        const has = (id) => Boolean(id) && list.some((s) => s.id === id);
         const current = get().selectedShopId;
-        const isValid = list.some((s) => s.id === current);
         set({
           shops: list,
-          selectedShopId:
-            isValid && current
-              ? current
+          selectedShopId: has(current)
+            ? current
+            : has(preferredShopId)
+              ? preferredShopId
               : list.find((s) => s.shop_is_default)?.id || list[0]?.id || null,
         });
       },

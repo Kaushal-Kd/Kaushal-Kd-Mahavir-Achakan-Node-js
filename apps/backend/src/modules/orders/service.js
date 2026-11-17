@@ -322,6 +322,7 @@ const ITEM_STAGE_LIST_SEARCH_FIELDS = [
   'c.phone2',
   'c.whatsapp',
   'c.address',
+  'o.contact_address',
   'oi.name_snapshot',
   'oi.code_snapshot',
   'p.code',
@@ -341,6 +342,7 @@ const ITEM_TO_COLLECT_BOOKING_SEARCH_FIELDS = [
   'c.phone2',
   'c.whatsapp',
   'c.address',
+  'o.contact_address',
   'sp_order.name',
 ];
 
@@ -597,6 +599,7 @@ const ORDER_LIST_SEARCH_FIELDS = [
   'c.phone2',
   'c.whatsapp',
   'c.address',
+  'o.contact_address',
 ];
 
 /** @param {import('knex').Knex.QueryBuilder} qb @param {string} search */
@@ -911,6 +914,7 @@ export async function listBookedProducts(shopId, query) {
       'c.name',
       'c.phone1',
       'c.address',
+      'o.contact_address',
       'oi.name_snapshot',
       'oi.code_snapshot',
     ],

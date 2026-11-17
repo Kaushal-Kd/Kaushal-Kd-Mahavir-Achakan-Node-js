@@ -78,7 +78,7 @@ const Login = () => {
         })
         .then(unwrap);
       const { user, shops, access_token, refresh_token, ip_access_restricted } = resp.data;
-      setShops(shops);
+      setShops(shops, user?.last_selected_shop_id || null);
       const selectedShopId = useShopStore.getState().selectedShopId;
       const selectedShop = shops.find((shop) => shop.id === selectedShopId);
       setSession(

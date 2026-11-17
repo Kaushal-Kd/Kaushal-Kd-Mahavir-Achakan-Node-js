@@ -84,6 +84,7 @@ export async function listSecurityTransactions(shopId, query) {
         'c.name',
         'c.phone1',
         'c.address',
+        'o.contact_address',
         'o.pickup_name',
         'pm.transaction_id',
         'pm.notes',
@@ -236,7 +237,7 @@ async function listSecurityOnHand(shopId, query) {
     per_page: query.per_page,
     search: query.search,
     sort: requestedSort,
-    search_fields: ['o.order_number', 'c.name', 'c.phone1', 'c.address', 'o.pickup_name'],
+    search_fields: ['o.order_number', 'c.name', 'c.phone1', 'c.address', 'o.contact_address', 'o.pickup_name'],
   });
   const summaryRow = await baseQb
     .clone()

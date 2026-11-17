@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom';
 
 import AccessoryOutOrdersModal from '../../components/accessories/AccessoryOutOrdersModal.jsx';
 import CompactCatalogFilters from '../../components/list/CompactCatalogFilters.jsx';
+import ListPdfToolbarButtons from '../../components/reports/ListPdfToolbarButtons.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import AdminDeleteModal from '../../components/ui/AdminDeleteModal.jsx';
 import AdminPasswordModal from '../../components/ui/AdminPasswordModal.jsx';
@@ -34,7 +35,14 @@ import { catalogDeleteModeForRow } from '../../lib/catalogDeleteIntent.js';
 import { ACCESSORY_BASE_PATH } from '../../lib/accessoryRoutes.js';
 import { getApiErrorMessage } from '../../lib/apiError.js';
 import { catalogItemMobileCard } from '../../lib/listMobileCards.jsx';
-import { fetchAllPages, omitPagination } from '../../lib/reportPdfExport.js';
+import {
+  exportFilteredListPdf,
+  exportFilteredListPrint,
+  fetchAllPages,
+  omitPagination,
+  withExportPdfBusy,
+  withListPdfBusy,
+} from '../../lib/reportPdfExport.js';
 import { invalidateCatalogDomain } from '../../lib/queryInvalidation.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { toast } from '../../stores/uiStore.js';
@@ -697,15 +705,63 @@ const AccessoryList = () => {
     defaultHidden: ACCESSORY_LIST_DEFAULT_HIDDEN,
   });
 
+  const [listExportBusy, setListExportBusy] = useState(false);
+  const exportColumns = useMemo(() => {
+    const valueOf = {
+      default_type: (r) => formatAccessoryType(r.default_type),
+      qty: (r) => `${r.qty ?? 0} ${r.unit || ''}`.trim(),
+      rentable_qty: (r) => Number(r.rentable_qty ?? accessoryRentableQty(r)),
+      in_shop_qty: (r) => Number(r.in_shop_qty ?? r.qty ?? 0),
+      active_out_qty: (r) => Number(r.active_out_qty || 0),
+      spare_qty: (r) => Number(r.spare_qty || 0),
+      damaged_qty: (r) => Number(r.damaged_qty || 0),
+      price_sell: (r) => formatCurrency(r.price_sell),
+      price_rent: (r) => formatCurrency(r.price_rent),
+      purchase_price: (r) => formatCurrency(r.purchase_price ?? 0),
+      is_active: (r) => (isAccessoryCatalogActive(r) ? 'Yes' : 'No'),
+      created_at: (r) => (r.created_at ? formatDate(r.created_at) : ''),
+      updated_at: (r) => (r.updated_at ? formatDate(r.updated_at) : ''),
+    };
+    return visibleColumns
+      .filter((c) => !['select', 'image', 'actions'].includes(c.key))
+      .map((c) => ({
+        key: c.key,
+        header: c.columnPickerLabel || String(c.header || c.key),
+        get: valueOf[c.key] || ((r) => r[c.key] ?? ''),
+      }));
+  }, [visibleColumns]);
+
+  const listPdfOpts = {
+    listFn: accessoriesApi.list,
+    listParams: buildFetchParams(),
+    title: 'Accessories',
+    subtitle: search.trim() ? `Search: ${search.trim()}` : 'All accessories',
+    columns: exportColumns,
+  };
+
   return (
     <>
       <PageHeader
         title="Accessories"
         description="Rent, sell, or both — track stock and pricing for add-ons like mojdi, safa, and brooch"
         actions={
-          <Button icon={Plus} onClick={() => navigate(`${ACCESSORY_BASE_PATH}/new`)}>
-            New accessory
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ListPdfToolbarButtons
+              busy={listExportBusy}
+              disabled={isLoading}
+              onPrint={() =>
+                withListPdfBusy(setListExportBusy, () => exportFilteredListPrint(listPdfOpts))
+              }
+              onExport={() =>
+                withExportPdfBusy(setListExportBusy, () =>
+                  exportFilteredListPdf({ ...listPdfOpts, filename: 'accessories.pdf' })
+                )
+              }
+            />
+            <Button icon={Plus} onClick={() => navigate(`${ACCESSORY_BASE_PATH}/new`)}>
+              New accessory
+            </Button>
+          </div>
         }
       />
 

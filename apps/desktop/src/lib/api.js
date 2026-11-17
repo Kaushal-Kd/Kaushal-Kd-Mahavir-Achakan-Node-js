@@ -149,7 +149,7 @@ export async function bootstrapSession() {
       const { user, shops, ip_access_restricted } = resp.data.data;
       useAuthStore.getState().setIpAccessState(ip_access_restricted, false);
       if (Array.isArray(shops) && shops.length) {
-        useShopStore.getState().setShops(shops);
+        useShopStore.getState().setShops(shops, user?.last_selected_shop_id || null);
       }
       const selectedShopId = useShopStore.getState().selectedShopId;
       const selectedShop = shops?.find((shop) => shop.id === selectedShopId);

@@ -224,6 +224,7 @@ function applySalesListSearch(qb, search) {
   qb.andWhere((b) => {
     b.where('s.customer_name', 'like', like)
       .orWhere('s.contact_no', 'like', like)
+      .orWhere('s.address', 'like', like)
       .orWhere('s.sale_number', 'like', like)
       .orWhereExists(function saleItemProductMatch() {
         this.select(knex.raw('1'))

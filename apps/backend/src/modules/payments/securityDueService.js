@@ -58,7 +58,7 @@ export async function listSecurityDue(shopId, query) {
   if (q.amount_filter === 'return') baseQb.andWhere('d.return_amount', '>', 0);
   if (q.amount_filter === 'charge') baseQb.andWhereRaw(`${CHARGE_AMOUNT_SQL} > 0`);
   if (q.amount_filter === 'pending') baseQb.andWhereRaw(`${PENDING_AMOUNT_SQL} > 0`);
-  const searchFields = ['o.order_number', 'c.name', 'c.phone1', 'c.address', 'o.pickup_name'];
+  const searchFields = ['o.order_number', 'c.name', 'c.phone1', 'c.address', 'o.contact_address', 'o.pickup_name'];
   if (String(q.search || '').trim()) baseQb.andWhere((qb) => {
     for (const field of searchFields) qb.orWhere(field, 'like', `%${String(q.search).trim()}%`);
   });

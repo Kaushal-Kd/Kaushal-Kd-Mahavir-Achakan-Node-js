@@ -15,7 +15,16 @@ export const MODULE_LIST = [
 const MENU_LABELS = Object.fromEntries(
   MENU_PERMISSION_TARGETS.map((target) => [target.key, target.label])
 );
-export const ACTION_LIST = Object.values(ACTIONS);
+// Only actions the API / UI actually enforce are shown. Cancel, Refund, Override Gap and
+// Apply Discount exist in @wrs/shared but nothing checks them yet, so ticking them
+// would mislead admins. Stored values for hidden actions are left untouched.
+const UNENFORCED_ACTIONS = new Set([
+  ACTIONS.CANCEL,
+  ACTIONS.REFUND,
+  ACTIONS.OVERRIDE_GAP,
+  ACTIONS.APPLY_DISCOUNT,
+]);
+export const ACTION_LIST = Object.values(ACTIONS).filter((a) => !UNENFORCED_ACTIONS.has(a));
 
 export const titleizePermission = (s) =>
   String(s || '')
