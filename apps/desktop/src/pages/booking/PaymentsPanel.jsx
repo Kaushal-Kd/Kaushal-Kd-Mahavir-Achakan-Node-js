@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatCurrency, formatPaymentDateTime, isDamageChargePayment, PAYMENT_TYPE, round2, todayIndiaISODate } from '@wrs/shared';
-import { Plus, Printer, Trash2 } from 'lucide-react';
+import { formatCurrency, formatPaymentDateTime, isDamageChargePayment, PAYMENT_TYPE, round2, todayIndiaISODate, ACTIONS, MODULES, hasPermission } from '@wrs/shared';
+import { Plus, Printer, Trash2, Pencil } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useEffect, useMemo, useState } from 'react';
 
 import AdminDeleteModal from '../../components/ui/AdminDeleteModal.jsx';
+import { useAuthStore } from '../../stores/authStore.js';
 import AccountBankQrButton from '../../components/accounts/AccountBankQrButton.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
@@ -46,6 +47,8 @@ const isBillPayment = (p) => !p.is_deleted && !isSecurityPayment(p);
 const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
   const queryClient = useQueryClient();
   const selectedShopName = useSelectedShopName();
+  const currentUser = useAuthStore((s) => s.user);
+  const canEditPayments = hasPermission(currentUser, MODULES.bookings, ACTIONS.create);
   const [addOpen, setAddOpen] = useState(false);
   const {
     target: deleteTarget,
@@ -168,7 +171,8 @@ const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
         iconOnly
         onClick={() => requestDelete(p)}
         aria-label="Delete payment"
-        disabled={disabled}
+        disabled={disabled || !canEditPayments}
+        title={!canEditPayments ? 'Only Shop Admin can edit/delete payments' : ''}
       />
     </div>
   );
@@ -196,7 +200,8 @@ const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
               }
               setAddOpen(true);
             }}
-            disabled={disabled}
+            disabled={disabled || !canEditPayments}
+            title={!canEditPayments ? 'Only Shop Admin can add/edit payments' : ''}
           >
             Add payment
           </Button>

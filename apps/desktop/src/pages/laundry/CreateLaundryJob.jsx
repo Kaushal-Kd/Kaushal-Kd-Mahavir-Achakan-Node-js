@@ -813,6 +813,8 @@ const CreateLaundryJob = () => {
             payable,
           });
         }
+        const viewId = savedJob?.id || editingJobId;
+        navigate(viewId ? `/laundry/${viewId}` : '/laundry', { replace: true });
       }
       if (mode === 'new') {
         setJobNo('');

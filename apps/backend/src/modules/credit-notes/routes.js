@@ -40,7 +40,7 @@ export default async function creditNoteRoutes(fastify) {
       .where('cn.id', request.params.id)
       .first();
     if (!before) throw notFound('Credit note not found');
-    const row = await service.settleCreditNote(request.shopId, request.params.id, body);
+    const row = await service.settleCreditNote(request.shopId, request.params.id, body, request.authUser?.id);
     await request.audit('credit_notes', 'SETTLE', {
       id: request.params.id,
       old: before,

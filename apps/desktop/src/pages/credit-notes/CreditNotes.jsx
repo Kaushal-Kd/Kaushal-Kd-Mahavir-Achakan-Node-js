@@ -31,6 +31,8 @@ const CreditNotes = () => {
   const [filterSettled, setFilterSettled] = useState(false);
   const [settleRow, setSettleRow] = useState(null);
   const [settleRemarks, setSettleRemarks] = useState('');
+  const [settleType, setSettleType] = useState('income'); // 'income' or 'refund'
+  const [refundAccountId, setRefundAccountId] = useState('');
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -238,9 +240,17 @@ const CreditNotes = () => {
 
   const submitSettle = () => {
     if (!settleRow) return;
+    if (settleType === 'refund' && !refundAccountId) {
+      toast.error('Please select a refund account');
+      return;
+    }
     settleMut.mutate({
       id: settleRow.id,
-      body: { settle_remarks: String(settleRemarks || '').trim() || null },
+      body: {
+        settle_remarks: String(settleRemarks || '').trim() || null,
+        settlement_type: settleType,
+        refund_account_id: settleType === 'refund' ? refundAccountId : null,
+      },
     });
   };
 
@@ -330,6 +340,8 @@ const CreditNotes = () => {
         onClose={() => {
           setSettleRow(null);
           setSettleRemarks('');
+          setSettleType('income');
+          setRefundAccountId('');
         }}
         title={settleRow ? `Settle ${settleRow.note_number}` : 'Settle credit note'}
         size="md"
@@ -340,6 +352,8 @@ const CreditNotes = () => {
               onClick={() => {
                 setSettleRow(null);
                 setSettleRemarks('');
+                setSettleType('income');
+                setRefundAccountId('');
               }}
             >
               Cancel
@@ -350,7 +364,7 @@ const CreditNotes = () => {
           </div>
         }
       >
-        <div className="space-y-3 text-sm">
+        <div className="space-y-4 text-sm">
           <div className="grid grid-cols-3 gap-2 text-gray-600">
             <p>
               Issued:{' '}
@@ -369,6 +383,61 @@ const CreditNotes = () => {
               </span>
             </p>
           </div>
+
+          <div className="border-t pt-3" role="radiogroup" aria-labelledby="settlement-type-label">
+            <p id="settlement-type-label" className="label">
+              Settlement Type
+            </p>
+            <div className="flex gap-4">
+              <label className="inline-flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="settlement-type"
+                  value="income"
+                  checked={settleType === 'income'}
+                  onChange={(e) => {
+                    setSettleType(e.target.value);
+                    setRefundAccountId('');
+                  }}
+                  className="w-4 h-4"
+                />
+                <span>Record as Income</span>
+              </label>
+              <label className="inline-flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="settlement-type"
+                  value="refund"
+                  checked={settleType === 'refund'}
+                  onChange={(e) => {
+                    setSettleType(e.target.value);
+                  }}
+                  className="w-4 h-4"
+                />
+                <span>Refund to Customer</span>
+              </label>
+            </div>
+          </div>
+
+          {settleType === 'refund' && (
+            <div>
+              <label className="label" htmlFor="cn-refund-account">
+                Refund Account *
+              </label>
+              <select
+                id="cn-refund-account"
+                className="input w-full"
+                value={refundAccountId}
+                onChange={(e) => setRefundAccountId(e.target.value)}
+              >
+                <option value="">Select refund account…</option>
+                <option value="cash">Cash</option>
+                <option value="bank">Bank Transfer</option>
+                <option value="check">Check</option>
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="label" htmlFor="cn-settle-remarks">
               Remarks

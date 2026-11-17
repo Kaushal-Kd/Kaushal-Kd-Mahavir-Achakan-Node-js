@@ -60,6 +60,7 @@ import DeliverySettlementModal from '../booking/DeliverySettlementModal.jsx';
 import ItemsChecklistModal from '../booking/ItemsChecklistModal.jsx';
 import ReturnSettlementModal from '../booking/ReturnSettlementModal.jsx';
 import SettlementModal from '../booking/SettlementModal.jsx';
+import { buildBillBookNoColumn } from '../../lib/billBookNoColumn.js';
 
 const SEARCH_ID = 'item-to-prepare-search';
 
@@ -506,6 +507,7 @@ const ItemToPrepareList = () => {
         </span>
       ),
     },
+    buildBillBookNoColumn(),
     {
       key: 'customer_name',
       header: 'Customer Name',

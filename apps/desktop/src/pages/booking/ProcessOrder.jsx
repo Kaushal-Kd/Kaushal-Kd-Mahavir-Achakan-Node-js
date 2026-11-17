@@ -842,6 +842,8 @@ const ProcessOrder = () => {
                 <SummaryRow label="Contact name 2" value={contactSummary.contact2Name} />
                 <SummaryRow label="Contact No.2" value={contactSummary.contactNo2} />
                 <SummaryRow label="Address" value={contactSummary.address} />
+                <SummaryRow label="Reference Name" value={order.reference_name || '—'} />
+                <SummaryRow label="Bill Book No." value={order.bill_book_no || '—'} />
               </div>
             </section>
             <section className="min-w-0 rounded-md border border-gray-200 bg-surface p-3">

@@ -68,6 +68,7 @@ export const orderSchema = z.object({
   return_time: time12Schema,
   sales_person_id: z.string().uuid().optional().nullable(),
   reference_name: z.string().trim().max(200).optional().nullable(),
+  bill_book_no: z.string().trim().max(50).optional().nullable(),
   pickup_name: z.string().trim().max(200).optional().nullable(),
   pickup_number: pickupNumberSchema.optional().nullable(),
   contact_phone1: pickupNumberSchema.optional().nullable(),
@@ -124,6 +125,23 @@ export const orderMarkTokenPrintBodySchema = z.object({
   kind: z.enum(['product', 'accessory']),
 });
 
+const handoverInstantSchema = z
+  .string()
+  .trim()
+  .refine((v) => !Number.isNaN(Date.parse(v)), 'Invalid date & time')
+  .nullable()
+  .optional();
+
+/** Manual correction of the actual handover (delivered) and return instants (ISO strings). */
+export const orderHandoverTimesBodySchema = z
+  .object({
+    delivered_at: handoverInstantSchema,
+    returned_at: handoverInstantSchema,
+  })
+  .refine((v) => v.delivered_at !== undefined || v.returned_at !== undefined, {
+    message: 'Nothing to update',
+  });
+
 /**
  * Line items for POST /orders — includes `tax` per line (full line tax, not per unit).
  * `line_id`: client cart id for a product row; stored only in memory server-side to link accessories.
@@ -152,6 +170,7 @@ export const createOrderInputSchema = z.object({
   return_time: time12Schema,
   sales_person_id: z.string().uuid().optional().nullable(),
   reference_name: z.string().trim().max(200).optional().nullable(),
+  bill_book_no: z.string().trim().max(50).optional().nullable(),
   pickup_name: z.string().trim().max(200).optional().nullable(),
   pickup_number: pickupNumberSchema.optional().nullable(),
   contact_phone1: pickupNumberSchema.optional().nullable(),

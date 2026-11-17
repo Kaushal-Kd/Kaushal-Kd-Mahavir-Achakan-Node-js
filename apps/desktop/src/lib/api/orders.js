@@ -23,6 +23,8 @@ export const ordersApi = {
     api.post(`/orders/${id}/discount-total`, payload).then(unwrap),
   setSecurityStatus: (id, payload) =>
     api.post(`/orders/${id}/security-status`, payload).then(unwrap),
+  setHandoverTimes: (id, payload) =>
+    api.post(`/orders/${id}/handover-times`, payload).then(unwrap),
   cancel: (id, payload = {}) => api.post(`/orders/${id}/cancel`, payload).then(unwrap),
   markTokenPrinted: (id, body) => api.post(`/orders/${id}/token-print`, body).then(unwrap),
   remove: async (id, body) => {

@@ -88,6 +88,7 @@ import ItemsChecklistModal from './ItemsChecklistModal.jsx';
 import ReturnSettlementModal from './ReturnSettlementModal.jsx';
 import SettlementModal from './SettlementModal.jsx';
 import TransactionsModal from './TransactionsModal.jsx';
+import { buildBillBookNoColumn } from '../../lib/billBookNoColumn.js';
 
 const STATUS_TONE = {
   booked: 'yellow',
@@ -401,6 +402,7 @@ const BookingList = () => {
           </span>
         ),
       },
+      buildBillBookNoColumn(),
       {
         key: 'linked_custom_order_number',
         header: 'Custom order no.',

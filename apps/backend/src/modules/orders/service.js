@@ -313,6 +313,7 @@ function applyItemStageListSalesPersonFilter(qb, query) {
 const ITEM_STAGE_LIST_SEARCH_FIELDS = [
   'o.order_number',
   'o.reference_name',
+  'o.bill_book_no',
   'o.pickup_name',
   'o.pickup_number',
   'o.contact_phone1',
@@ -331,6 +332,7 @@ const ITEM_STAGE_LIST_SEARCH_FIELDS = [
 const ITEM_TO_COLLECT_BOOKING_SEARCH_FIELDS = [
   'o.order_number',
   'o.reference_name',
+  'o.bill_book_no',
   'o.pickup_name',
   'o.pickup_number',
   'o.contact_phone1',
@@ -586,6 +588,7 @@ const ORDER_LIST_CUSTOMER_ADDRESS_SQL =
 const ORDER_LIST_SEARCH_FIELDS = [
   'o.order_number',
   'o.reference_name',
+  'o.bill_book_no',
   'o.pickup_name',
   'o.pickup_number',
   'o.contact_phone1',
@@ -1070,6 +1073,7 @@ function applyItemsToCollectLineSelect(qb) {
     'o.booking_date',
     'o.booking_time',
     'o.reference_name',
+    'o.bill_book_no',
     'o.customer_notes',
     'o.pickup_name',
     'o.pickup_number',
@@ -1148,6 +1152,7 @@ function buildAccessoryOnlyPrepareLinesQb(shopId, query, opts = {}) {
     'o.booking_date',
     'o.booking_time',
     'o.reference_name',
+    'o.bill_book_no',
     'o.customer_notes',
     'o.pickup_name',
     'o.pickup_number',
@@ -1226,6 +1231,7 @@ export async function listItemsToCollect(shopId, query) {
     'o.booking_date',
     'o.booking_time',
     'o.reference_name',
+    'o.bill_book_no',
     'o.customer_notes',
     'o.pickup_name',
     'o.pickup_number',
@@ -1331,6 +1337,7 @@ export async function listItemsToPrepare(shopId, query) {
     'o.booking_date',
     'o.booking_time',
     'o.reference_name',
+    'o.bill_book_no',
     'o.customer_notes',
     'o.pickup_name',
     'o.pickup_number',
@@ -1722,6 +1729,7 @@ export async function createOrder(shopId, data, userId) {
       return_time: nullIfEmpty(normalizeTime12(data.return_time)),
       sales_person_id: data.sales_person_id || userId || null,
       reference_name: data.reference_name || null,
+      bill_book_no: data.bill_book_no || null,
       pickup_name: data.pickup_name || null,
       pickup_number: data.pickup_number || null,
       contact_phone1: data.contact_phone1 || null,
@@ -2294,6 +2302,7 @@ export async function updateOrder(shopId, orderId, data, userId) {
         return_time: nullIfEmpty(normalizeTime12(data.return_time)),
         sales_person_id: data.sales_person_id || null,
         reference_name: data.reference_name || null,
+        bill_book_no: data.bill_book_no || null,
         pickup_name: data.pickup_name || null,
         pickup_number: data.pickup_number || null,
         contact_phone1: data.contact_phone1 || null,
@@ -3671,6 +3680,45 @@ async function updateOrderSecurityStatusWithTrx(trx, shopId, orderId, payload, u
   return opts.hydrate === false ? null : getOrderWithTrx(trx, shopId, orderId);
 }
 
+/**
+ * Manually set / clear the actual delivered and returned instants of an order.
+ * @param {{ delivered_at?: string|null, returned_at?: string|null }} payload ISO strings
+ */
+export async function updateOrderHandoverTimes(shopId, orderId, payload, userId) {
+  return orderTransaction(async (trx) => {
+    const order = await trx('orders').where({ id: orderId, shop_id: shopId }).forUpdate().first();
+    if (!order) throw notFound('Order not found');
+    const toInstant = (v) => (v ? new Date(v) : null);
+    const patch = {};
+    if (payload.delivered_at !== undefined) patch.delivered_at = toInstant(payload.delivered_at);
+    if (payload.returned_at !== undefined) patch.returned_at = toInstant(payload.returned_at);
+    const nextDelivered =
+      patch.delivered_at !== undefined ? patch.delivered_at : order.delivered_at;
+    const nextReturned = patch.returned_at !== undefined ? patch.returned_at : order.returned_at;
+    if (nextDelivered && nextReturned && new Date(nextReturned) < new Date(nextDelivered)) {
+      throw badRequest('Return date & time cannot be before delivery date & time');
+    }
+    await trx('orders')
+      .where({ id: orderId, shop_id: shopId })
+      .update({ ...patch, updated_at: trx.fn.now() });
+    const fmt = (v) => (v ? new Date(v).toISOString() : 'empty');
+    await trx('order_edit_logs').insert({
+      id: uuid(),
+      order_id: orderId,
+      shop_id: shopId,
+      user_id: userId || null,
+      order_number: order.order_number,
+      change_summary: [
+        patch.delivered_at !== undefined ? `Delivered at set to ${fmt(patch.delivered_at)}` : null,
+        patch.returned_at !== undefined ? `Returned at set to ${fmt(patch.returned_at)}` : null,
+      ]
+        .filter(Boolean)
+        .join('; '),
+    });
+    return getOrderWithTrx(trx, shopId, orderId);
+  });
+}
+
 export async function updateOrderSecurityStatus(shopId, orderId, payload, userId) {
   return orderTransaction((trx) =>
     updateOrderSecurityStatusWithTrx(trx, shopId, orderId, payload, userId)
@@ -4510,13 +4558,15 @@ async function propagateOrderStatus(trx, shopId, orderId) {
     incompleteItemFlags.length > 0 && incompleteItemFlags.every((f) => f.item_to_collect);
 
   let status;
-  const patch = {};
+  // Rollup runs on every checklist change; COALESCE keeps the first captured
+  // handover/return instant (and any manual correction) instead of bumping it.
+  const patch = { returned_at: null };
   if (orderReceived) {
     status = 'returned';
-    patch.returned_at = trx.fn.now();
+    patch.returned_at = trx.raw('COALESCE(returned_at, CURRENT_TIMESTAMP)');
   } else if (allDelivered) {
     status = 'delivered';
-    patch.delivered_at = trx.fn.now();
+    patch.delivered_at = trx.raw('COALESCE(delivered_at, CURRENT_TIMESTAMP)');
   } else if (allPrepared) {
     status = 'ready_for_delivery';
     patch.packed_at = trx.fn.now();

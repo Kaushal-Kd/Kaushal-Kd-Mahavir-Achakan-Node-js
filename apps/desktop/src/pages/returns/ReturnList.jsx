@@ -28,6 +28,7 @@ import BookingBillLink from '../../components/booking/BookingBillLink.jsx';
 import DamageReplacementBadge from '../../components/booking/DamageReplacementBadge.jsx';
 import NextBookingColumnCell from '../../components/booking/NextBookingColumnCell.jsx';
 import BookingLogsModal from '../../components/booking/BookingLogsModal.jsx';
+import HandoverTimesModal from '../../components/booking/HandoverTimesModal.jsx';
 import CompactOrderFilters from '../../components/list/CompactOrderFilters.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
@@ -85,6 +86,7 @@ import LineTypeTag from '../booking/LineTypeTag.jsx';
 import ReturnSettlementModal from '../booking/ReturnSettlementModal.jsx';
 import SettlementModal from '../booking/SettlementModal.jsx';
 import TransactionsModal from '../booking/TransactionsModal.jsx';
+import { buildBillBookNoColumn } from '../../lib/billBookNoColumn.js';
 
 const CHECKLIST_STAGE_OPTIONS = [
   { value: 'booked', label: 'Booked' },
@@ -173,6 +175,7 @@ const ReturnList = () => {
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [checklistOrderId, setChecklistOrderId] = useState(null);
   const [cancelOrderId, setCancelOrderId] = useState(null);
+  const [handoverTarget, setHandoverTarget] = useState(null);
   const [settlementOrderId, setSettlementOrderId] = useState(null);
   const [deliverySettlementOrderId, setDeliverySettlementOrderId] = useState(null);
   const [deliveryStageUpdates, setDeliveryStageUpdates] = useState(null);
@@ -192,6 +195,7 @@ const ReturnList = () => {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const canViewLogs = hasPermission(user, MODULES.AUDIT_LOGS, ACTIONS.VIEW);
+  const canEditBooking = hasPermission(user, MODULES.BOOKING, ACTIONS.EDIT);
 
   const filterKey = useMemo(
     () =>
@@ -394,6 +398,7 @@ const ReturnList = () => {
         </span>
       ),
     },
+    buildBillBookNoColumn(),
     ...(productWise
       ? [
           {
@@ -571,7 +576,17 @@ const ReturnList = () => {
       className: 'text-xs whitespace-nowrap',
       render: (r) => formatOrderTime(r.return_time),
     },
-    ...buildDeliveredReturnedColumns().map((col) =>
+    ...buildDeliveredReturnedColumns({
+      onEdit: canEditBooking
+        ? (r) =>
+            setHandoverTarget({
+              id: r.order_id || r.id,
+              order_number: r.order_number,
+              delivered_at: r.delivered_at ?? null,
+              returned_at: r.returned_at ?? null,
+            })
+        : undefined,
+    }).map((col) =>
       col.key === 'returned_datetime'
         ? { ...col, header: 'Received', columnPickerLabel: 'Received date & time' }
         : col
@@ -968,6 +983,8 @@ const ReturnList = () => {
         orderId={cancelOrderId}
         onClose={() => setCancelOrderId(null)}
       />
+
+      <HandoverTimesModal order={handoverTarget} onClose={() => setHandoverTarget(null)} />
     </>
   );
 };

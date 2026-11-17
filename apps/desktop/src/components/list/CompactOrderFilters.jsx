@@ -17,6 +17,7 @@ const DATE_FIELD_OPTS = [
   { value: 'booking_date', label: 'Book' },
   { value: 'pickup_date', label: 'Pickup' },
   { value: 'return_date', label: 'Return' },
+  { value: 'bill_book_no', label: 'Bill book no.' },
 ];
 const SORT_BY_OPTS = [
   { value: 'created_at', label: 'Created' },
@@ -29,6 +30,7 @@ const DELIVERY_SORT_OPTS = [
   { value: 'pickup_date', label: 'Delivery date' },
   { value: 'return_date', label: 'Return date' },
   { value: 'order_number', label: 'Order no.' },
+  { value: 'bill_book_no', label: 'Bill book no.' },
   { value: 'booking_date', label: 'Book date' },
   { value: 'created_at', label: 'Created' },
 ];
@@ -37,6 +39,7 @@ const RETURN_SORT_OPTS = [
   { value: 'return_date', label: 'Return date' },
   { value: 'pickup_date', label: 'Delivery date' },
   { value: 'order_number', label: 'Order no.' },
+  { value: 'bill_book_no', label: 'Bill book no.' },
   { value: 'booking_date', label: 'Book date' },
   { value: 'created_at', label: 'Created' },
 ];

@@ -61,6 +61,7 @@ import {
   checklistRowWarningClass,
   orderHasNextBookingAlert,
 } from '../booking/checklistNextBookingAlertUtils.js';
+import { buildBillBookNoColumn } from '../../lib/billBookNoColumn.js';
 
 const SEARCH_ID = 'item-to-collect-search';
 
@@ -444,6 +445,7 @@ const ItemToCollectList = () => {
         </span>
       ),
     },
+    buildBillBookNoColumn(),
     {
       key: 'customer_name',
       header: 'Customer Name',

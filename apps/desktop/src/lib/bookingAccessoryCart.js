@@ -467,6 +467,45 @@ export function linesInSection(lines, section) {
   return (lines || []).filter((line) => lineBookingSection(line) === section);
 }
 
+/**
+ * Lines added without an explicit position default to display_order 0, and ties
+ * fall back to a random line id — so the saved / viewed sequence drifts from the
+ * order the user added them. Give each newly added, unpositioned line the next
+ * slot in its section (in array order) so "added order" is what gets persisted.
+ * @param {object[]} prevLines
+ * @param {object[]} nextLines
+ */
+export function assignMissingLineDisplayOrders(prevLines, nextLines) {
+  if (!Array.isArray(nextLines) || nextLines.length === 0) return nextLines;
+  const prevIds = new Set((prevLines || []).map((line) => line.line_id));
+  const maxBySection = new Map();
+  for (const line of nextLines) {
+    if (!prevIds.has(line.line_id)) continue;
+    const section = lineBookingSection(line);
+    const order = Number(line.display_order ?? 0);
+    maxBySection.set(section, Math.max(maxBySection.get(section) ?? -10, order));
+  }
+  let changed = false;
+  const out = nextLines.map((line) => {
+    if (prevIds.has(line.line_id)) return line;
+    const section = lineBookingSection(line);
+    const max = maxBySection.get(section);
+    const raw = line.display_order;
+    const order = Number(raw ?? 0);
+    const unpositioned = raw == null || raw === '' || (order === 0 && max != null && max >= 0);
+    if (!unpositioned && (max == null || order > max)) {
+      maxBySection.set(section, order);
+      return line;
+    }
+    if (!unpositioned) return line;
+    const next = (max ?? -10) + 10;
+    maxBySection.set(section, next);
+    changed = true;
+    return { ...line, display_order: next };
+  });
+  return changed ? out : nextLines;
+}
+
 /** Next display_order for a new line in the given section. */
 export function nextLineDisplayOrder(lines, section) {
   const inSection = linesInSection(lines, section);

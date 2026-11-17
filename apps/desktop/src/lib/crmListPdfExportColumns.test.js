@@ -15,6 +15,7 @@ test('delivery PDF catalog includes the requested handover columns in order', ()
     DELIVERY_PDF_EXPORT_COLUMNS.map((col) => col.key),
     [
       'order_number',
+      'bill_book_no',
       'customer_address',
       'customer_name',
       'customer_phone',

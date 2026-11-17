@@ -83,6 +83,8 @@ const Expense = () => {
   const [perPage, setPerPage] = useState(DEFAULT_TABLE_PER_PAGE);
   const [search, setSearch] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState(null);
   const [editingExpenseNumber, setEditingExpenseNumber] = useState(null);
@@ -121,8 +123,13 @@ const Expense = () => {
   });
 
   const listFilterParams = useMemo(
-    () => ({ sort: '-entry_date', search: search || undefined }),
-    [search]
+    () => ({
+      sort: '-entry_date',
+      search: search || undefined,
+      from: dateFrom || undefined,
+      to: dateTo || undefined,
+    }),
+    [search, dateFrom, dateTo]
   );
 
   const listQuery = useQuery({
@@ -369,7 +376,8 @@ const Expense = () => {
     listFn: expenseEntriesApi.list,
     listParams: listFilterParams,
     title: 'Expense',
-    subtitle: 'All expense entries',
+    subtitle:
+      dateFrom || dateTo ? `Date ${dateFrom || '—'} to ${dateTo || '—'}` : 'All expense entries',
     columns: exportColumns,
   };
 
@@ -421,6 +429,44 @@ const Expense = () => {
             onChange={(e) => setSearchDraft(e.target.value)}
             aria-label="Search expense entries"
           />
+        </div>
+        <div className="flex items-center gap-1.5 mr-auto">
+          <input
+            type="date"
+            className="input h-8 text-sm"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setPage(1);
+            }}
+            aria-label="From date"
+          />
+          <span className="text-gray-400 text-xs">to</span>
+          <input
+            type="date"
+            className="input h-8 text-sm"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setPage(1);
+            }}
+            aria-label="To date"
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              type="button"
+              className="text-xs text-brand hover:underline px-1"
+              onClick={() => {
+                setDateFrom('');
+                setDateTo('');
+                setPage(1);
+              }}
+            >
+              Clear
+            </button>
+          )}
         </div>
         <TableColumnPicker {...pickerProps} />
       </div>

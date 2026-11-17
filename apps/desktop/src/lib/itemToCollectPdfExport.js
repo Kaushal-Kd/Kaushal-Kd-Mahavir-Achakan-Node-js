@@ -30,6 +30,12 @@ export const ITEM_TO_COLLECT_PDF_EXPORT_COLUMNS = [
     get: (r) => String(r.order_number ?? '').trim(),
   },
   {
+    key: 'bill_book_no',
+    header: 'Bill book no',
+    width: 14,
+    get: (r) => String(r.bill_book_no ?? '').trim(),
+  },
+  {
     key: 'sales_person_name',
     header: 'Salesman',
     width: 22,

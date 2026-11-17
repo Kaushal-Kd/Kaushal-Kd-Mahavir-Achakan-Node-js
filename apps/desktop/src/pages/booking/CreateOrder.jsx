@@ -156,6 +156,7 @@ import {
   reorderBookingLines,
   moveLinkedAccessory,
   nextLineDisplayOrder,
+  assignMissingLineDisplayOrders,
   lineBookingSection,
   givenRentBooleansFromStatus,
   defaultHandedOverAccessoryStageFlags,
@@ -430,7 +431,14 @@ const CreateOrder = ({ mode, orderId }) => {
   const [historyProductSnapshot, setHistoryProductSnapshot] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [lineQty, setLineQty] = useState(1);
-  const [lines, setLines] = useState([]);
+  const [lines, setLinesRaw] = useState([]);
+  const setLines = useCallback(
+    (updater) =>
+      setLinesRaw((prev) =>
+        assignMissingLineDisplayOrders(prev, typeof updater === 'function' ? updater(prev) : updater)
+      ),
+    []
+  );
   const [bookingDateTime, setBookingDateTime] = useState(() => nowDatetimeLocal());
   const [pickupDate, setPickupDate] = useState(todayISO);
   const [returnDate, setReturnDate] = useState(addDaysISO(todayISO, 3));
@@ -453,6 +461,7 @@ const CreateOrder = ({ mode, orderId }) => {
   const [gstDefaultRate, setGstDefaultRate] = useState(0);
   const [taxMode, setTaxMode] = useState('exclusive');
   const [referenceName, setReferenceName] = useState('');
+  const [billBookNo, setBillBookNo] = useState('');
   const [nextBookingGapDaysInput, setNextBookingGapDaysInput] = useState('');
   const [previousBookingGapDaysInput, setPreviousBookingGapDaysInput] = useState('');
   const [customerNotes, setCustomerNotes] = useState('');
@@ -461,6 +470,8 @@ const CreateOrder = ({ mode, orderId }) => {
   const [quickBillDraftIds, setQuickBillDraftIds] = useState([]);
   const [advanceAccountId, setAdvanceAccountId] = useState('');
   const [securityAccountId, setSecurityAccountId] = useState('');
+  const [defaultSalesmanId, setDefaultSalesmanId] = useState('');
+  const [defaultSalesmanName, setDefaultSalesmanName] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const customerFieldRef = useRef(null);
   const linesCardRef = useRef(null);
@@ -1536,6 +1547,7 @@ const CreateOrder = ({ mode, orderId }) => {
       gstEnabled,
       taxMode,
       referenceName,
+      billBookNo,
       nextBookingGapDaysInput,
       previousBookingGapDaysInput,
       customerNotes,
@@ -1569,6 +1581,7 @@ const CreateOrder = ({ mode, orderId }) => {
     gstEnabled,
     taxMode,
     referenceName,
+    billBookNo,
     nextBookingGapDaysInput,
     previousBookingGapDaysInput,
     customerNotes,
@@ -1659,6 +1672,7 @@ const CreateOrder = ({ mode, orderId }) => {
     setGstEnabled((snap.gstEnabled ?? snap.gst_enabled) === true);
     setTaxMode((snap.taxMode || snap.tax_mode) === 'inclusive' ? 'inclusive' : 'exclusive');
     setReferenceName(String(snap.referenceName ?? snap.reference_name ?? ''));
+    setBillBookNo(String(snap.billBookNo ?? snap.bill_book_no ?? ''));
     const gapRaw = snap.nextBookingGapDaysInput ?? snap.next_booking_gap_days;
     setNextBookingGapDaysInput(
       gapRaw !== undefined && gapRaw !== null && gapRaw !== '' ? String(gapRaw) : ''
@@ -1720,6 +1734,7 @@ const CreateOrder = ({ mode, orderId }) => {
       gstEnabled: false,
       taxMode: 'exclusive',
       referenceName: '',
+      billBookNo: '',
       nextBookingGapDaysInput: '',
       previousBookingGapDaysInput: '',
       customerNotes: '',
@@ -2420,6 +2435,11 @@ const CreateOrder = ({ mode, orderId }) => {
 
       const buildProductBookingLine = (catalog, qty, accessories) => {
         const type = getDefaultProductLineType(catalog);
+        // Use default salesman if set, otherwise use current user
+        const assignedSalesmanId = defaultSalesmanId || (isSalesmanEligibleUser(currentUser) ? currentUser.id : null);
+        const assignedSalesmanName = defaultSalesmanName || (isSalesmanEligibleUser(currentUser)
+          ? String(currentUser?.name || currentUser?.email || '').trim()
+          : '');
         return {
           line_id: createLocalId(),
           product_id: catalog.id || catalog.related_product_id,
@@ -2443,10 +2463,8 @@ const CreateOrder = ({ mode, orderId }) => {
           gap_days: Number(catalog.gap_days || 0),
           tailor_notes: '',
           tailor_note_image: '',
-          sales_person_id: isSalesmanEligibleUser(currentUser) ? currentUser.id : null,
-          sales_person_name: isSalesmanEligibleUser(currentUser)
-            ? String(currentUser?.name || currentUser?.email || '').trim()
-            : '',
+          sales_person_id: assignedSalesmanId,
+          sales_person_name: assignedSalesmanName,
           accessories: accessories || [],
         };
       };
@@ -3769,6 +3787,7 @@ const CreateOrder = ({ mode, orderId }) => {
         delivery_time: normalizeTime12(pickupTime) || defaultBookingTimes.delivery,
         return_time: normalizeTime12(returnTime) || defaultBookingTimes.return,
         reference_name: referenceName || null,
+        bill_book_no: billBookNo.trim() || null,
         pickup_name: contactNo2SameAsPhone1
           ? customerName || null
           : String(contact2Name || '')
@@ -4262,6 +4281,7 @@ const CreateOrder = ({ mode, orderId }) => {
     setPickupTime(formatOrderTime12(order.delivery_time) || defaultBookingTimes.delivery);
     setReturnTime(formatOrderTime12(order.return_time) || defaultBookingTimes.return);
     setReferenceName(order.reference_name || '');
+    setBillBookNo(order.bill_book_no || '');
     setWhatsappSource('phone1');
     setWhatsappManual('');
     setCustomerNotes(order.customer_notes || '');
@@ -4969,6 +4989,40 @@ const CreateOrder = ({ mode, orderId }) => {
             </h3>
           </div>
           {err('lines') ? <p className="text-xs text-red-600 mb-2">{err('lines')}</p> : null}
+
+          {displaySalesman && (
+            <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-md">
+              <Select
+                label="Salesman for all products"
+                value={defaultSalesmanId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const label = salesmanOptions.find((s) => s.value === id)?.label || '';
+                  setDefaultSalesmanId(id);
+                  setDefaultSalesmanName(label);
+                  if (!id) return;
+                  setLines((prev) =>
+                    prev.map((line) =>
+                      line.line_kind === 'standalone_accessory'
+                        ? line
+                        : { ...line, sales_person_id: id, sales_person_name: label }
+                    )
+                  );
+                }}
+                options={[
+                  { value: '', label: '— Auto (logged-in user)' },
+                  ...salesmanOptions,
+                ]}
+              />
+              {defaultSalesmanId && (
+                <p className="text-xs text-blue-700 mt-1">
+                  All products (already added and new) are assigned to{' '}
+                  <strong>{defaultSalesmanName}</strong>. You can still change the salesman of a
+                  single product in the table below.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="flex w-full min-w-0 flex-wrap items-end gap-1.5 overflow-x-visible pb-0.5 sm:gap-2">
             <div
@@ -6071,7 +6125,14 @@ const CreateOrder = ({ mode, orderId }) => {
                 className="w-28 text-right border border-gray-200 rounded px-1.5 py-0.5"
               />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <Input
+                label="Bill Book No."
+                placeholder="Number from paper bill book"
+                maxLength={50}
+                value={billBookNo}
+                onChange={(e) => setBillBookNo(e.target.value)}
+              />
               <Input
                 label="Reference Name"
                 value={referenceName}

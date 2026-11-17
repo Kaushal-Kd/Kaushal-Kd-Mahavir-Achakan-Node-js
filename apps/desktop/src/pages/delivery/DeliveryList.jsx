@@ -29,6 +29,7 @@ import BookingBillLink from '../../components/booking/BookingBillLink.jsx';
 import DamageReplacementBadge from '../../components/booking/DamageReplacementBadge.jsx';
 import NextBookingColumnCell from '../../components/booking/NextBookingColumnCell.jsx';
 import BookingLogsModal from '../../components/booking/BookingLogsModal.jsx';
+import HandoverTimesModal from '../../components/booking/HandoverTimesModal.jsx';
 import CompactOrderFilters from '../../components/list/CompactOrderFilters.jsx';
 import ListPdfToolbarButtons from '../../components/reports/ListPdfToolbarButtons.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -79,6 +80,7 @@ import LineTypeTag from '../booking/LineTypeTag.jsx';
 import ReturnSettlementModal from '../booking/ReturnSettlementModal.jsx';
 import SettlementModal from '../booking/SettlementModal.jsx';
 import TransactionsModal from '../booking/TransactionsModal.jsx';
+import { buildBillBookNoColumn } from '../../lib/billBookNoColumn.js';
 
 const CHECKLIST_STAGE_OPTIONS = [
   { value: 'booked', label: 'Booked' },
@@ -173,6 +175,7 @@ const DeliveryList = () => {
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [checklistOrderId, setChecklistOrderId] = useState(null);
   const [cancelOrderId, setCancelOrderId] = useState(null);
+  const [handoverTarget, setHandoverTarget] = useState(null);
   const [settlementOrderId, setSettlementOrderId] = useState(null);
   const [deliverySettlementOrderId, setDeliverySettlementOrderId] = useState(null);
   const [deliveryStageUpdates, setDeliveryStageUpdates] = useState(null);
@@ -360,6 +363,7 @@ const DeliveryList = () => {
         </span>
       ),
     },
+    buildBillBookNoColumn(),
     ...(productWise
       ? [
           {
@@ -530,7 +534,17 @@ const DeliveryList = () => {
       className: 'text-xs whitespace-nowrap',
       render: (r) => formatOrderTime(r.return_time),
     },
-    ...buildDeliveredReturnedColumns(),
+    ...buildDeliveredReturnedColumns({
+      onEdit: canEditBooking
+        ? (r) =>
+            setHandoverTarget({
+              id: r.order_id || r.id,
+              order_number: r.order_number,
+              delivered_at: r.delivered_at ?? null,
+              returned_at: r.returned_at ?? null,
+            })
+        : undefined,
+    }),
     {
       key: 'actions',
       header: 'Action',
@@ -985,6 +999,8 @@ const DeliveryList = () => {
         orderId={cancelOrderId}
         onClose={() => setCancelOrderId(null)}
       />
+
+      <HandoverTimesModal order={handoverTarget} onClose={() => setHandoverTarget(null)} />
     </>
   );
 };

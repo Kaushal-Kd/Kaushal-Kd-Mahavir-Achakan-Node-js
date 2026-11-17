@@ -19,6 +19,7 @@ import {
   orderChecklistCommandSchema,
   orderReassignSalesmanBodySchema,
   orderMarkTokenPrintBodySchema,
+  orderHandoverTimesBodySchema,
 } from '@wrs/shared';
 
 import knex from '../../db/knex.js';
@@ -39,6 +40,7 @@ import {
   createOrder,
   updateOrder,
   updateOrderSecurityStatus,
+  updateOrderHandoverTimes,
   updateOrderStatusFlag,
   bulkUpdateOrderStatusFlag,
   batchUpdateOrderStatusFlags,
@@ -442,6 +444,23 @@ export default async function orderRoutes(fastify) {
     );
     return { ok: true, data };
   });
+
+  fastify.post(
+    '/:id/handover-times',
+    { preHandler: fastify.requirePermission(MODULES.BOOKING, ACTIONS.EDIT) },
+    async (request) => {
+      const body = validate(orderHandoverTimesBodySchema, request.body);
+      const data = await updateOrderHandoverTimes(
+        request.shopId,
+        request.params.id,
+        body,
+        request.authUser.id
+      );
+      await request.audit('orders', 'UPDATE_HANDOVER_TIMES', { id: request.params.id, new: body });
+      await logBookingFromOrder(knex, request.shopId, data, 'UPDATE_HANDOVER_TIMES', request.authUser);
+      return { ok: true, data };
+    }
+  );
 
   fastify.post('/:id/token-print', async (request) => {
     const body = validate(orderMarkTokenPrintBodySchema, request.body || {});

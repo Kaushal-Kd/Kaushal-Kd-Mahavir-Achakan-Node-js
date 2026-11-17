@@ -4,6 +4,7 @@ import {
   formatPaymentDateTime,
   formatWallClockDateTime,
 } from '@wrs/shared';
+import { createElement } from 'react';
 
 /** @param {Date|string|number|null|undefined} value */
 export function formatTimestampDateTime(value) {
@@ -86,6 +87,22 @@ export function buildDeliveredReturnedColumns(opts = {}) {
   const getDeliveredAt = opts.getDeliveredAt ?? orderDeliveredAt;
   const getReturnedAt = opts.getReturnedAt ?? orderReturnedAt;
   const cellClass = 'text-xs whitespace-nowrap tabular-nums';
+  const renderCell = (text, r) => {
+    if (!opts.onEdit) return text;
+    return createElement(
+      'button',
+      {
+        type: 'button',
+        className: 'text-left hover:text-brand hover:underline',
+        title: 'Edit delivery / return time',
+        onClick: (e) => {
+          e.stopPropagation();
+          opts.onEdit(r);
+        },
+      },
+      text === '—' ? 'Set' : text
+    );
+  };
 
   return [
     {
@@ -93,14 +110,14 @@ export function buildDeliveredReturnedColumns(opts = {}) {
       header: 'Delivered',
       columnPickerLabel: 'Delivered date & time',
       className: cellClass,
-      render: (r) => formatTimestampDateTime(getDeliveredAt(r)),
+      render: (r) => renderCell(formatTimestampDateTime(getDeliveredAt(r)), r),
     },
     {
       key: 'returned_datetime',
       header: 'Returned',
       columnPickerLabel: 'Returned date & time',
       className: cellClass,
-      render: (r) => formatTimestampDateTime(getReturnedAt(r)),
+      render: (r) => renderCell(formatTimestampDateTime(getReturnedAt(r)), r),
     },
   ];
 }

@@ -1,11 +1,14 @@
 import {
-  formatBookingDateTime,
   formatCurrency,
+  formatInstantDateTime,
   formatDate,
   resolveOrderContactAddress,
   resolveOrderContactPhone1,
   resolveOrderContactPhone2,
 } from '@wrs/shared';
+
+import { formatBillBookNo } from './billBookNoColumn.js';
+import { orderDeliveredAt, orderReturnedAt } from './listTimestampColumns.js';
 
 /**
  * Shared PDF columns for Delivery and Prepare Item exports.
@@ -139,12 +142,14 @@ export function formatPdfReturnDate(row) {
   return row?.return_date ? formatDate(row.return_date) : '';
 }
 
+/** Actual handover instant — blank until the order is delivered. */
 export function formatPdfDeliveryDateTime(row) {
-  return formatBookingDateTime(row?.pickup_date, row?.delivery_time) || '';
+  return formatInstantDateTime(orderDeliveredAt(row)) || '';
 }
 
+/** Actual return instant — blank until the order is received back. */
 export function formatPdfReturnDateTime(row) {
-  return formatBookingDateTime(row?.return_date, row?.return_time) || '';
+  return formatInstantDateTime(orderReturnedAt(row)) || '';
 }
 
 export function formatPdfTotalRent(row) {
@@ -240,6 +245,13 @@ export function buildCrmListPdfCoreColumns(overrides = {}) {
       columnPickerLabel: 'Bill no',
       width: 16,
       get: formatPdfBillNo,
+    },
+    {
+      key: 'bill_book_no',
+      header: 'Bill book no',
+      columnPickerLabel: 'Bill book no',
+      width: 14,
+      get: formatBillBookNo,
     },
     {
       key: 'customer_address',
