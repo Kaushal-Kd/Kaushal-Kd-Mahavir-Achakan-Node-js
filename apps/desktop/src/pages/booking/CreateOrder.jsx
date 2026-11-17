@@ -4920,7 +4920,7 @@ const CreateOrder = ({ mode, orderId }) => {
               </div>
             ) : null}
             <div className="md:col-span-6 grid grid-cols-1 md:grid-cols-6 gap-2">
-              <div className="md:col-span-2 min-w-0">
+              <div className="md:col-span-1 min-w-0">
                 <label htmlFor="booking-whatsapp-source" className="label">
                   WhatsApp Number
                 </label>
@@ -4938,7 +4938,7 @@ const CreateOrder = ({ mode, orderId }) => {
                   <option value="manual">Other</option>
                 </select>
               </div>
-              <div className="md:col-span-2 min-w-0">
+              <div className="md:col-span-1 min-w-0">
                 {isManualWhatsappSource(whatsappSource) ? (
                   <Input
                     label="WhatsApp number"
@@ -4963,7 +4963,7 @@ const CreateOrder = ({ mode, orderId }) => {
                   />
                 )}
               </div>
-              <div className="md:col-span-2 min-w-0">
+              <div className="md:col-span-3 min-w-0">
                 <Input
                   label="Address"
                   required
@@ -4973,6 +4973,15 @@ const CreateOrder = ({ mode, orderId }) => {
                     setAddress(e.target.value);
                     touch('address')();
                   }}
+                />
+              </div>
+              <div className="md:col-span-1 min-w-0">
+                <Input
+                  label="Bill Book No."
+                  placeholder="Paper bill no."
+                  maxLength={50}
+                  value={billBookNo}
+                  onChange={(e) => setBillBookNo(e.target.value)}
                 />
               </div>
             </div>
@@ -6125,14 +6134,7 @@ const CreateOrder = ({ mode, orderId }) => {
                 className="w-28 text-right border border-gray-200 rounded px-1.5 py-0.5"
               />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <Input
-                label="Bill Book No."
-                placeholder="Number from paper bill book"
-                maxLength={50}
-                value={billBookNo}
-                onChange={(e) => setBillBookNo(e.target.value)}
-              />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <Input
                 label="Reference Name"
                 value={referenceName}

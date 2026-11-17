@@ -28,7 +28,9 @@ const normPaymentAccountGroup = (g) =>
     .trim()
     .toLowerCase();
 
-const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
+const SettlementModal = ({ isOpen, orderId, onClose, onSuccess, editPayment }) => {
+  // Edit mode corrects one existing bill payment with the same layout as Add payment.
+  const isEdit = Boolean(editPayment);
   const modalSize = useModalSize('xl');
   const queryClient = useQueryClient();
   const [securityAmount, setSecurityAmount] = useState('');
@@ -75,8 +77,16 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
   );
   const hasLedgerBankCash = settlementBankAccounts.length + settlementCashAccounts.length > 0;
 
-  const balance = useMemo(() => round2(Number(order?.balance || 0)), [order]);
-  const paidAmount = useMemo(() => round2(Number(order?.paid_amount || 0)), [order]);
+  // Signed effect of the payment being edited, so previews show the order "without" it.
+  const editSigned = useMemo(() => {
+    if (!editPayment) return 0;
+    const amt = round2(Number(editPayment.amount || 0));
+    return editPayment.category === 'refund' ? -amt : amt;
+  }, [editPayment]);
+  const paidAmount = useMemo(
+    () => round2(Number(order?.paid_amount || 0) - editSigned),
+    [order, editSigned]
+  );
 
   const savedDiscountTotal = useMemo(
     () => round2(Number(order?.discount_total || 0)),
@@ -92,8 +102,8 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
     [discountTotalPreview, savedDiscountTotal]
   );
   const balancePreview = useMemo(
-    () => (order ? round2(Number(order.balance || 0) - discountDelta) : 0),
-    [order, discountDelta]
+    () => (order ? round2(Number(order.balance || 0) + editSigned - discountDelta) : 0),
+    [order, discountDelta, editSigned]
   );
   const totalPreview = useMemo(
     () => (order ? round2(Number(order.total_amount || 0) - discountDelta) : 0),
@@ -125,10 +135,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
     () => round2(Math.max(0, Number(depositCollected || 0) - Number(depositRefunded || 0))),
     [depositCollected, depositRefunded]
   );
-  const expectedDeposit = useMemo(
-    () => round2(Number(securityCapDraft) || 0),
-    [securityCapDraft]
-  );
+  const expectedDeposit = useMemo(() => round2(Number(securityCapDraft) || 0), [securityCapDraft]);
   const maxSecurityCollectNow = useMemo(
     () => round2(Math.max(0, expectedDeposit - securityHeldNow)),
     [expectedDeposit, securityHeldNow]
@@ -152,15 +159,19 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
 
   useEffect(() => {
     if (!isOpen || !order) return;
-    setPaymentAccountId('');
+    setPaymentAccountId(editPayment?.payment_account_id || '');
     setSecurityAccountId(order.security_account_id || '');
     setSecurityAmount('');
-    setReceiveAmount('');
-    setReceiveMode('receive');
-    setPaymentDate(today());
+    setReceiveAmount(editPayment ? String(round2(Number(editPayment.amount || 0))) : '');
+    setReceiveMode(editPayment?.category === 'refund' ? 'refund' : 'receive');
+    setPaymentDate(
+      editPayment && isIsoDate(String(editPayment.payment_date || '').slice(0, 10))
+        ? String(editPayment.payment_date).slice(0, 10)
+        : today()
+    );
     setDiscountDraft('0');
     setSecurityCapDraft(round2(Number(order.deposit_amount) || 0));
-  }, [isOpen, order?.id]);
+  }, [isOpen, order?.id, editPayment?.id]);
 
   useEffect(() => {
     if (!paymentAccountsQuery.isSuccess) return;
@@ -177,6 +188,51 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
     settlementBankAccounts,
     settlementCashAccounts,
   ]);
+
+  const editMut = useMutation({
+    mutationFn: () =>
+      paymentsApi.update(editPayment.id, {
+        amount: receiveNum,
+        payment_date: String(paymentDate || '').slice(0, 10),
+        payment_account_id: String(paymentAccountId || '').trim() || null,
+      }),
+    onSuccess: async () => {
+      onClose();
+      toast.success('Payment updated');
+      await invalidateOrderDomain(queryClient, { orderId });
+      if (onSuccess) await onSuccess();
+    },
+    onError: (err) =>
+      toast.error(
+        err?.response?.data?.error?.message || err?.message || 'Could not update payment'
+      ),
+  });
+
+  const submitEdit = () => {
+    if (receiveNum <= 0) {
+      toast.error('Amount must be greater than 0');
+      return;
+    }
+    if (hasLedgerBankCash && !String(paymentAccountId || '').trim()) {
+      toast.error('Select the payment ledger account');
+      return;
+    }
+    if (!isIsoDate(paymentDate)) {
+      toast.error('Select the payment date');
+      return;
+    }
+    if (!isRefund && receiveNum > maxReceiveNow) {
+      toast.error(`Receive amount cannot be more than pending (${formatCurrency(maxReceiveNow)})`);
+      return;
+    }
+    if (isRefund && receiveNum > maxRefundNow) {
+      toast.error(
+        `Refund amount cannot be more than paid amount (${formatCurrency(maxRefundNow)})`
+      );
+      return;
+    }
+    editMut.mutate();
+  };
 
   const submitMut = useMutation({
     mutationFn: async () => {
@@ -231,7 +287,9 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
         toast.error('Amounts cannot be negative');
         throw new Error('validation');
       }
-      const paymentDateIso = String(paymentDate || '').trim().slice(0, 10);
+      const paymentDateIso = String(paymentDate || '')
+        .trim()
+        .slice(0, 10);
       if ((receiveNum > 0 || secNum > 0) && !isIsoDate(paymentDateIso)) {
         toast.error('Select the payment date');
         throw new Error('validation');
@@ -328,8 +386,12 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
 
   const submit = (e) => {
     e.preventDefault();
-    if (submitMut.isPending) return;
+    if (submitMut.isPending || editMut.isPending) return;
     if (!order) return;
+    if (isEdit) {
+      submitEdit();
+      return;
+    }
     const orderSubtotal = round2(Number(order.subtotal || 0));
     if (discountTotalPreview > orderSubtotal) {
       toast.error('The discount does not exceed the bill amount');
@@ -376,6 +438,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
 
   const loading =
     submitMut.isPending ||
+    editMut.isPending ||
     orderQuery.isLoading ||
     paymentAccountsQuery.isLoading ||
     securityAccountsQuery.isLoading;
@@ -384,28 +447,36 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={order ? `Bill No: ${order.order_number}` : 'Settlement'}
+      title={
+        order ? `${isEdit ? 'Edit payment · ' : ''}Bill No: ${order.order_number}` : 'Settlement'
+      }
       size={modalSize}
       footer={
         <>
           <div className="mr-auto self-center min-w-0">
-            <EditableOrderSecurityCap
-              value={expectedDeposit}
-              onChange={(next) => {
-                const requested = round2(Math.max(0, Number(next) || 0));
-                const clamped = round2(Math.max(requested, securityHeldNow));
-                if (clamped > requested + 0.009) {
-                  toast.warning(
-                    `Security amount cannot be less than already collected (${formatCurrency(securityHeldNow)})`
-                  );
-                }
-                setSecurityCapDraft(clamped);
-                return clamped;
-              }}
-              label="Security on order"
-              size="sm"
-              disabled={loading || !order}
-            />
+            {isEdit ? (
+              <span className="text-[11px] text-gray-500">
+                Saving recalculates the booking paid amount and balance.
+              </span>
+            ) : (
+              <EditableOrderSecurityCap
+                value={expectedDeposit}
+                onChange={(next) => {
+                  const requested = round2(Math.max(0, Number(next) || 0));
+                  const clamped = round2(Math.max(requested, securityHeldNow));
+                  if (clamped > requested + 0.009) {
+                    toast.warning(
+                      `Security amount cannot be less than already collected (${formatCurrency(securityHeldNow)})`
+                    );
+                  }
+                  setSecurityCapDraft(clamped);
+                  return clamped;
+                }}
+                label="Security on order"
+                size="sm"
+                disabled={loading || !order}
+              />
+            )}
           </div>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>
             Cancel
@@ -413,10 +484,10 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
           <Button
             size="sm"
             onClick={submit}
-            loading={submitMut.isPending}
+            loading={submitMut.isPending || editMut.isPending}
             disabled={orderQuery.isLoading}
           >
-            Submit
+            {isEdit ? 'Save changes' : 'Submit'}
           </Button>
         </>
       }
@@ -460,7 +531,8 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
                     e.target.value === '' ? '' : String(toNonNegativeNumber(e.target.value))
                   )
                 }
-                className="input w-full h-7 py-0.5 px-1.5 text-[10px] bg-white tabular-nums"
+                disabled={isEdit}
+                className="input w-full h-7 py-0.5 px-1.5 text-[10px] bg-white tabular-nums disabled:bg-gray-100"
                 title={`Add extra discount (max ${formatCurrency(round2(Math.max(0, Number(order.subtotal || 0) - savedDiscountTotal)))})`}
               />
             </div>
@@ -483,7 +555,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
                       e.target.value === '' ? '' : String(toNonNegativeNumber(e.target.value))
                     )
                   }
-                  disabled={expectedDeposit <= 0 || maxSecurityCollectNow <= 0}
+                  disabled={isEdit || expectedDeposit <= 0 || maxSecurityCollectNow <= 0}
                   className="input min-w-0 flex-1 h-7 py-0.5 px-1 text-[10px] tabular-nums"
                   title={
                     expectedDeposit <= 0
@@ -503,7 +575,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
                       className="input min-w-0 w-full h-7 py-0.5 px-1 text-[10px] bg-surface pr-5"
                       value={securityAccountId}
                       onChange={(e) => setSecurityAccountId(e.target.value)}
-                      disabled={expectedDeposit <= 0 || maxSecurityCollectNow <= 0}
+                      disabled={isEdit || expectedDeposit <= 0 || maxSecurityCollectNow <= 0}
                     >
                       <option value="">Select account</option>
                       {securityAccounts.map((a) => (
@@ -559,6 +631,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
                     type="radio"
                     name="settlement-receive-mode"
                     checked={receiveMode === 'receive'}
+                    disabled={isEdit}
                     onChange={() => setReceiveMode('receive')}
                   />
                   Receive
@@ -568,6 +641,7 @@ const SettlementModal = ({ isOpen, orderId, onClose, onSuccess }) => {
                     type="radio"
                     name="settlement-receive-mode"
                     checked={receiveMode === 'refund'}
+                    disabled={isEdit}
                     onChange={() => setReceiveMode('refund')}
                   />
                   Refund
@@ -663,11 +737,19 @@ SettlementModal.propTypes = {
   orderId: PropTypes.string,
   onClose: PropTypes.func.isRequired,
   onSuccess: PropTypes.func,
+  editPayment: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    amount: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    category: PropTypes.string,
+    payment_date: PropTypes.string,
+    payment_account_id: PropTypes.string,
+  }),
 };
 
 SettlementModal.defaultProps = {
   orderId: null,
   onSuccess: null,
+  editPayment: null,
 };
 
 export default SettlementModal;

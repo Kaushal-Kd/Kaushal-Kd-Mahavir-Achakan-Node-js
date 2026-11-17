@@ -46,7 +46,7 @@ const isBillPayment = (p) => !p.is_deleted && !isSecurityPayment(p);
 
 const EDITABLE_PAYMENT_CATEGORIES = ['advance', 'partial', 'final', 'refund'];
 
-const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
+const PaymentsPanel = ({ order, disabled, onAddPayment, onEditPayment }) => {
   const queryClient = useQueryClient();
   const selectedShopName = useSelectedShopName();
   const currentUser = useAuthStore((s) => s.user);
@@ -184,7 +184,7 @@ const PaymentsPanel = ({ order, disabled, onAddPayment }) => {
           size="sm"
           icon={Pencil}
           iconOnly
-          onClick={() => setEditTarget(p)}
+          onClick={() => (onEditPayment ? onEditPayment(p) : setEditTarget(p))}
           aria-label="Edit payment"
           title="Edit payment"
           disabled={disabled}
@@ -442,9 +442,10 @@ PaymentsPanel.propTypes = {
   order: PropTypes.object.isRequired,
   disabled: PropTypes.bool,
   onAddPayment: PropTypes.func,
+  onEditPayment: PropTypes.func,
 };
 
-PaymentsPanel.defaultProps = { disabled: false, onAddPayment: null };
+PaymentsPanel.defaultProps = { disabled: false, onAddPayment: null, onEditPayment: null };
 
 /* -------------------------------------------------------------------------- */
 

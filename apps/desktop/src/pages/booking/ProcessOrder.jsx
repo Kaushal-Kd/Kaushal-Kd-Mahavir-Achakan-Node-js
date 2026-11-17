@@ -136,6 +136,7 @@ const ProcessOrder = () => {
   const [pendingConditionRows] = useState(() => new Set());
   const [cancelOpen, setCancelOpen] = useState(false);
   const [settlementOpen, setSettlementOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
   const [deliverySettlementOpen, setDeliverySettlementOpen] = useState(false);
   const [deliveryStageUpdates, setDeliveryStageUpdates] = useState(null);
   const [deliveryStageDraftAfter, setDeliveryStageDraftAfter] = useState(null);
@@ -1027,6 +1028,7 @@ const ProcessOrder = () => {
           order={order}
           disabled={order.status === 'cancelled'}
           onAddPayment={() => setSettlementOpen(true)}
+          onEditPayment={(p) => setEditingPayment(p)}
         />
       </div>
 
@@ -1069,9 +1071,13 @@ const ProcessOrder = () => {
         }}
       />
       <SettlementModal
-        isOpen={settlementOpen}
+        isOpen={settlementOpen || Boolean(editingPayment)}
         orderId={order.id}
-        onClose={() => setSettlementOpen(false)}
+        editPayment={editingPayment}
+        onClose={() => {
+          setSettlementOpen(false);
+          setEditingPayment(null);
+        }}
       />
 
       <CancelSummaryModal
