@@ -213,7 +213,17 @@ function buildBaseQuery(shopId) {
       knex.raw('sp.name as sales_person_name'),
       knex.raw(
         '(SELECT COALESCE(SUM(si.qty), 0) FROM sale_items si WHERE si.sale_id = s.id) as total_qty'
-      )
+      ),
+      // Ledger account(s) the sale money was received in; falls back to the advance account
+      // for older sales whose advance has no payment row.
+      knex.raw(`COALESCE(
+        (SELECT GROUP_CONCAT(DISTINCT pa.name ORDER BY pa.name SEPARATOR ', ')
+           FROM payments p
+           JOIN payment_accounts pa ON pa.id = p.payment_account_id AND pa.shop_id = p.shop_id
+          WHERE p.sale_id = s.id AND p.shop_id = s.shop_id AND p.is_deleted = 0),
+        (SELECT pa2.name FROM payment_accounts pa2
+          WHERE pa2.id = s.advance_account_id AND pa2.shop_id = s.shop_id)
+      ) as payment_account_names`)
     );
 }
 

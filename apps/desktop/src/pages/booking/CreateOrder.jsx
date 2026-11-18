@@ -513,6 +513,7 @@ const CreateOrder = ({ mode, orderId }) => {
   const [openRecommendedCategoryKey, setOpenRecommendedCategoryKey] = useState('');
   const [recommendedCategorySearch, setRecommendedCategorySearch] = useState({});
   const [accessorySearch, setAccessorySearch] = useState('');
+  const accessorySearchInputRef = useRef(null);
   const [manualAccessoryDraft, setManualAccessoryDraft] = useState({});
   /** Catalog rows checked in modal — committed on Save. */
   const [pendingAccessoryPicks, setPendingAccessoryPicks] = useState({});
@@ -558,6 +559,8 @@ const CreateOrder = ({ mode, orderId }) => {
       top: rect.bottom + 4,
       left: rect.left,
       width: Math.max(rect.width, 288),
+      // Keep the taller list inside the viewport.
+      maxHeight: Math.max(160, Math.min(384, window.innerHeight - rect.bottom - 16)),
     });
   }, []);
 
@@ -4819,7 +4822,7 @@ const CreateOrder = ({ mode, orderId }) => {
                 />
               )}
               {!customer && customerOpen && customerQuery.trim().length >= 2 ? (
-                <div className="absolute z-20 left-0 right-0 mt-1 border border-gray-200 rounded-md max-h-48 overflow-auto bg-white shadow-lg">
+                <div className="absolute z-20 left-0 right-0 mt-1 border border-gray-200 rounded-md max-h-80 overflow-auto bg-white shadow-lg">
                   {(customerResults?.data || []).length === 0 ? (
                     <div className="px-3 py-2 text-xs text-gray-500">No matches</div>
                   ) : (
@@ -5147,11 +5150,12 @@ const CreateOrder = ({ mode, orderId }) => {
               productDropdownPos
                 ? createPortal(
                     <div
-                      className="fixed z-[200] border border-gray-200 rounded-md max-h-56 overflow-auto divide-y divide-gray-100 bg-white shadow-md"
+                      className="fixed z-[200] border border-gray-200 rounded-md overflow-auto divide-y divide-gray-100 bg-white shadow-md"
                       style={{
                         top: productDropdownPos.top,
                         left: productDropdownPos.left,
                         width: productDropdownPos.width,
+                        maxHeight: productDropdownPos.maxHeight,
                       }}
                     >
                       {productAvailabilityQuery.isLoading ||
@@ -6743,7 +6747,7 @@ const CreateOrder = ({ mode, orderId }) => {
                         {isOpen ? (
                           <div
                             data-recommended-dropdown-key={group.key}
-                            className={`absolute left-0 right-0 z-20 mt-1 border rounded bg-white shadow-sm max-h-44 overflow-hidden flex flex-col ${
+                            className={`absolute left-0 right-0 z-20 mt-1 border rounded bg-white shadow-lg overflow-hidden flex flex-col ${
                               groupHasSelected ? 'border-brand-200' : 'border-gray-200'
                             }`}
                           >
@@ -6769,7 +6773,9 @@ const CreateOrder = ({ mode, orderId }) => {
                                 />
                               </div>
                             </div>
-                            <div className="overflow-auto p-1 space-y-0.5 max-h-32">
+                            <div className="overflow-auto p-1 space-y-0.5 min-h-[5rem] max-h-[70vh] resize-y"
+                              style={{ height: (group.items?.length || 0) > 4 ? '18rem' : undefined }}
+                              title="Drag the bottom-right corner to resize">
                               {(() => {
                                 const visibleItems = filterRecommendedGroupItems(
                                   group.items,
@@ -6890,6 +6896,7 @@ const CreateOrder = ({ mode, orderId }) => {
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                 />
                 <input
+                  ref={accessorySearchInputRef}
                   className="input pl-9"
                   placeholder="Search by name, code, category or barcode"
                   value={accessorySearch}
@@ -6954,7 +6961,14 @@ const CreateOrder = ({ mode, orderId }) => {
                           className="shrink-0"
                           checked={isChecked}
                           disabled={isDisabled}
-                          onChange={(e) => togglePendingAccessoryPick(a, e.target.checked)}
+                          onChange={(e) => {
+                            togglePendingAccessoryPick(a, e.target.checked);
+                            // Picks persist across searches, so reset the box for the next search.
+                            if (e.target.checked && accessorySearch.trim()) {
+                              setAccessorySearch('');
+                              accessorySearchInputRef.current?.focus();
+                            }
+                          }}
                         />
                         <SmartImage
                           src={a.image_url}

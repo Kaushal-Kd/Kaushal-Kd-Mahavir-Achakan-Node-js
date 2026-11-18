@@ -247,13 +247,35 @@ export default async function dashboardRoutes(fastify) {
       .groupBy('payment_date')
       .orderBy('payment_date', 'asc');
 
+    // Bookings made each day: full bill value and what is still unpaid on them today.
+    const bookedRows = await knex('orders')
+      .where({ shop_id: shopId, is_deleted: false })
+      .whereNot('status', 'cancelled')
+      .whereBetween('booking_date', [toISO(start), toISO(end)])
+      .select('booking_date as date')
+      .sum({ booked_total: 'total_amount' })
+      .select(knex.raw('SUM(GREATEST(COALESCE(balance, 0), 0)) as pending'))
+      .groupBy('booking_date');
+
     const map = new Map(rows.map((r) => [toISO(r.date), Number(r.total || 0)]));
+    const bookedMap = new Map(
+      bookedRows.map((r) => [
+        toISO(r.date),
+        { booked_total: Number(r.booked_total || 0), pending: Number(r.pending || 0) },
+      ])
+    );
     const series = [];
     for (let i = 0; i < days; i += 1) {
       const d = new Date(start);
       d.setDate(start.getDate() + i);
       const iso = toISO(d);
-      series.push({ date: iso, total: map.get(iso) || 0 });
+      const booked = bookedMap.get(iso);
+      series.push({
+        date: iso,
+        total: map.get(iso) || 0,
+        booked_total: booked?.booked_total || 0,
+        pending: booked?.pending || 0,
+      });
     }
     return { ok: true, data: series };
   });

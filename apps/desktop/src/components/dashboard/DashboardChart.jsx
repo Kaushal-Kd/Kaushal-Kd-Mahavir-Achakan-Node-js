@@ -4,6 +4,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -69,17 +70,38 @@ const DashboardChart = ({ variant, data, average = 0, masked = false, onChartCli
             tickFormatter={masked ? () => MASKED_AMOUNT : compactINR}
           />
           <Tooltip
-            formatter={(value) => [
+            formatter={(value, name) => [
               masked ? MASKED_AMOUNT : formatCurrency(Number(value || 0)),
-              'Amount',
+              name,
             ]}
             labelFormatter={(label) => `Day ${label}`}
+          />
+          <Legend iconType="plainline" wrapperStyle={{ fontSize: 12 }} />
+          <Line
+            type="monotone"
+            dataKey="booked"
+            name="Booking Total"
+            stroke="#6B7280"
+            strokeWidth={2}
+            strokeDasharray="5 4"
+            dot={false}
+            activeDot={{ r: 4 }}
           />
           <Line
             type="monotone"
             dataKey="amount"
+            name="Received"
             stroke="#0C6EE1"
             strokeWidth={2.5}
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+          <Line
+            type="monotone"
+            dataKey="pending"
+            name="Pending"
+            stroke="#DC2626"
+            strokeWidth={2}
             dot={false}
             activeDot={{ r: 4 }}
           />

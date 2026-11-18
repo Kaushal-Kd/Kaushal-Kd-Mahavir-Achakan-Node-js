@@ -748,12 +748,23 @@ const BookingEarningCard = () => {
         day,
         dayLabel: String(day),
         amount: Number(row.total || 0),
+        booked: Number(row.booked_total || 0),
+        pending: Number(row.pending || 0),
       };
     });
   }, [data, selectedDate]);
 
   const thisMonthTotal = useMemo(
     () => thisMonthSeries.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+    [thisMonthSeries]
+  );
+
+  const thisMonthBooked = useMemo(
+    () => thisMonthSeries.reduce((sum, row) => sum + Number(row.booked || 0), 0),
+    [thisMonthSeries]
+  );
+  const thisMonthPending = useMemo(
+    () => thisMonthSeries.reduce((sum, row) => sum + Number(row.pending || 0), 0),
     [thisMonthSeries]
   );
 
@@ -769,7 +780,10 @@ const BookingEarningCard = () => {
     return ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100;
   }, [thisMonthTotal, lastMonthTotal]);
 
-  const empty = !isLoading && !isError && thisMonthSeries.length === 0;
+  const empty =
+    !isLoading &&
+    !isError &&
+    !thisMonthSeries.some((row) => row.amount || row.booked || row.pending);
 
   return (
     <Card padded>
@@ -825,9 +839,15 @@ const BookingEarningCard = () => {
 
         <div className="flex-1">
           <div className="flex items-center justify-between mb-3 gap-2">
-            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-gray-800">
-              <span className="truncate">
-                Total Amount: {showAmount(thisMonthTotal, totalVisible)}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold text-gray-800">
+              <span className="truncate" title="Money received in the month">
+                Received: {showAmount(thisMonthTotal, totalVisible)}
+              </span>
+              <span className="truncate text-gray-600" title="Bill value of bookings made in the month">
+                Booking Total: {showAmount(thisMonthBooked, totalVisible)}
+              </span>
+              <span className="truncate text-red-600" title="Still unpaid on bookings made in the month">
+                Pending: {showAmount(thisMonthPending, totalVisible)}
               </span>
               <button
                 type="button"

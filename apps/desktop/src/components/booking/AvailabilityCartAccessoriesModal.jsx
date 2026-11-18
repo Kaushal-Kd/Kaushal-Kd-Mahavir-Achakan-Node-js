@@ -27,12 +27,7 @@ import SmartImage from '../ui/SmartImage.jsx';
 /**
  * Accessory picker for availability cart lines (recommended + catalog), aligned with Create Order.
  */
-export default function AvailabilityCartAccessoriesModal({
-  isOpen,
-  onClose,
-  cartLine,
-  onSave,
-}) {
+export default function AvailabilityCartAccessoriesModal({ isOpen, onClose, cartLine, onSave }) {
   const modalSize = useModalSize('lg');
   const [accessoryLines, setAccessoryLines] = useState([]);
   const [loadingRec, setLoadingRec] = useState(false);
@@ -40,6 +35,7 @@ export default function AvailabilityCartAccessoriesModal({
   const [pendingAccessoryPicks, setPendingAccessoryPicks] = useState({});
   const [accessoryCategoryId, setAccessoryCategoryId] = useState('all');
   const [accessorySearch, setAccessorySearch] = useState('');
+  const accessorySearchInputRef = useRef(null);
   const [openRecommendedCategoryKey, setOpenRecommendedCategoryKey] = useState('');
   const [recommendedCategorySearch, setRecommendedCategorySearch] = useState({});
   const [saving, setSaving] = useState(false);
@@ -96,10 +92,7 @@ export default function AvailabilityCartAccessoriesModal({
         });
         if (cancelled) return;
         const payload = res?.data;
-        const recPayload =
-          payload && Array.isArray(payload.data)
-            ? payload
-            : { data: [] };
+        const recPayload = payload && Array.isArray(payload.data) ? payload : { data: [] };
         const catalogFromApi = recommendationRowsToAccessoryLines(recPayload, categoryLabelById);
 
         const savedById = new Map(
@@ -115,7 +108,9 @@ export default function AvailabilityCartAccessoriesModal({
             selected: true,
             qty: Math.max(1, Number(ex.qty) || 1),
             price: Number(ex.price ?? row.price) || row.price,
-            remarks: String(ex.remarks ?? '').trim().slice(0, 500),
+            remarks: String(ex.remarks ?? '')
+              .trim()
+              .slice(0, 500),
             type: ex.type ?? row.type,
             accessory_order_status: ex.accessory_order_status ?? row.accessory_order_status,
           };
@@ -248,12 +243,7 @@ export default function AvailabilityCartAccessoriesModal({
           toast.warning(`${acc.name_snapshot || 'Accessory'} is not available for selected dates`);
           return;
         }
-        if (
-          pickType !== 'sell' &&
-          cartLine?.from &&
-          cartLine?.to &&
-          acc.accessory_id
-        ) {
+        if (pickType !== 'sell' && cartLine?.from && cartLine?.to && acc.accessory_id) {
           const qty = Math.max(1, Number(acc.qty) || 1);
           const result = await validateRentAccessoryQty({
             accessoryId: acc.accessory_id,
@@ -296,12 +286,7 @@ export default function AvailabilityCartAccessoriesModal({
         toast.warning(`${row.name || 'Accessory'} is not available for selected dates`);
         return;
       }
-      if (
-        pickType !== 'sell' &&
-        cartLine?.from &&
-        cartLine?.to &&
-        row.id
-      ) {
+      if (pickType !== 'sell' && cartLine?.from && cartLine?.to && row.id) {
         const result = await validateRentAccessoryQty({
           accessoryId: row.id,
           from: cartLine.from,
@@ -497,7 +482,9 @@ export default function AvailabilityCartAccessoriesModal({
                 );
                 return (
                   <div key={group.key} className="relative">
-                    <div className="mb-0.5 text-xs font-medium text-gray-800 truncate">{group.label}</div>
+                    <div className="mb-0.5 text-xs font-medium text-gray-800 truncate">
+                      {group.label}
+                    </div>
                     <button
                       type="button"
                       className={`w-full h-7 rounded border bg-white hover:bg-gray-50 ${
@@ -506,7 +493,9 @@ export default function AvailabilityCartAccessoriesModal({
                           : 'border-gray-300 text-gray-700'
                       }`}
                       onClick={() =>
-                        setOpenRecommendedCategoryKey((prev) => (prev === group.key ? '' : group.key))
+                        setOpenRecommendedCategoryKey((prev) =>
+                          prev === group.key ? '' : group.key
+                        )
                       }
                     >
                       <span className="block w-full px-2 text-left text-[11px] text-inherit truncate">
@@ -515,7 +504,7 @@ export default function AvailabilityCartAccessoriesModal({
                     </button>
                     {isOpenGroup ? (
                       <div
-                        className={`absolute left-0 right-0 z-20 mt-1 border rounded bg-white shadow-sm max-h-44 overflow-hidden flex flex-col ${
+                        className={`absolute left-0 right-0 z-20 mt-1 border rounded bg-white shadow-lg overflow-hidden flex flex-col ${
                           groupHasSelected ? 'border-brand-200' : 'border-gray-200'
                         }`}
                       >
@@ -540,7 +529,11 @@ export default function AvailabilityCartAccessoriesModal({
                             />
                           </div>
                         </div>
-                        <div className="overflow-auto p-1 space-y-0.5 max-h-32">
+                        <div
+                          className="overflow-auto p-1 space-y-0.5 min-h-[5rem] max-h-[70vh] resize-y"
+                          style={{ height: (group.items?.length || 0) > 4 ? '18rem' : undefined }}
+                          title="Drag the bottom-right corner to resize"
+                        >
                           {filterRecommendedGroupItems(
                             group.items,
                             recommendedCategorySearch[group.key]
@@ -551,44 +544,44 @@ export default function AvailabilityCartAccessoriesModal({
                             });
                             const isChecked = !!pendingRecommendedSelections[a.line_id];
                             return (
-                            <label
-                              key={a.line_id}
-                              aria-label={`Select ${a.name_snapshot || 'accessory'}`}
-                              className={`flex items-start gap-1.5 rounded px-1 py-0.5 text-[11px] ${
-                                outOfStock
-                                  ? 'border border-transparent text-gray-500 opacity-60 cursor-not-allowed'
-                                  : isChecked
-                                    ? 'border border-brand bg-brand-100 font-medium text-gray-900 cursor-pointer'
-                                    : 'border border-transparent text-gray-700 hover:bg-gray-50 cursor-pointer'
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                disabled={outOfStock}
-                                onChange={(e) =>
-                                  void togglePendingRecommended(a.line_id, e.target.checked)
-                                }
-                                className="mt-0.5 shrink-0 accent-brand"
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="leading-4 flex items-center gap-1.5 flex-wrap">
-                                  {a.name_snapshot}
-                                  {outOfStock ? (
-                                    <span className="text-[9px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1 py-0.5 leading-none uppercase">
-                                      Not available
-                                    </span>
-                                  ) : null}
+                              <label
+                                key={a.line_id}
+                                aria-label={`Select ${a.name_snapshot || 'accessory'}`}
+                                className={`flex items-start gap-1.5 rounded px-1 py-0.5 text-[11px] ${
+                                  outOfStock
+                                    ? 'border border-transparent text-gray-500 opacity-60 cursor-not-allowed'
+                                    : isChecked
+                                      ? 'border border-brand bg-brand-100 font-medium text-gray-900 cursor-pointer'
+                                      : 'border border-transparent text-gray-700 hover:bg-gray-50 cursor-pointer'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  disabled={outOfStock}
+                                  onChange={(e) =>
+                                    void togglePendingRecommended(a.line_id, e.target.checked)
+                                  }
+                                  className="mt-0.5 shrink-0 accent-brand"
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="leading-4 flex items-center gap-1.5 flex-wrap">
+                                    {a.name_snapshot}
+                                    {outOfStock ? (
+                                      <span className="text-[9px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1 py-0.5 leading-none uppercase">
+                                        Not available
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                  <span className="text-[10px] text-gray-500 font-normal block mt-0.5">
+                                    {formatAccessoryDateAvailability(a, {
+                                      type: pickType,
+                                      from: cartLine?.from,
+                                      to: cartLine?.to,
+                                    })}
+                                  </span>
                                 </span>
-                                <span className="text-[10px] text-gray-500 font-normal block mt-0.5">
-                                  {formatAccessoryDateAvailability(a, {
-                                    type: pickType,
-                                    from: cartLine?.from,
-                                    to: cartLine?.to,
-                                  })}
-                                </span>
-                              </span>
-                            </label>
+                              </label>
                             );
                           })}
                         </div>
@@ -637,9 +630,13 @@ export default function AvailabilityCartAccessoriesModal({
 
           <div className="space-y-2 min-w-0">
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 className="input pl-9"
+                ref={accessorySearchInputRef}
                 placeholder="Search by name, code, category or barcode"
                 value={accessorySearch}
                 onChange={(e) => setAccessorySearch(e.target.value)}
@@ -652,7 +649,9 @@ export default function AvailabilityCartAccessoriesModal({
               {accessorySearchQuery.isLoading ? (
                 <div className="px-2 py-6 text-center text-xs text-gray-500">Loading…</div>
               ) : (accessorySearchQuery.data?.data || []).length === 0 ? (
-                <div className="px-2 py-6 text-center text-xs text-gray-500">No accessories found.</div>
+                <div className="px-2 py-6 text-center text-xs text-gray-500">
+                  No accessories found.
+                </div>
               ) : (
                 (accessorySearchQuery.data?.data || []).map((a) => {
                   const alreadyAdded = isAccessoryOnLine(a.id);
@@ -685,7 +684,13 @@ export default function AvailabilityCartAccessoriesModal({
                         className="shrink-0"
                         checked={isChecked}
                         disabled={isDisabled}
-                        onChange={(e) => void togglePendingPick(a, e.target.checked)}
+                        onChange={(e) => {
+                          void togglePendingPick(a, e.target.checked);
+                          if (e.target.checked && accessorySearch.trim()) {
+                            setAccessorySearch('');
+                            accessorySearchInputRef.current?.focus();
+                          }
+                        }}
                       />
                       <SmartImage
                         src={a.image_url}

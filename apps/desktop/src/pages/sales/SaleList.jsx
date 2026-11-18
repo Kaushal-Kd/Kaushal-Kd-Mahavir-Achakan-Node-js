@@ -223,6 +223,13 @@ const SaleList = () => {
         render: (r) => formatCurrency(r.advance),
       },
       {
+        key: 'payment_account_names',
+        header: 'Account',
+        columnPickerLabel: 'Received in account',
+        className: 'text-xs',
+        render: (r) => r.payment_account_names || '—',
+      },
+      {
         key: 'pending_amount',
         header: 'Pending Amt.',
         columnPickerLabel: 'Pending Amount',
