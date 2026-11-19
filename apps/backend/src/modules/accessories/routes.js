@@ -42,6 +42,36 @@ export default async function accessoryRoutes(fastify) {
     return { ok: true, data };
   });
 
+  // One request for many accessories (booking accessory picker refreshes dozens at once).
+  fastify.get('/availability-batch', async (request) => {
+    const q = request.query || {};
+    const ids = [
+      ...new Set(
+        String(q.accessory_ids || '')
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean)
+      ),
+    ].slice(0, 300);
+    const results = {};
+    const CHUNK = 8;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      await Promise.all(
+        ids.slice(i, i + CHUNK).map(async (id) => {
+          try {
+            results[id] = await checkAccessoryAvailability(request.shopId, {
+              ...q,
+              accessory_id: id,
+            });
+          } catch (err) {
+            results[id] = { error: err?.message || 'unavailable' };
+          }
+        })
+      );
+    }
+    return { ok: true, data: results };
+  });
+
   fastify.get('/code-format', async (request) => {
     const data = await getAccessoryCodeFormat(request.shopId);
     return { ok: true, data };

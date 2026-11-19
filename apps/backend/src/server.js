@@ -77,7 +77,16 @@ export async function build() {
     },
     credentials: true,
   });
-  await app.register(fastifyRateLimit, { max: 600, timeWindow: '1 minute' });
+  await app.register(fastifyRateLimit, {
+    max: 1200,
+    timeWindow: '1 minute',
+    // Behind Cloudflare request.ip is the edge node, so many shops shared one bucket.
+    // Key on the real visitor IP Cloudflare forwards; fall back to request.ip.
+    keyGenerator: (request) => {
+      const cf = String(request.headers['cf-connecting-ip'] || '').trim();
+      return /^[0-9a-fA-F:.]{3,45}$/.test(cf) ? cf : request.ip;
+    },
+  });
   await app.register(fastifySensible);
 
   await app.register(errorHandlerPlugin);

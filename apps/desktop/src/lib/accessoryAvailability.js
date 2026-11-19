@@ -144,29 +144,42 @@ export async function refreshRentAccessoryLinesAvailability(lines, window, optio
   if (accessoryIds.size === 0) return { lines, deselectedNames: [] };
 
   const availabilityById = new Map();
-  await mapWithConcurrency([...accessoryIds], 4, async (accessoryId) => {
-      const result = await validateRentAccessoryQty({
-        accessoryId,
+  const toMeta = (data) => ({
+    total_qty: Number(data.total_qty ?? 0),
+    spare_qty: Number(data.spare_qty ?? 0),
+    damaged_qty: Number(data.damaged_qty ?? 0),
+    rentable_qty: Number(data.rentable_qty ?? 0),
+    booked_qty: Number(data.booked_qty ?? 0),
+    washing_qty: Number(data.washing_qty ?? 0),
+    washing_queue_qty: Number(data.washing_queue_qty ?? 0),
+    laundry_washing_qty: Number(data.laundry_washing_qty ?? 0),
+    free_qty: Number(data.free_qty ?? 0),
+  });
+  // One batched request per chunk instead of one request per accessory: a product's
+  // recommended list can hold 80+ accessories and per-row calls tripped the API rate limit.
+  const ids = [...accessoryIds];
+  const CHUNK = 150;
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
+  await mapWithConcurrency(chunks, 2, async (chunk) => {
+    try {
+      const res = await accessoriesApi.checkAvailabilityBatch({
+        accessory_ids: chunk.join(','),
         from,
         to,
         qty: 1,
-        excludeOrderId,
-        label: 'Accessory',
+        ...(excludeOrderId ? { exclude_order_id: excludeOrderId } : {}),
       });
-      // Failed/missing availability must not stamp free_qty=0 and strip selected accessories.
-      if (!result?.data) return;
-      const data = result.data || {};
-      availabilityById.set(accessoryId, {
-        total_qty: Number(data.total_qty ?? 0),
-        spare_qty: Number(data.spare_qty ?? 0),
-        damaged_qty: Number(data.damaged_qty ?? 0),
-        rentable_qty: Number(data.rentable_qty ?? 0),
-        booked_qty: Number(data.booked_qty ?? 0),
-        washing_qty: Number(data.washing_qty ?? 0),
-        washing_queue_qty: Number(data.washing_queue_qty ?? 0),
-        laundry_washing_qty: Number(data.laundry_washing_qty ?? 0),
-        free_qty: Number(data.free_qty ?? result.freeQty ?? 0),
-      });
+      const byId = res?.data || {};
+      for (const id of chunk) {
+        const data = byId[id];
+        // Failed/missing availability must not stamp free_qty=0 and strip selected accessories.
+        if (!data || data.error) continue;
+        availabilityById.set(id, toMeta(data));
+      }
+    } catch {
+      // Leave lines unchanged when the batch call fails.
+    }
   });
 
   const deselectedNames = [];
