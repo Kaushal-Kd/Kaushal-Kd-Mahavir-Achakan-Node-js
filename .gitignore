@@ -74,3 +74,6 @@ apps/backend/credentials/
 *.pem
 *.p12
 .vercel
+
+# Local AI model files for accessory visual search (downloaded once, rsynced to server)
+apps/backend/models/

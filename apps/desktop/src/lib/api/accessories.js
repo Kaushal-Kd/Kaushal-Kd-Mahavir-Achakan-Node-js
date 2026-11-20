@@ -12,6 +12,9 @@ export const accessoriesApi = {
   categoryCounts: (params) => api.get('/accessories/category-counts', { params }).then(unwrap),
   recommendations: (params) => api.get('/accessories/recommendations', { params }).then(unwrap),
   checkAvailability: (params) => api.get('/accessories/availability', { params }).then(unwrap),
+  visualSearchStatus: () => api.get('/accessories/visual-search/status').then(unwrap),
+  visualSearch: (body) => api.post('/accessories/visual-search', body).then(unwrap),
+  visualSearchPick: (body) => api.post('/accessories/visual-search/pick', body).then(unwrap),
   checkAvailabilityBatch: (params) =>
     api.get('/accessories/availability-batch', { params }).then(unwrap),
   outOrders: (id) => api.get(`/accessories/${id}/out-orders`).then(unwrap),

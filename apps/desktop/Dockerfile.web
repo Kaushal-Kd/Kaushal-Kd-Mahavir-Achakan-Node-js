@@ -2,6 +2,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# CPU-only onnxruntime (local visual search): never download CUDA binaries.
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
+
 # Install all workspace dependencies required by Vite build.
 COPY package*.json ./
 COPY apps/desktop/package.json apps/desktop/package.json

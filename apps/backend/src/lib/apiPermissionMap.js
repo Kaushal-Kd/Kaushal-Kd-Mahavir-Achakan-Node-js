@@ -73,7 +73,9 @@ export function resolveApiAction(path, method) {
   const cleanPath = String(path || '').split('?')[0];
   if (
     String(method || '').toUpperCase() === 'POST' &&
-    cleanPath === '/api/products/visual-search'
+    (cleanPath === '/api/products/visual-search' ||
+      cleanPath === '/api/accessories/visual-search' ||
+      cleanPath === '/api/accessories/visual-search/pick')
   ) {
     return ACTIONS.VIEW;
   }

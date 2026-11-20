@@ -162,6 +162,7 @@ import {
   defaultHandedOverAccessoryStageFlags,
   isCounterHandoverAccessory,
 } from '../../lib/bookingAccessoryCart.js';
+import AccessoryScanButton from '../../components/booking/AccessoryScanButton.jsx';
 import { sortCartLinesBySelectionOrder } from '../../lib/cartSelectionOrder.js';
 import { buildSalesmanSelectOptions, isSalesmanEligibleUser } from '../../lib/salesmanOptions.js';
 import { usersApi } from '../../lib/api/users.js';
@@ -514,6 +515,12 @@ const CreateOrder = ({ mode, orderId }) => {
   const [openRecommendedCategoryKey, setOpenRecommendedCategoryKey] = useState('');
   const [recommendedCategorySearch, setRecommendedCategorySearch] = useState({});
   const [accessorySearch, setAccessorySearch] = useState('');
+  /** Camera scan result for the accessory picker: { scanToken, matches: [{ accessory_id, score }] } */
+  const [accessoryScan, setAccessoryScan] = useState(null);
+  const accessoryScanIds = useMemo(
+    () => (accessoryScan?.matches || []).map((m) => m.accessory_id),
+    [accessoryScan]
+  );
   const accessorySearchInputRef = useRef(null);
   const [manualAccessoryDraft, setManualAccessoryDraft] = useState({});
   /** Catalog rows checked in modal — committed on Save. */
@@ -828,19 +835,43 @@ const CreateOrder = ({ mode, orderId }) => {
       returnDate,
       isEditMode ? orderId : '',
       accessoryModalMode,
+      accessoryScanIds.join(','),
     ],
     queryFn: () =>
-      accessoriesApi.list({
-        search: accessorySearch,
-        per_page: accessoryModalMode !== 'all' ? 200 : 50,
-        include_active_count: '1',
-        from: pickupDate,
-        to: returnDate,
-        ...(accessoryCategoryId !== 'all' ? { category_id: accessoryCategoryId } : {}),
-        ...(isEditMode && orderId ? { exclude_order_id: orderId } : {}),
-      }),
+      accessoriesApi.list(
+        accessoryScanIds.length
+          ? {
+              ids: accessoryScanIds.join(','),
+              per_page: 50,
+              include_active_count: '1',
+              from: pickupDate,
+              to: returnDate,
+              ...(isEditMode && orderId ? { exclude_order_id: orderId } : {}),
+            }
+          : {
+              search: accessorySearch,
+              per_page: accessoryModalMode !== 'all' ? 200 : 50,
+              include_active_count: '1',
+              from: pickupDate,
+              to: returnDate,
+              ...(accessoryCategoryId !== 'all' ? { category_id: accessoryCategoryId } : {}),
+              ...(isEditMode && orderId ? { exclude_order_id: orderId } : {}),
+            }
+      ),
     enabled: !!addAccessoryForLineId && !!pickupDate && !!returnDate,
   });
+
+  // Scan results keep the "most similar first" order from the visual search.
+  const accessoryPickerRows = useMemo(() => {
+    const rows = accessorySearchQuery.data?.data || [];
+    if (!accessoryScanIds.length) return rows;
+    const rank = new Map(accessoryScanIds.map((id, i) => [id, i]));
+    return [...rows].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999));
+  }, [accessorySearchQuery.data, accessoryScanIds]);
+
+  useEffect(() => {
+    setAccessoryScan(null);
+  }, [addAccessoryForLineId]);
 
   const needsAccessoryCategoryLabels = useMemo(
     () =>
@@ -6892,19 +6923,45 @@ const CreateOrder = ({ mode, orderId }) => {
             </div>
 
             <div className="space-y-2">
-              <div className="relative">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                />
-                <input
-                  ref={accessorySearchInputRef}
-                  className="input pl-9"
-                  placeholder="Search by name, code, category or barcode"
-                  value={accessorySearch}
-                  onChange={(e) => setAccessorySearch(e.target.value)}
-                />
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <Search
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      ref={accessorySearchInputRef}
+                      className="input pl-9"
+                      placeholder="Search by name, code, category or barcode"
+                      value={accessorySearch}
+                      onChange={(e) => {
+                        setAccessorySearch(e.target.value);
+                        if (accessoryScan) setAccessoryScan(null);
+                      }}
+                    />
+                  </div>
+                  <AccessoryScanButton
+                    categoryId={accessoryCategoryId !== 'all' ? accessoryCategoryId : null}
+                    onResults={(result) => setAccessoryScan(result)}
+                  />
+                </div>
               </div>
+              {accessoryScan ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-brand/30 bg-brand-light/40 px-2 py-1.5 text-[11px] text-gray-700">
+                  <span>
+                    Scan result: <b>{accessoryScanIds.length}</b> look-alike accessor
+                    {accessoryScanIds.length === 1 ? 'y' : 'ies'}, most similar first.
+                  </span>
+                  <button
+                    type="button"
+                    className="text-brand hover:underline"
+                    onClick={() => setAccessoryScan(null)}
+                  >
+                    Clear scan
+                  </button>
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-[11px] font-semibold text-gray-700 uppercase tracking-wide">
                   {accessoryModalMode === 'all' ? 'All Accessories' : 'Add Extra Accessories'}
@@ -6927,12 +6984,12 @@ const CreateOrder = ({ mode, orderId }) => {
                 </div>
               </div>
               <div className="max-h-[40vh] overflow-auto border border-gray-200 rounded-md divide-y divide-gray-100">
-                {(accessorySearchQuery.data?.data || []).length === 0 ? (
+                {accessoryPickerRows.length === 0 ? (
                   <div className="px-2 py-6 text-center text-xs text-gray-500">
                     No accessories found.
                   </div>
                 ) : (
-                  (accessorySearchQuery.data?.data || []).map((a) => {
+                  accessoryPickerRows.map((a) => {
                     const alreadyAdded = isAccessoryAlreadyOnBooking(a.id);
                     const isPending = Boolean(pendingAccessoryPicks[a.id]);
                     const pickType = accessoryDefaultType(a);
@@ -6965,6 +7022,19 @@ const CreateOrder = ({ mode, orderId }) => {
                           disabled={isDisabled}
                           onChange={(e) => {
                             togglePendingAccessoryPick(a, e.target.checked);
+                            // Learn from the pick: the scan becomes an extra reference photo.
+                            if (
+                              e.target.checked &&
+                              accessoryScan?.scanToken &&
+                              accessoryScanIds.includes(a.id)
+                            ) {
+                              void accessoriesApi
+                                .visualSearchPick({
+                                  scan_token: accessoryScan.scanToken,
+                                  accessory_id: a.id,
+                                })
+                                .catch(() => {});
+                            }
                             // Picks persist across searches, so reset the box for the next search.
                             if (e.target.checked && accessorySearch.trim()) {
                               setAccessorySearch('');

@@ -151,6 +151,13 @@ export async function listAccessories(shopId, query) {
   const qb = knex('accessories as a').where({ 'a.shop_id': shopId });
   applyAccessoryCatalogActiveFilter(qb, query);
   if (query.default_type) qb.andWhere({ 'a.default_type': query.default_type });
+  // Explicit id list (e.g. visual-search suggestions) — comma separated.
+  const idFilter = String(query.ids || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .slice(0, 100);
+  if (idFilter.length) qb.whereIn('a.id', idFilter);
   if (query.default_order_status)
     qb.andWhere({
       'a.default_order_status': normalizeAccessoryOrderStatus(query.default_order_status),

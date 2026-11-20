@@ -23,6 +23,7 @@ import { toast } from '../../stores/uiStore.js';
 import Button from '../ui/Button.jsx';
 import Modal from '../ui/Modal.jsx';
 import SmartImage from '../ui/SmartImage.jsx';
+import AccessoryScanButton from './AccessoryScanButton.jsx';
 
 /**
  * Accessory picker for availability cart lines (recommended + catalog), aligned with Create Order.
@@ -36,6 +37,12 @@ export default function AvailabilityCartAccessoriesModal({ isOpen, onClose, cart
   const [accessoryCategoryId, setAccessoryCategoryId] = useState('all');
   const [accessorySearch, setAccessorySearch] = useState('');
   const accessorySearchInputRef = useRef(null);
+  /** Camera scan result: { scanToken, matches: [{ accessory_id, score }] } */
+  const [accessoryScan, setAccessoryScan] = useState(null);
+  const accessoryScanIds = useMemo(
+    () => (accessoryScan?.matches || []).map((m) => m.accessory_id),
+    [accessoryScan]
+  );
   const [openRecommendedCategoryKey, setOpenRecommendedCategoryKey] = useState('');
   const [recommendedCategorySearch, setRecommendedCategorySearch] = useState({});
   const [saving, setSaving] = useState(false);
@@ -54,18 +61,40 @@ export default function AvailabilityCartAccessoriesModal({ isOpen, onClose, cart
       accessoryCategoryId,
       cartLine?.from,
       cartLine?.to,
+      accessoryScanIds.join(','),
     ],
     queryFn: () =>
-      accessoriesApi.list({
-        search: accessorySearch,
-        per_page: 80,
-        include_active_count: '1',
-        from: cartLine?.from,
-        to: cartLine?.to,
-        ...(accessoryCategoryId !== 'all' ? { category_id: accessoryCategoryId } : {}),
-      }),
+      accessoriesApi.list(
+        accessoryScanIds.length
+          ? {
+              ids: accessoryScanIds.join(','),
+              per_page: 50,
+              include_active_count: '1',
+              from: cartLine?.from,
+              to: cartLine?.to,
+            }
+          : {
+              search: accessorySearch,
+              per_page: 80,
+              include_active_count: '1',
+              from: cartLine?.from,
+              to: cartLine?.to,
+              ...(accessoryCategoryId !== 'all' ? { category_id: accessoryCategoryId } : {}),
+            }
+      ),
     enabled: isOpen && !!cartLine?.from && !!cartLine?.to,
   });
+
+  const accessoryPickerRows = useMemo(() => {
+    const rows = accessorySearchQuery.data?.data || [];
+    if (!accessoryScanIds.length) return rows;
+    const rank = new Map(accessoryScanIds.map((id, i) => [id, i]));
+    return [...rows].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999));
+  }, [accessorySearchQuery.data, accessoryScanIds]);
+
+  useEffect(() => {
+    if (!isOpen) setAccessoryScan(null);
+  }, [isOpen]);
 
   const categoryLabelById = useMemo(() => {
     const rows = categoryCountsQuery.data?.by_category || [];
@@ -629,31 +658,55 @@ export default function AvailabilityCartAccessoriesModal({ isOpen, onClose, cart
           </div>
 
           <div className="space-y-2 min-w-0">
-            <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
-                className="input pl-9"
-                ref={accessorySearchInputRef}
-                placeholder="Search by name, code, category or barcode"
-                value={accessorySearch}
-                onChange={(e) => setAccessorySearch(e.target.value)}
+            <div className="flex items-center gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                />
+                <input
+                  className="input pl-9"
+                  ref={accessorySearchInputRef}
+                  placeholder="Search by name, code, category or barcode"
+                  value={accessorySearch}
+                  onChange={(e) => {
+                    setAccessorySearch(e.target.value);
+                    if (accessoryScan) setAccessoryScan(null);
+                  }}
+                />
+              </div>
+              <AccessoryScanButton
+                categoryId={accessoryCategoryId !== 'all' ? accessoryCategoryId : null}
+                onResults={(result) => setAccessoryScan(result)}
               />
             </div>
+            {accessoryScan ? (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-brand/30 bg-brand-light/40 px-2 py-1.5 text-[11px] text-gray-700">
+                <span>
+                  Scan result: <b>{accessoryScanIds.length}</b> look-alike accessor
+                  {accessoryScanIds.length === 1 ? 'y' : 'ies'}, most similar first.
+                </span>
+                <button
+                  type="button"
+                  className="text-brand hover:underline"
+                  onClick={() => setAccessoryScan(null)}
+                >
+                  Clear scan
+                </button>
+              </div>
+            ) : null}
             <div className="text-[11px] font-semibold text-gray-700 uppercase tracking-wide">
               Add extra accessories
             </div>
             <div className="max-h-[36vh] min-h-[8rem] overflow-auto border border-gray-200 rounded-md divide-y divide-gray-100">
               {accessorySearchQuery.isLoading ? (
                 <div className="px-2 py-6 text-center text-xs text-gray-500">Loading…</div>
-              ) : (accessorySearchQuery.data?.data || []).length === 0 ? (
+              ) : accessoryPickerRows.length === 0 ? (
                 <div className="px-2 py-6 text-center text-xs text-gray-500">
                   No accessories found.
                 </div>
               ) : (
-                (accessorySearchQuery.data?.data || []).map((a) => {
+                accessoryPickerRows.map((a) => {
                   const alreadyAdded = isAccessoryOnLine(a.id);
                   const isPending = Boolean(pendingAccessoryPicks[a.id]);
                   const pickType = accessoryDefaultType(a);
@@ -686,6 +739,18 @@ export default function AvailabilityCartAccessoriesModal({ isOpen, onClose, cart
                         disabled={isDisabled}
                         onChange={(e) => {
                           void togglePendingPick(a, e.target.checked);
+                          if (
+                            e.target.checked &&
+                            accessoryScan?.scanToken &&
+                            accessoryScanIds.includes(a.id)
+                          ) {
+                            void accessoriesApi
+                              .visualSearchPick({
+                                scan_token: accessoryScan.scanToken,
+                                accessory_id: a.id,
+                              })
+                              .catch(() => {});
+                          }
                           if (e.target.checked && accessorySearch.trim()) {
                             setAccessorySearch('');
                             accessorySearchInputRef.current?.focus();

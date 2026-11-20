@@ -2,6 +2,12 @@ import { catalogDeleteSchema, createAccessorySchema, updateAccessorySchema } fro
 
 import { validate } from '../../utils/validate.js';
 import {
+  recordVisualSearchPick,
+  scheduleAccessoryIndexing,
+  searchAccessoriesByImage,
+  visualSearchStatus,
+} from './visualSearchService.js';
+import {
   listAccessories,
   listRecommendedAccessories,
   checkAccessoryAvailability,
@@ -39,6 +45,34 @@ export default async function accessoryRoutes(fastify) {
 
   fastify.get('/availability', async (request) => {
     const data = await checkAccessoryAvailability(request.shopId, request.query || {});
+    return { ok: true, data };
+  });
+
+  // Local, self-hosted visual search (scan an accessory -> look-alike suggestions).
+  fastify.get('/visual-search/status', async (request) => {
+    const data = await visualSearchStatus(request.shopId);
+    if (data.enabled && data.indexed < data.with_image) {
+      scheduleAccessoryIndexing({ shopId: request.shopId });
+    }
+    return { ok: true, data };
+  });
+
+  fastify.post('/visual-search', async (request) => {
+    const body = request.body || {};
+    const data = await searchAccessoriesByImage(request.shopId, {
+      image: body.image_data_url,
+      category_id: body.category_id ? String(body.category_id) : undefined,
+      limit: body.limit,
+    });
+    return { ok: true, data };
+  });
+
+  fastify.post('/visual-search/pick', async (request) => {
+    const body = request.body || {};
+    const data = await recordVisualSearchPick(request.shopId, {
+      scan_token: body.scan_token,
+      accessory_id: String(body.accessory_id || ''),
+    });
     return { ok: true, data };
   });
 
@@ -107,6 +141,7 @@ export default async function accessoryRoutes(fastify) {
   fastify.post('/', async (request) => {
     const body = validate(createAccessorySchema, { ...request.body, shop_id: request.shopId });
     const data = await createAccessory(request.shopId, body);
+    if (data?.image_url) scheduleAccessoryIndexing({ accessoryId: data.id });
     await request.audit('accessories', 'CREATE', { id: data.id, new: data });
     return { ok: true, data };
   });
@@ -118,6 +153,9 @@ export default async function accessoryRoutes(fastify) {
       shop_id: request.shopId,
     });
     const { before, after } = await updateAccessory(request.shopId, request.params.id, body);
+    if (after?.image_url && after.image_url !== before?.image_url) {
+      scheduleAccessoryIndexing({ accessoryId: request.params.id });
+    }
     await request.audit('accessories', 'UPDATE', { id: after.id, old: before, new: after });
     return { ok: true, data: after };
   });
