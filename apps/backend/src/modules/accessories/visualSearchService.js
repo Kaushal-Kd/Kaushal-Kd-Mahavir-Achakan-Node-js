@@ -1,10 +1,16 @@
 /**
  * Self-hosted accessory visual search ("scan an accessory, see look-alikes").
  *
- * An open-source CLIP vision model runs inside this backend (onnxruntime via
- * transformers.js). Every catalog photo and every scan is turned into a 512-number
+ * An open-source DINOv2 vision model runs inside this backend (onnxruntime via
+ * transformers.js). Every catalog photo and every scan is turned into a 384-number
  * fingerprint; suggestions are the catalog fingerprints closest to the scan.
  * No Google / third-party AI API is called — model files are loaded from disk only.
+ *
+ * Tuned on this shop's own catalog (see scripts/visual-search-selftest.mjs):
+ *  - catalog photos carry a large centre watermark → it is blurred and the empty
+ *    background trimmed before fingerprinting;
+ *  - a phone scan shows the item small on a counter → the scan is matched as three
+ *    crops (full, centre 80%, centre 60%) and the best crop counts.
  */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -16,12 +22,13 @@ import sharp from 'sharp';
 import knex from '../../db/knex.js';
 import { badRequest } from '../../utils/errors.js';
 
-export const VISUAL_MODEL_ID = 'Xenova/clip-vit-base-patch32';
-const MODEL_TAG = 'clip-vit-b32-q8';
-const IMAGE_SIZE = 224;
+export const VISUAL_MODEL_ID = 'Xenova/dinov2-small';
+const MODEL_TAG = 'dinov2-s-q8-v2';
+const IMAGE_SIZE = 256;
+const QUERY_CROPS = [1, 0.8, 0.6];
 const MAX_QUERY_BYTES = 3 * 1024 * 1024;
 const MAX_CATALOG_IMAGE_BYTES = 10 * 1024 * 1024;
-const MIN_SCORE = 0.55;
+const MIN_SCORE = 0.1;
 const SCAN_TTL_MS = 15 * 60 * 1000;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -35,25 +42,22 @@ const recentScans = new Map();
 const indexingShops = new Set();
 
 export function visualModelAvailable() {
-  return fs.existsSync(path.join(MODELS_DIR, VISUAL_MODEL_ID, 'onnx', 'vision_model_quantized.onnx'));
+  return fs.existsSync(path.join(MODELS_DIR, VISUAL_MODEL_ID, 'onnx', 'model_quantized.onnx'));
 }
 
 async function loadModel() {
   if (!modelPromise) {
     modelPromise = (async () => {
-      const { AutoProcessor, CLIPVisionModelWithProjection, env } = await import(
-        '@huggingface/transformers'
-      );
+      const { AutoModel, AutoProcessor, RawImage, env } = await import('@huggingface/transformers');
       env.localModelPath = MODELS_DIR;
       env.allowLocalModels = true;
       env.allowRemoteModels = false; // never download at runtime
       const processor = await AutoProcessor.from_pretrained(VISUAL_MODEL_ID);
-      const model = await CLIPVisionModelWithProjection.from_pretrained(VISUAL_MODEL_ID, {
+      const model = await AutoModel.from_pretrained(VISUAL_MODEL_ID, {
         dtype: 'q8',
         // One CPU thread so scans never starve the rest of the API on a small server.
         session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
       });
-      const { RawImage } = await import('@huggingface/transformers');
       return { processor, model, RawImage };
     })().catch((err) => {
       modelPromise = null;
@@ -84,11 +88,10 @@ const fromBlob = (buf) => {
   return new Float32Array(b.buffer, b.byteOffset, Math.floor(b.byteLength / 4));
 };
 
-/** Image bytes -> unit-length 512-d fingerprint. */
-export async function embedImage(buffer) {
+/** Square-pad on white, run the model, return the unit-length CLS fingerprint. */
+async function embedPrepared(buffer) {
   const { processor, model, RawImage } = await loadModel();
   const { data, info } = await sharp(buffer)
-    .rotate()
     .flatten({ background: '#ffffff' })
     .resize(IMAGE_SIZE, IMAGE_SIZE, { fit: 'contain', background: '#ffffff' })
     .removeAlpha()
@@ -96,8 +99,56 @@ export async function embedImage(buffer) {
     .toBuffer({ resolveWithObject: true });
   const image = new RawImage(new Uint8ClampedArray(data), info.width, info.height, info.channels);
   const inputs = await processor(image);
-  const { image_embeds: embeds } = await model(inputs);
-  return normalize(embeds.data);
+  const { last_hidden_state: hidden } = await model(inputs);
+  const dim = hidden.dims[hidden.dims.length - 1];
+  return normalize(hidden.data.slice(0, dim));
+}
+
+/** Catalog photo: blur the centre watermark, trim the empty background. */
+async function prepareCatalogImage(buffer) {
+  const base = await sharp(buffer).rotate().flatten({ background: '#ffffff' }).png().toBuffer();
+  const { width: w, height: h } = await sharp(base).metadata();
+  const r = Math.round(Math.min(w, h) * 0.24);
+  const mask = Buffer.from(
+    `<svg width="${w}" height="${h}"><circle cx="${w / 2}" cy="${h / 2}" r="${r}" fill="white"/></svg>`
+  );
+  const blurredCircle = await sharp(await sharp(base).blur(18).png().toBuffer())
+    .composite([{ input: mask, blend: 'dest-in' }])
+    .png()
+    .toBuffer();
+  const unmarked = await sharp(base).composite([{ input: blurredCircle }]).png().toBuffer();
+  try {
+    return await sharp(unmarked).trim({ threshold: 25 }).png().toBuffer();
+  } catch {
+    return unmarked;
+  }
+}
+
+export async function embedCatalogImage(buffer) {
+  return embedPrepared(await prepareCatalogImage(buffer));
+}
+
+/** Scan photo -> fingerprints of the full frame and two centre crops. */
+export async function embedQueryImage(buffer) {
+  const base = await sharp(buffer).rotate().flatten({ background: '#ffffff' }).png().toBuffer();
+  const { width: w, height: h } = await sharp(base).metadata();
+  const vecs = [];
+  for (const f of QUERY_CROPS) {
+    const crop =
+      f === 1
+        ? base
+        : await sharp(base)
+            .extract({
+              left: Math.round((w * (1 - f)) / 2),
+              top: Math.round((h * (1 - f)) / 2),
+              width: Math.max(1, Math.round(w * f)),
+              height: Math.max(1, Math.round(h * f)),
+            })
+            .png()
+            .toBuffer();
+    vecs.push(await embedPrepared(crop));
+  }
+  return vecs;
 }
 
 function decodeDataUrl(value) {
@@ -158,13 +209,17 @@ export async function indexAccessoryImages(opts = {}) {
   if (opts.shopId) qb.andWhere('a.shop_id', opts.shopId);
   if (opts.accessoryId) qb.andWhere('a.id', opts.accessoryId);
   if (opts.limit) qb.limit(opts.limit);
+  if (!opts.accessoryId) {
+    // Fingerprints from an older model can't be compared with new ones.
+    await knex('accessory_visual_embeddings').whereNot('model', MODEL_TAG).del();
+  }
   const rows = await qb;
 
   let indexed = 0;
   let failed = 0;
   for (const row of rows) {
     try {
-      const vec = await embedImage(await downloadCatalogImage(row.image_url));
+      const vec = await embedCatalogImage(await downloadCatalogImage(row.image_url));
       await knex.transaction(async (trx) => {
         await trx('accessory_visual_embeddings')
           .where({ accessory_id: row.id, source: 'catalog' })
@@ -231,14 +286,15 @@ export async function searchAccessoriesByImage(shopId, body) {
   if (!visualModelAvailable()) {
     throw badRequest('Visual search model is not installed on this server');
   }
-  const queryVec = await embedImage(decodeDataUrl(body.image));
+  const queryVecs = await embedQueryImage(decodeDataUrl(body.image));
   const vectors = await loadShopVectors(shopId);
   if (vectors.length === 0) scheduleAccessoryIndexing({ shopId });
 
   const best = new Map();
   for (const row of vectors) {
     if (body.category_id && row.category_id !== body.category_id) continue;
-    const score = dot(queryVec, row.vec);
+    let score = -1;
+    for (const q of queryVecs) score = Math.max(score, dot(q, row.vec));
     if (score > (best.get(row.accessory_id) ?? -1)) best.set(row.accessory_id, score);
   }
   const limit = Math.min(30, Math.max(1, Number(body.limit) || 12));
@@ -250,7 +306,7 @@ export async function searchAccessoriesByImage(shopId, body) {
 
   pruneScans();
   const scanToken = randomUUID();
-  recentScans.set(scanToken, { shopId, vec: queryVec, at: Date.now() });
+  recentScans.set(scanToken, { shopId, vec: queryVecs[0], at: Date.now() });
   return { scan_token: scanToken, matches, indexed_count: vectors.length };
 }
 
