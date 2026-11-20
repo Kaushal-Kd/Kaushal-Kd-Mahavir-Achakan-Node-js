@@ -162,6 +162,7 @@ import {
   defaultHandedOverAccessoryStageFlags,
   isCounterHandoverAccessory,
 } from '../../lib/bookingAccessoryCart.js';
+import { sortCartLinesBySelectionOrder } from '../../lib/cartSelectionOrder.js';
 import { buildSalesmanSelectOptions, isSalesmanEligibleUser } from '../../lib/salesmanOptions.js';
 import { usersApi } from '../../lib/api/users.js';
 import { getApiErrorMessage } from '../../lib/apiError.js';
@@ -3886,7 +3887,8 @@ const CreateOrder = ({ mode, orderId }) => {
       return;
     }
     if (!parsed || typeof parsed !== 'object') return;
-    const draftCart = Array.isArray(parsed.cart) ? parsed.cart : [];
+    // Cart is kept newest-first; the booking must follow the order lines were selected.
+    const draftCart = sortCartLinesBySelectionOrder(Array.isArray(parsed.cart) ? parsed.cart : []);
     if (draftCart.length === 0) return;
 
     const activeBookingDraftId = getActiveDraftId();

@@ -1,4 +1,5 @@
-import { SYSTEM_LOG_MODULES, systemLogActionLabel, toLocalISODate, toIndiaYearMonth, todayIndiaISODate, DELIVERY_PENDING_ORDER_STATUSES } from '@wrs/shared';
+import { ACTIONS, hasPermission, SYSTEM_LOG_MODULES, systemLogActionLabel, toLocalISODate, toIndiaYearMonth, todayIndiaISODate, DELIVERY_PENDING_ORDER_STATUSES } from '@wrs/shared';
+import { forbidden } from '../../utils/errors.js';
 
 import knex from '../../db/knex.js';
 import { countItemsToCollect, countItemsToPrepare } from '../orders/service.js';
@@ -231,6 +232,9 @@ export default async function dashboardRoutes(fastify) {
 
   /** Daily revenue (payments) series for a range. */
   fastify.get('/revenue-series', async (request) => {
+    if (!hasPermission(request.authUser, 'sensitive.dashboard_earning', ACTIONS.VIEW)) {
+      throw forbidden('You do not have permission to see booking earnings');
+    }
     const shopId = request.shopId;
     const days = Math.min(365, Math.max(7, Number(request.query.days || 30)));
     const end = new Date();

@@ -40,3 +40,10 @@ test('WhatsApp bill messages require booking print permission', () => {
   assert.equal(resolveApiModule(path), MODULES.BOOKING);
   assert.equal(resolveApiAction(path, 'POST'), ACTIONS.PRINT);
 });
+
+test('finance report APIs are checked per sidebar screen', () => {
+  assert.equal(resolveApiModule('/api/reports/daily-cashbook'), 'menu.daily_cashbook');
+  assert.equal(resolveApiModule('/api/reports/daily-cashbook/lines'), 'menu.daily_cashbook');
+  assert.equal(resolveApiModule('/api/reports/trial-balance'), 'menu.trial_balance');
+  assert.equal(resolveApiModule('/api/reports/sales'), 'reports');
+});

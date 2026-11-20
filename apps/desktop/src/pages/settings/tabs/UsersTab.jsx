@@ -1148,7 +1148,7 @@ const UsersTab = () => {
               </div>
             )}
 
-            <div className="card p-0 overflow-hidden max-h-[24rem] overflow-y-auto scroll-area">
+            <div className="card p-0 overflow-hidden max-h-[36rem] overflow-y-auto scroll-area">
               <PermissionMatrix
                 grid={permsGrid}
                 onChange={setPermsGrid}

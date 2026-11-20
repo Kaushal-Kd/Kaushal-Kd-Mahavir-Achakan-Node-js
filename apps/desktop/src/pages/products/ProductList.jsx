@@ -40,6 +40,7 @@ import { catalogItemMobileCard } from '../../lib/listMobileCards.jsx';
 import { fetchAllPages, omitPagination } from '../../lib/reportPdfExport.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { printBarcodeLabels, printBarcodeLabelsBulk } from '../../utils/printBarcode.js';
+import { useCanSeePurchasePrice } from '../../hooks/useCanSeePurchasePrice.js';
 
 const dash = (v) => (v == null || v === '' ? '—' : String(v));
 const trunc = (s, n) => {
@@ -117,6 +118,7 @@ const INVENTORY_STATUS_TONE = {
 };
 
 const ProductList = () => {
+  const canSeePurchasePrice = useCanSeePurchasePrice();
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('all');
   const [page, setPage] = useState(1);
@@ -772,7 +774,12 @@ const ProductList = () => {
     ]
   );
 
-  const { visibleColumns, pickerProps } = useDataTableColumns('products', allColumns, {
+  const permittedColumns = useMemo(
+    () =>
+      canSeePurchasePrice ? allColumns : allColumns.filter((c) => c.key !== 'purchase_price'),
+    [allColumns, canSeePurchasePrice]
+  );
+  const { visibleColumns, pickerProps } = useDataTableColumns('products', permittedColumns, {
     defaultHidden: PRODUCT_LIST_DEFAULT_HIDDEN,
   });
 

@@ -79,6 +79,8 @@ const CreatePurchase = ({ mode }) => {
   const [discountValue, setDiscountValue] = useState(0);
   const [advance, setAdvance] = useState(0);
   const [advanceAccountId, setAdvanceAccountId] = useState('');
+  // Amount-only purchase bill (no product / accessory lines).
+  const [manualAmount, setManualAmount] = useState('');
   const [items, setItems] = useState([]);
   const [lineType, setLineType] = useState('item');
   const [vendorAccModalOpen, setVendorAccModalOpen] = useState(false);
@@ -239,6 +241,7 @@ const CreatePurchase = ({ mode }) => {
     setDiscountValue(Number(s.discount_value) || 0);
     setAdvance(Number(s.advance) || 0);
     setAdvanceAccountId(s.advance_account_id || '');
+    setManualAmount((s.items || []).length === 0 ? String(Number(s.total_amount) || '') : '');
     setItems(
       (s.items || []).map((it) => ({
         _id: localId(),
@@ -410,10 +413,23 @@ const CreatePurchase = ({ mode }) => {
     );
   };
 
-  const totals = useMemo(
-    () => computeTransactionTotals(items, { type: discountType, value: discountValue }),
-    [items, discountType, discountValue]
-  );
+  const totals = useMemo(() => {
+    if (items.length === 0) {
+      const amt = round2(Math.max(0, Number(manualAmount) || 0));
+      return {
+        total_qty: 0,
+        subtotal: amt,
+        cgst_total: 0,
+        sgst_total: 0,
+        igst_total: 0,
+        tax_total: 0,
+        net_amount: amt,
+        discount_amount: 0,
+        total_amount: amt,
+      };
+    }
+    return computeTransactionTotals(items, { type: discountType, value: discountValue });
+  }, [items, discountType, discountValue, manualAmount]);
 
   const payable = round2(Math.max(0, totals.total_amount - Number(advance || 0)));
 
@@ -554,7 +570,9 @@ const CreatePurchase = ({ mode }) => {
     if (!String(vendorAccountId || '').trim()) add('vendorAccountId', 'Vendor account is required');
     if (!String(purchaseAccountId || '').trim())
       add('purchaseAccountId', 'Purchase account is required');
-    if (items.length === 0) add('items', 'Add at least one item');
+    if (items.length === 0 && !(Number(manualAmount) > 0)) {
+      add('items', 'Add at least one item or enter the bill amount');
+    }
     const advanceAmount = Number(advance) || 0;
     if (advanceAmount > 0 && !String(advanceAccountId || '').trim()) {
       add('advanceAccountId', 'Select an account for the advance amount');
@@ -1104,8 +1122,22 @@ const CreatePurchase = ({ mode }) => {
             <tbody>
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="text-center py-10 text-gray-400 text-sm">
-                    No Record Found
+                  <td colSpan={14} className="py-6 text-sm">
+                    <div className="flex flex-col items-center gap-2 text-gray-500">
+                      <span>No items added. For a bill without items, enter the amount:</span>
+                      <label className="flex items-center gap-2 text-gray-700">
+                        <span className="text-xs font-medium">Bill Amount (without items)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="input h-8 w-40 text-right"
+                          value={manualAmount}
+                          onChange={(e) => setManualAmount(e.target.value)}
+                          placeholder="0.00"
+                        />
+                      </label>
+                    </div>
                   </td>
                 </tr>
               ) : (

@@ -150,10 +150,107 @@ export const MENU_PERMISSION_TARGETS = Object.freeze([
 export const MENU_PERMISSION_BY_KEY = Object.freeze(
   Object.fromEntries(MENU_PERMISSION_TARGETS.map((target) => [target.key, target]))
 );
+/**
+ * Data-level permissions for sensitive information shown inside screens.
+ * Unlike modules/menus these default to ALLOWED when never configured, so older
+ * saved permissions keep working until a shop admin explicitly unticks them.
+ */
+export const SENSITIVE_PERMISSION_TARGETS = Object.freeze([
+  {
+    key: 'sensitive.dashboard_earning',
+    label: 'Dashboard: Booking Earning (received, booking total, pending)',
+  },
+  {
+    key: 'sensitive.purchase_price',
+    label: 'Purchase / cost price of products & accessories',
+  },
+]);
+
+export const SENSITIVE_PERMISSION_KEYS = Object.freeze(
+  SENSITIVE_PERMISSION_TARGETS.map((target) => target.key)
+);
+
+/** @param {string} key */
+export function isSensitivePermissionKey(key) {
+  return SENSITIVE_PERMISSION_KEYS.includes(key);
+}
+
 export const ALL_PERMISSION_MODULES = Object.freeze([
   ...ALL_MODULES,
   ...MENU_PERMISSION_TARGETS.map((target) => target.key),
+  ...SENSITIVE_PERMISSION_KEYS,
 ]);
+
+const VIEW_ONLY_SCREENS = new Set([
+  'menu.dashboard',
+  'menu.check_availability',
+  'menu.products_available',
+]);
+const REPORT_SCREENS = new Set([
+  'menu.item_to_collect',
+  'menu.prepare_item',
+  'menu.booked_product',
+  'menu.security_transaction',
+  'menu.due_security',
+  'menu.product_history',
+  'menu.salesman_report',
+  'menu.daily_cashbook',
+  'menu.product_performance',
+  'menu.pending_bills',
+  'menu.income_expense',
+  'menu.account_ledger',
+  'menu.trial_balance',
+]);
+
+/**
+ * Actions that mean something on a given sidebar screen (what the permission
+ * editor shows as checkboxes for that row).
+ * @param {string} key menu permission key
+ * @returns {string[]}
+ */
+export function permissionActionsForScreen(key) {
+  if (VIEW_ONLY_SCREENS.has(key)) return [ACTIONS.VIEW];
+  if (REPORT_SCREENS.has(key)) return [ACTIONS.VIEW, ACTIONS.EXPORT, ACTIONS.PRINT];
+  if (key === 'menu.gst_report') {
+    return [ACTIONS.VIEW, ACTIONS.EXPORT, ACTIONS.PRINT, ACTIONS.APPROVE];
+  }
+  if (String(key).startsWith('menu.settings_') || String(key).startsWith('menu.master_')) {
+    return [ACTIONS.VIEW, ACTIONS.CREATE, ACTIONS.EDIT, ACTIONS.DELETE];
+  }
+  return [
+    ACTIONS.VIEW,
+    ACTIONS.CREATE,
+    ACTIONS.EDIT,
+    ACTIONS.DELETE,
+    ACTIONS.EXPORT,
+    ACTIONS.PRINT,
+  ];
+}
+
+/**
+ * Sidebar sections with their screens, in sidebar order — drives the grouped
+ * permission editor. Group name is the part of the menu label before " / ".
+ * @returns {Array<{ group: string, screens: Array<{ key: string, label: string, parent: string, actions: string[] }> }>}
+ */
+export function permissionScreenGroups() {
+  const groups = [];
+  const byName = new Map();
+  for (const target of MENU_PERMISSION_TARGETS) {
+    const [groupName, ...rest] = String(target.label).split(' / ');
+    if (!byName.has(groupName)) {
+      const g = { group: groupName, screens: [] };
+      byName.set(groupName, g);
+      groups.push(g);
+    }
+    byName.get(groupName).screens.push({
+      key: target.key,
+      label: rest.join(' / ') || target.label,
+      parent: target.parent,
+      actions: permissionActionsForScreen(target.key),
+    });
+  }
+  return groups;
+}
 
 /**
  * Build a "full access" permissions object for the given modules.
@@ -334,6 +431,12 @@ export function hasPermission(user, moduleName, action) {
     }
   }
   if (!perms || typeof perms !== 'object') return false;
+  if (isSensitivePermissionKey(moduleName)) {
+    // Never configured → allowed (keeps behaviour of permissions saved before this key existed).
+    const sensitive = perms[moduleName];
+    if (!sensitive || typeof sensitive !== 'object' || !(action in sensitive)) return true;
+    return sensitive[action] === true;
+  }
   const target = MENU_PERMISSION_BY_KEY[moduleName];
   const modulePerms = perms[moduleName] || (target ? perms[target.parent] : null);
   if (!modulePerms) return false;

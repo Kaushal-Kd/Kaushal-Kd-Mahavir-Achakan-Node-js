@@ -21,7 +21,7 @@ const purchaseItemSchema = z.object({
   total_amount: z.coerce.number().min(0).default(0),
 });
 
-export const createPurchaseBodySchema = z.object({
+const purchaseBodyBaseSchema = z.object({
   purchase_date: z.string().date(),
   vendor_account_id: z.string().trim().min(1).max(80),
   purchase_account_id: z.string().trim().min(1).max(80),
@@ -42,8 +42,14 @@ export const createPurchaseBodySchema = z.object({
   /** When false, accessory lines do not change accessories.qty (products always update). */
   update_accessory_stock: z.boolean().optional().default(true),
   image_urls: imageUrlsSchema,
-  items: z.array(purchaseItemSchema).min(1, 'At least one item is required'),
+  /** May be empty for an amount-only purchase bill (no product / accessory lines). */
+  items: z.array(purchaseItemSchema).default([]),
 });
+
+export const createPurchaseBodySchema = purchaseBodyBaseSchema.refine(
+  (d) => d.items.length > 0 || Number(d.total_amount) > 0,
+  { message: 'Add at least one item or enter the bill amount', path: ['items'] }
+);
 
 export const updatePurchaseBodySchema = createPurchaseBodySchema;
 

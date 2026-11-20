@@ -15,6 +15,7 @@ import CameraCaptureModal from '../ui/CameraCaptureModal.jsx';
 import Input from '../ui/Input.jsx';
 import PreviewableUploadThumb from '../ui/PreviewableUploadThumb.jsx';
 import Select from '../ui/Select.jsx';
+import { useCanSeePurchasePrice } from '../../hooks/useCanSeePurchasePrice.js';
 
 /**
  * Full accessory create form for stacking multiple accessories under Create Product.
@@ -27,6 +28,7 @@ const InlineAccessoryFormBlock = ({
   onChange,
   onRemove,
 }) => {
+  const canSeePurchasePrice = useCanSeePurchasePrice();
   const imageInputRef = useRef(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [generatingCode, setGeneratingCode] = useState(false);
@@ -259,15 +261,17 @@ const InlineAccessoryFormBlock = ({
             onChange={(e) => set('threshold', e.target.value === '' ? '' : Number(e.target.value))}
             hint="Alert when in-shop qty is below this value"
           />
-          <Input
-            label="Purchase price"
-            type="number"
-            step="0.01"
-            value={values.purchase_price ?? 0}
-            onChange={(e) =>
-              set('purchase_price', e.target.value === '' ? '' : Number(e.target.value))
-            }
-          />
+          {canSeePurchasePrice ? (
+            <Input
+              label="Purchase price"
+              type="number"
+              step="0.01"
+              value={values.purchase_price ?? 0}
+              onChange={(e) =>
+                set('purchase_price', e.target.value === '' ? '' : Number(e.target.value))
+              }
+            />
+          ) : null}
           <Input
             label="Sell price"
             type="number"

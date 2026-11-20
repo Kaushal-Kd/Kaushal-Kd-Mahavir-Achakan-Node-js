@@ -29,6 +29,7 @@ import { toast } from '../../stores/uiStore.js';
 import { printBarcodeLabels } from '../../utils/printBarcode.js';
 import { useAccessoryLastCode } from '../../hooks/api/useAccessoryLastCode.js';
 import AccessoryCodeHint from './AccessoryCodeHint.jsx';
+import { useCanSeePurchasePrice } from '../../hooks/useCanSeePurchasePrice.js';
 
 const ACCESSORY_RULES = {
   name: { required: true, label: 'Accessory name' },
@@ -56,6 +57,7 @@ const empty = {
 };
 
 const AccessoryFormPage = () => {
+  const canSeePurchasePrice = useCanSeePurchasePrice();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const duplicateFromId = String(searchParams.get('duplicate') || '').trim();
@@ -588,15 +590,17 @@ const AccessoryFormPage = () => {
                     set('threshold', e.target.value === '' ? '' : Number(e.target.value))
                   }
                 />
-                <Input
-                  label="Purchase price"
-                  type="number"
-                  step="0.01"
-                  value={values.purchase_price}
-                  onChange={(e) =>
-                    set('purchase_price', e.target.value === '' ? '' : Number(e.target.value))
-                  }
-                />
+                {canSeePurchasePrice ? (
+                  <Input
+                    label="Purchase price"
+                    type="number"
+                    step="0.01"
+                    value={values.purchase_price}
+                    onChange={(e) =>
+                      set('purchase_price', e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                  />
+                ) : null}
                 <Input
                   label="Sell price"
                   type="number"

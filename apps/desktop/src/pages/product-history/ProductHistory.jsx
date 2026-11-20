@@ -17,6 +17,7 @@ import { productsApi } from '../../lib/api/products.js';
 import { reportsApi } from '../../lib/api/reports.js';
 import { toast } from '../../stores/uiStore.js';
 import { downloadCsv } from '../../utils/csv.js';
+import { useCanSeePurchasePrice } from '../../hooks/useCanSeePurchasePrice.js';
 
 function naText(v) {
   if (v == null || v === '') return 'N/A';
@@ -45,6 +46,7 @@ const SEARCH_INPUT_ID = 'product-history-search';
 const PRODUCT_HISTORY_LINES_DEFAULT_HIDDEN = ['qty'];
 
 const ProductHistory = () => {
+  const canSeePurchasePrice = useCanSeePurchasePrice();
   const [draft, setDraft] = useState('');
   const [params, setParams] = useState(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -420,10 +422,12 @@ const ProductHistory = () => {
             </div>
             <div className="space-y-1.5">
               <Field label="MRP" value={p ? formatCurrency(p.mrp) : formatCurrency(0)} />
-              <Field
-                label="Purchase Price"
-                value={p ? formatCurrency(p.purchase_price) : formatCurrency(0)}
-              />
+              {canSeePurchasePrice ? (
+                <Field
+                  label="Purchase Price"
+                  value={p ? formatCurrency(p.purchase_price) : formatCurrency(0)}
+                />
+              ) : null}
               <Field
                 label="Total Rent"
                 value={s ? formatCurrency(s.total_rent) : formatCurrency(0)}

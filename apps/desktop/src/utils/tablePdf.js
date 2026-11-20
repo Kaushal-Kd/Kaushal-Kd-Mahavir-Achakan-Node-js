@@ -1,7 +1,11 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-import { drawPdfRichLinesInCell } from './pdfRichText.js';
+import {
+  countPdfRichWrappedLines,
+  drawPdfRichLinesInCell,
+  pdfRichLineHeight,
+} from './pdfRichText.js';
 import { pdfSafeText } from './pdfSafeText.js';
 
 export { pdfSafeText };
@@ -12,17 +16,19 @@ const PAGE_NUMBER_OFFSET_MM = 8;
 const TABLE_BOTTOM_MARGIN_MM = 16;
 
 /**
- * @param {Array<{ width?: number, richGet?: (row: object) => unknown }>} columns
- * @returns {Record<number, { cellWidth: number }>}
+ * @param {Array<{ width?: number, fontSize?: number, richGet?: (row: object) => unknown }>} columns
+ * @returns {Record<number, { cellWidth?: number, fontSize?: number }>}
  */
 function buildColumnStyles(columns) {
-  /** @type {Record<number, { cellWidth: number }>} */
+  /** @type {Record<number, { cellWidth?: number, fontSize?: number }>} */
   const columnStyles = {};
   columns.forEach((c, i) => {
+    const style = {};
     const w = Number(c.width);
-    if (Number.isFinite(w) && w > 0) {
-      columnStyles[i] = { cellWidth: w };
-    }
+    if (Number.isFinite(w) && w > 0) style.cellWidth = w;
+    const fs = Number(c.fontSize);
+    if (Number.isFinite(fs) && fs > 0) style.fontSize = fs;
+    if (Object.keys(style).length) columnStyles[i] = style;
   });
   return columnStyles;
 }
@@ -84,7 +90,7 @@ function attachRichCellDrawing(doc, params) {
         if (Array.isArray(richLines) && richLines.length) {
           doc.setFillColor(...WHITE);
           doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
-          drawPdfRichLinesInCell(doc, data.cell, richLines);
+          drawPdfRichLinesInCell(doc, data.cell, richLines, { fontSize: col.fontSize });
         }
       }
     }
@@ -99,7 +105,7 @@ function attachRichCellDrawing(doc, params) {
  * @param {Set<number>} richColIndexes
  * @param {(rowIndex: number) => object|undefined} getRowAt
  */
-function attachRichCellMinHeight(columns, richColIndexes, getRowAt) {
+function attachRichCellMinHeight(columns, richColIndexes, getRowAt, doc) {
   return (data) => {
     if (data.section !== 'body' || !richColIndexes.has(data.column.index)) return;
     const row = getRowAt(data.row.index);
@@ -107,8 +113,20 @@ function attachRichCellMinHeight(columns, richColIndexes, getRowAt) {
     if (!row || typeof col?.richGet !== 'function') return;
     const richLines = col.richGet(row);
     const lineCount = Array.isArray(richLines) ? richLines.length : 0;
-    if (lineCount <= 1) return;
-    const minHeight = Math.max(Number(data.cell.height) || 0, lineCount * 4.2 + 3);
+    if (lineCount === 0) return;
+    const fontSize = Number(col.fontSize) > 0 ? Number(col.fontSize) : 8;
+    const width = Number(col.width);
+    // Count wrapped lines so larger fonts are never clipped at the bottom of the cell.
+    const printed =
+      doc && Number.isFinite(width) && width > 4
+        ? countPdfRichWrappedLines(doc, richLines, width - 4, fontSize)
+        : lineCount;
+    if (printed <= 1 && lineCount <= 1) return;
+    const minHeight = Math.max(
+      Number(data.cell.height) || 0,
+      printed * pdfRichLineHeight(fontSize) + 4,
+      lineCount * fontSize * 0.525 + 3
+    );
     data.cell.styles.minCellHeight = minHeight;
   };
 }
@@ -303,7 +321,12 @@ export function appendTableToPdfDoc(doc, columns, rows, options = {}) {
       ...line,
     },
     alternateRowStyles: {},
-    didParseCell: attachRichCellMinHeight(columns, richColIndexes, (rowIndex) => list[rowIndex]),
+    didParseCell: attachRichCellMinHeight(
+      columns,
+      richColIndexes,
+      (rowIndex) => list[rowIndex],
+      doc
+    ),
     didDrawCell: attachRichCellDrawing(doc, {
       columns,
       richColIndexes,
@@ -408,8 +431,11 @@ export function buildGroupedTablePdfDoc(columns, groups, options = {}) {
         ...line,
       },
       alternateRowStyles: {},
-      didParseCell: attachRichCellMinHeight(columns, richColIndexes, (rowIndex) =>
-        (groupRows || [])[rowIndex]
+      didParseCell: attachRichCellMinHeight(
+        columns,
+        richColIndexes,
+        (rowIndex) => (groupRows || [])[rowIndex],
+        doc
       ),
       didDrawCell: attachRichCellDrawing(doc, {
         columns,

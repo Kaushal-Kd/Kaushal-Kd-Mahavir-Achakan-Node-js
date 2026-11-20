@@ -47,6 +47,7 @@ import { invalidateCatalogDomain } from '../../lib/queryInvalidation.js';
 import { DEFAULT_TABLE_PER_PAGE } from '../../lib/tablePerPage.js';
 import { toast } from '../../stores/uiStore.js';
 import { printBarcodeLabels, printBarcodeLabelsBulk } from '../../utils/printBarcode.js';
+import { useCanSeePurchasePrice } from '../../hooks/useCanSeePurchasePrice.js';
 
 const dash = (v) => (v == null || v === '' ? '—' : String(v));
 const formatAccessoryType = (type) => {
@@ -104,6 +105,7 @@ const ACCESSORY_LIST_DEFAULT_HIDDEN = [
 ];
 
 const AccessoryList = () => {
+  const canSeePurchasePrice = useCanSeePurchasePrice();
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState('name_asc');
   const [page, setPage] = useState(1);
@@ -701,7 +703,12 @@ const AccessoryList = () => {
     ]
   );
 
-  const { visibleColumns, pickerProps } = useDataTableColumns('accessories', allColumns, {
+  const permittedColumns = useMemo(
+    () =>
+      canSeePurchasePrice ? allColumns : allColumns.filter((c) => c.key !== 'purchase_price'),
+    [allColumns, canSeePurchasePrice]
+  );
+  const { visibleColumns, pickerProps } = useDataTableColumns('accessories', permittedColumns, {
     defaultHidden: ACCESSORY_LIST_DEFAULT_HIDDEN,
   });
 

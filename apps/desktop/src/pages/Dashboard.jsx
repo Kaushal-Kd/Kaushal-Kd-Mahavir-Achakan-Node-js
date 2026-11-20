@@ -76,6 +76,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const canViewCustomOrders = hasPermission(user, MODULES.CUSTOM_ORDERS, ACTIONS.VIEW);
+  const canSeeEarning = hasPermission(user, 'sensitive.dashboard_earning', ACTIONS.VIEW);
   const shopId = useShopStore((s) => s.selectedShopId);
   const [sectionOrder, setSectionOrder] = useState(() => loadDashboardSectionOrder(shopId));
 
@@ -286,6 +287,8 @@ const Dashboard = () => {
             </DeferredMount>
           );
         case 'booking_earning':
+          // Sensitive: hidden entirely unless the role/user may see earnings.
+          if (!canSeeEarning) return null;
           return (
             <DeferredMount minHeight={280}>
               <BookingEarningCard />
@@ -316,6 +319,7 @@ const Dashboard = () => {
       pendingReturn,
       opsNavSettings,
       canViewCustomOrders,
+      canSeeEarning,
     ]
   );
 

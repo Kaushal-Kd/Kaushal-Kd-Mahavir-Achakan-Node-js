@@ -3,6 +3,7 @@ import {
   ALL_ROLES,
   ALL_PERMISSION_MODULES,
   defaultPermissionsByRole,
+  isSensitivePermissionKey,
   MENU_PERMISSION_BY_KEY,
   ROLES,
 } from '@wrs/shared';
@@ -28,6 +29,14 @@ export function normalizeMatrix(matrix) {
   const clean = {};
   for (const m of ALL_PERMISSION_MODULES) {
     clean[m] = {};
+    if (isSensitivePermissionKey(m)) {
+      // Default allowed until a shop admin explicitly turns it off.
+      const sensitive = matrix?.[m];
+      for (const a of ALL_ACTIONS) {
+        clean[m][a] = sensitive && a in sensitive ? !!sensitive[a] : true;
+      }
+      continue;
+    }
     const input = matrix?.[m] || matrix?.[MENU_PERMISSION_BY_KEY[m]?.parent] || {};
     for (const a of ALL_ACTIONS) {
       clean[m][a] = !!input[a];

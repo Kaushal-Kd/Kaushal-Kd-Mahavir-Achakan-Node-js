@@ -6,7 +6,7 @@ import { pdfSafeText } from './pdfSafeText.js';
  */
 
 const FONT_SIZE = 8;
-const LINE_H = 3.6;
+const LINE_H_PER_PT = 0.45;
 
 /**
  * Draw mixed bold/normal lines inside an autoTable cell (clears default text first).
@@ -15,14 +15,45 @@ const LINE_H = 3.6;
  * @param {{ x: number, y: number, width: number, height: number }} cell
  * @param {PdfRichLine[]} lines
  */
-export function drawPdfRichLinesInCell(doc, cell, lines) {
+/** Line height (mm) used when drawing rich lines at a font size. */
+export function pdfRichLineHeight(fontSize = FONT_SIZE) {
+  return (Number(fontSize) > 0 ? Number(fontSize) : FONT_SIZE) * LINE_H_PER_PT;
+}
+
+/**
+ * Number of printed lines the rich lines take once wrapped to `innerWidth` (mm).
+ * Measured in bold so the estimate never comes out short.
+ */
+export function countPdfRichWrappedLines(doc, lines, innerWidth, fontSize = FONT_SIZE) {
+  const list = Array.isArray(lines) ? lines : [];
+  if (!(innerWidth > 0)) return list.length;
+  doc.setFontSize(Number(fontSize) > 0 ? Number(fontSize) : FONT_SIZE);
+  doc.setFont('helvetica', 'bold');
+  let count = 0;
+  for (const line of list) {
+    if (line?.rule) {
+      count += 1;
+      continue;
+    }
+    const text = pdfSafeText(
+      (Array.isArray(line?.segments) ? line.segments : []).map((seg) => seg.text || '').join('')
+    );
+    count += Math.max(1, doc.splitTextToSize(text, innerWidth).length);
+  }
+  doc.setFont('helvetica', 'normal');
+  return count;
+}
+
+export function drawPdfRichLinesInCell(doc, cell, lines, opts = {}) {
+  const fontSize = Number(opts.fontSize) > 0 ? Number(opts.fontSize) : FONT_SIZE;
+  const LINE_H = fontSize * LINE_H_PER_PT;
   const pad = 2;
   const maxX = cell.x + cell.width - pad;
   let x = cell.x + pad;
   let y = cell.y + pad + LINE_H;
   const list = Array.isArray(lines) ? lines : [];
 
-  doc.setFontSize(FONT_SIZE);
+  doc.setFontSize(fontSize);
   doc.setTextColor(0, 0, 0);
 
   for (let li = 0; li < list.length; li += 1) {
